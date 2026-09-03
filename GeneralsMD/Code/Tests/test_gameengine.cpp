@@ -8375,3 +8375,99 @@ TEST(a_tab_control_with_no_size_or_too_many_tabs_answers_nothing)
 	CHECK_EQ( GadgetTabControl_tabAtOffset( 100 * (NUM_TAB_PANES - 1), 100, 20 ), NUM_TAB_PANES - 1 );
 	CHECK_EQ( GadgetTabControl_tabAtOffset( 100 * NUM_TAB_PANES, 100, 20 ), -1 );
 }
+
+//----------------------------------------------------------------------------------------------------------
+// The flow model's three charges.
+//
+// Each of them is a small piece of integer arithmetic that runs a few million times a frame and
+// that nothing else in the game can be used to check.  What matters about all three is the same
+// thing: open ground is free, the charge is bounded, and the bound is a stated multiple of a step.
+// A version that gets the bound wrong does not look wrong - it looks like the pathfinder got slow.
+//----------------------------------------------------------------------------------------------------------
+
+/** Twelve cells from anything, a body pays nothing for the ground it is on.  This is the case that
+	 covers most of most maps, and a charge here would be a tax on every route in the game. */
+TEST(open_ground_costs_a_route_nothing)
+{
+	const Int need = PF_CLEARANCE_ORTHO*1 + PF_CLEARANCE_ORTHO/2;		// a one-cell body
+	CHECK_EQ( Pathfinder_wallHugCost( 10, PF_CLEARANCE_MAX, need ), 0 );
+	CHECK_EQ( Pathfinder_wallHugCost( 14, PF_CLEARANCE_MAX, need ), 0 );
+
+	// and nothing is charged at or past the edge of the band.  Just inside it the charge is real
+	// but rounds away against a ten-unit step, which is the intent: the band tapers to nothing
+	// rather than stepping off a cliff, so a route is not pulled about by its outer edge.
+	CHECK_EQ( Pathfinder_wallHugCost( 10, need + PF_CLEARANCE_SOFT, need ), 0 );
+	CHECK_EQ( Pathfinder_wallHugCost( 10, need + PF_CLEARANCE_SOFT - 1, need ), 0 );
+	CHECK( Pathfinder_wallHugCost( 10, need + PF_CLEARANCE_SOFT/2, need ) > 0 );
+}
+
+/** A cell exactly as tight as the body costs PF_WALLHUG_NUM/DEN of a step and never more, however
+	 far into the terrain the cell is.  Unbounded is what sends the search round the whole map. */
+TEST(wall_hugging_is_capped_at_its_stated_multiple)
+{
+	const Int need = PF_CLEARANCE_ORTHO*2 + PF_CLEARANCE_ORTHO/2;		// a two-cell body
+	const Int peak = (10 * PF_WALLHUG_NUM) / PF_WALLHUG_DEN;
+	CHECK_EQ( Pathfinder_wallHugCost( 10, need, need ), peak );
+	CHECK_EQ( Pathfinder_wallHugCost( 10, 0, need ), peak );					// inside a wall: no worse
+	CHECK_EQ( Pathfinder_wallHugCost( 10, need - 99, need ), peak );	// and negative slack does not wrap
+
+	// a diagonal step is charged in proportion to itself
+	CHECK_EQ( Pathfinder_wallHugCost( 14, need, need ), (14 * PF_WALLHUG_NUM) / PF_WALLHUG_DEN );
+}
+
+/** Quadratic, not linear: half way into the band costs about a quarter of the peak.  A linear
+	 falloff was the first version of this and it taxed half the map at a third of a step. */
+TEST(wall_hugging_falls_off_as_the_square_of_the_room_left)
+{
+	const Int need = 5;
+	const Int peak = Pathfinder_wallHugCost( 100, need, need );
+	const Int half = Pathfinder_wallHugCost( 100, need + PF_CLEARANCE_SOFT/2, need );
+	CHECK( half * 3 < peak );			// a quarter-ish, comfortably under a third
+	CHECK( half > 0 );
+}
+
+/** Traffic prices a queue, and it is capped for the same reason wall-hugging is: the heuristic
+	 cannot see any of it, so every cost it cannot see is paid in cells expanded. */
+TEST(traffic_is_free_when_empty_and_capped_when_full)
+{
+	CHECK_EQ( Pathfinder_trafficCost( 10, 0 ), 0 );
+	CHECK_EQ( Pathfinder_trafficCost( 10, -1 ), 0 );
+	const Int peak = (10 * PF_TRAFFIC_NUM) / PF_TRAFFIC_DEN;
+	CHECK_EQ( Pathfinder_trafficCost( 10, PF_TRAFFIC_FULL ), peak );
+	CHECK_EQ( Pathfinder_trafficCost( 10, PF_TRAFFIC_MAX ), peak );		// saturated, not overflowing
+	CHECK( Pathfinder_trafficCost( 10, PF_TRAFFIC_FULL/2 ) < peak );
+	CHECK( Pathfinder_trafficCost( 10, PF_TRAFFIC_FULL/2 ) > 0 );
+}
+
+/** A claim spills into the buckets either side of its own at half strength, so weights arrive in
+	 halves.  One half of one unit is not a crossing and must cost nothing at all - otherwise every
+	 cell within a bucket of anybody's plan is charged, which is most of a battlefield. */
+TEST(half_a_unit_wanting_a_cell_is_not_a_crossing)
+{
+	CHECK_EQ( Pathfinder_crossingCost( 10, 0 ), 0 );
+	CHECK_EQ( Pathfinder_crossingCost( 10, 1 ), 0 );		// the spill from a neighbouring bucket alone
+	CHECK( Pathfinder_crossingCost( 10, 2 ) > 0 );			// one whole unit, at the moment we get there
+}
+
+/** And the crossing charge saturates: four units wanting one cell at one moment is as bad as a
+	 crossing gets, and a fifth must not make the route look impossible. */
+TEST(a_crossing_charge_saturates_rather_than_growing)
+{
+	const Int peak = (10 * PF_CROSSING_NUM * PF_CLAIM_UNITS_MAX) / PF_CROSSING_DEN;
+	CHECK_EQ( Pathfinder_crossingCost( 10, 2*PF_CLAIM_UNITS_MAX ), peak );
+	CHECK_EQ( Pathfinder_crossingCost( 10, 2*PF_CLAIM_UNITS_MAX + 40 ), peak );
+	CHECK_EQ( Pathfinder_crossingCost( 10, 0xFFFF ), peak );
+}
+
+/** The three charges together bound what the flow model can add to one step.  This is the number
+	 that decides whether the search still steers or fans out, so it is pinned here rather than left
+	 to be rediscovered from a slow frame. */
+TEST(the_whole_flow_charge_for_one_step_is_bounded)
+{
+	const Int base = 10;
+	const Int worst = Pathfinder_wallHugCost( base, 0, 5 ) +
+										Pathfinder_trafficCost( base, PF_TRAFFIC_MAX ) +
+										Pathfinder_crossingCost( base, 0xFFFF );
+	CHECK( worst <= 6 * base );
+	CHECK( worst >= 3 * base );		// and it is not so small that none of it does anything
+}

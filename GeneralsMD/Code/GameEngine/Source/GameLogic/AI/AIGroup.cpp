@@ -551,6 +551,12 @@ Bool AIGroup::friend_computeGroundPath( const Coord3D *pos, CommandSourceType cm
 	Int numVehicles = 0; 
 	Object *centerVehicle = NULL;
 	Real distSqrCenterVeh = distSqr*10;
+	/* The trunk is planned from the member that is ALREADY closest to the destination, not from
+		 the one nearest the middle of the group.  Starting it in the middle makes every unit that
+		 is ahead of the middle drive backwards to join the route, straight across the main body,
+		 and jam the very column it is trying to join. */
+	Object *leadVehicle = NULL;
+	Real distSqrLeadVeh = 0.0f;
 	for( i = m_memberList.begin(); i != m_memberList.end(); ++i )
 	{
 		Object *obj = (*i);
@@ -581,6 +587,12 @@ Bool AIGroup::friend_computeGroundPath( const Coord3D *pos, CommandSourceType cm
 		dy = unitPos.y-pos->y;
 		if (dx*dx+dy*dy<distSqr) {
 			distSqr = dx*dx+dy*dy;
+		}
+
+		// find the object closest to where the group has been told to go.
+		if (leadVehicle==NULL || dx*dx+dy*dy<distSqrLeadVeh) {
+			leadVehicle = (*i);
+			distSqrLeadVeh = dx*dx+dy*dy;
 		}
 
 		// find object closest to the center.
@@ -637,7 +649,8 @@ Bool AIGroup::friend_computeGroundPath( const Coord3D *pos, CommandSourceType cm
 	}
 	if (!closeEnough) return false;
 	
-	m_groundPath = TheAI->pathfinder()->findGroundPath(&center, pos, PATH_DIAMETER_IN_CELLS, false);
+	Coord3D trunkStart = (leadVehicle != NULL) ? *leadVehicle->getPosition() : center;
+	m_groundPath = TheAI->pathfinder()->findGroundPath(&trunkStart, pos, PATH_DIAMETER_IN_CELLS, false);
 	return m_groundPath!=NULL;
 
 }

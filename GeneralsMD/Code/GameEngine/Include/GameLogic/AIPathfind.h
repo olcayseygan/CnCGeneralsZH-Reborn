@@ -280,6 +280,14 @@ protected:
 
 	UnsignedShort m_totalCost, m_costSoFar;	///< cost estimates for A* search
 
+	/* Ground covered to reach this cell, in the same units as m_costSoFar but with none of the
+		 penalties in it.  A penalty is money, not distance: a detour taken to dodge somebody must
+		 not also convince the search it arrives eight cells later than it really does.  The flow
+		 model turns this number into an arrival frame, which is what the space-time claims below
+		 are looked up by.  Only the main ground search maintains it; every other search leaves it
+		 at zero and charges no crossing cost. */
+	UnsignedShort m_travelSoFar;
+
 	/// have to include cell's coordinates, since cells are often accessed via pointer only
 	ICoord2D m_pos;
 	
@@ -388,9 +396,14 @@ public:
 	inline Bool getClosed(void) const {return m_info->m_closed;}
 	inline UnsignedInt getCostSoFar(void) const {return m_info->m_costSoFar;}
 	inline UnsignedInt getTotalCost(void) const {return m_info->m_totalCost;}
+	inline UnsignedInt getTravelSoFar(void) const {return m_info->m_travelSoFar;}
 
 	inline void setCostSoFar(UnsignedInt cost) { if( m_info ) m_info->m_costSoFar = cost;}
 	inline void setTotalCost(UnsignedInt cost) { if( m_info ) m_info->m_totalCost = cost;}
+	/* Saturates rather than wrapping.  Sixteen bits is 6553 cells of route, which no map here can
+		 hold, but a search that wanders can still get there - and a wrapped distance turns into an
+		 arrival time in the wrong half-minute, which prices a crossing that is not there. */
+	inline void setTravelSoFar(UnsignedInt travel) { if( m_info ) m_info->m_travelSoFar = (UnsignedShort)(travel > 0xFFFF ? 0xFFFF : travel);}
 
 	void setParentCell(PathfindCell* parent);
 	void clearParentCell(void);
@@ -625,7 +638,103 @@ private:
 	zoneStorageType *m_hierarchicalZones;
 };
 
-/** 
+//----------------------------------------------------------------------------------------------------------
+// The flow model.
+//
+// Retail's A* prices terrain and nothing else, so every unit ordered across the same ground is
+// handed the same line: they stack on it, the ones behind stop, and the search that eventually
+// runs for a stuck unit hands it the line it is stuck on.  Three maps are laid over the terrain
+// cost to fix that, ported from the browser sandbox (astar-units.html) that they were tuned in:
+//
+//   Clearance - chamfer distance from each cell to the nearest cell the unit could not stand in.
+//     A route is charged for hugging terrain, quadratically, over a band about two and a half
+//     cells wide.  That is what makes a tank take a corner wide instead of scraping it, and it
+//     is the one map that costs nothing to keep: the terrain it measures only changes when a
+//     building goes up.
+//
+//   Traffic - where units are actually stopped, decayed over about a second.  A queue therefore
+//     looks expensive to the next search, and a unit repathing out of one is given a way round
+//     it rather than back into it.
+//
+//   Claims - where each live path expects its owner to be, and *when*, in half-second buckets.
+//     Two units following one road are in the same cells at different moments and pay nothing;
+//     two columns crossing want the same cell at the same moment and are charged for it.  Time
+//     is the whole point: without it a shared road and a crossing look identical, which is what
+//     the fork's earlier congestion map got wrong.
+//
+// Every one of them is integer arithmetic over deterministic inputs, so two machines expand the
+// same cells in the same order.  All three are off under -noflowpath.
+//----------------------------------------------------------------------------------------------------------
+
+enum
+{
+	// clearance is a chamfer distance: 5 per orthogonal step, 7 per diagonal, so one cell is 5.
+	PF_CLEARANCE_ORTHO				= 5,
+	PF_CLEARANCE_DIAG					= 7,
+	/* Twelve cells of open ground.  Nothing above that is ever read: the widest body the game
+		 has needs about three cells and the band charged for is two and a half more, so a higher
+		 ceiling would only cost the rebuild time to compute. */
+	PF_CLEARANCE_MAX					= 60,
+	PF_CLEARANCE_SOFT					= 13,			///< the band charged for, ~2.5 cells
+	PF_WALLHUG_NUM						= 8,			///< peak wall-hug penalty is NUM/DEN of a step
+	PF_WALLHUG_DEN						= 5,
+
+	PF_TRAFFIC_MAX						= 255,
+	PF_TRAFFIC_DEPOSIT				= 24,			///< one blocked unit-frame, at the centre cell
+	PF_TRAFFIC_DECAY_NUM			= 54,			///< x54/64 every decay tick ~ the sandbox's x0.85 per 0.1s
+	PF_TRAFFIC_DECAY_DEN			= 64,
+	PF_TRAFFIC_DECAY_FRAMES		= 3,
+	PF_TRAFFIC_FULL						= 192,		///< traffic at or above this is as expensive as it gets
+	PF_TRAFFIC_NUM						= 2,			///< peak traffic penalty is NUM/DEN of a step
+	PF_TRAFFIC_DEN						= 1,
+	PF_TRAFFIC_CELLS					= 4096,		///< live traffic cells tracked; past this, deposits are dropped
+
+	PF_CLAIM_BUCKET_FRAMES		= 15,			///< half a second
+	PF_CLAIM_BUCKETS					= 24,			///< twelve seconds of horizon
+	PF_CLAIM_REFRESH_FRAMES		= 30,			///< a unit re-stamps its plan once a second
+	PF_CLAIM_TABLE_SIZE				= 32768,	///< power of two: the hash is masked, not divided
+	PF_CLAIM_PROBES						= 8,			///< linear probe depth; past it a claim is simply dropped
+	PF_CLAIM_UNITS_MAX				= 4,			///< claims beyond this on one cell-moment cost nothing more
+	PF_CLAIM_SAMPLES_MAX			= 64,			///< cells of its own plan one unit may stamp per refresh
+	PF_CLEARANCE_REBUILD_FRAMES	= 30,		///< how often a dirty clearance field is actually rebuilt
+	PF_CROSSING_NUM						= 1,			///< peak crossing penalty is NUM/DEN of a step
+	PF_CROSSING_DEN						= 2,
+
+	/* What the A* estimate is scaled by while the flow charge is on, against retail's 3/2.  The
+		 charge is invisible to the estimate, so leaving the estimate alone leaves the search with
+		 no reason to walk towards the goal rather than round it. */
+	PF_HEURISTIC_FLOW_NUM			= 9,
+	PF_HEURISTIC_FLOW_DEN			= 4
+};
+
+/** How much extra a step into a cell with this clearance costs a body needing `needClearance`.
+	  Zero out in the open, rising quadratically as the body's own margin is eaten into. */
+extern Int Pathfinder_wallHugCost( Int baseCost, Int clearance, Int needClearance );
+
+/// How much extra a step into a cell holding this much live traffic costs.
+extern Int Pathfinder_trafficCost( Int baseCost, Int traffic );
+
+/// How much extra a step into a cell somebody else wants at the same moment costs.
+extern Int Pathfinder_crossingCost( Int baseCost, Int claimHalves );
+
+/// The A* estimate's scale factor over plain octile distance, set per search by beginFlowSearch.
+extern Int thePathHeuristicNum;
+extern Int thePathHeuristicDen;
+
+/**
+ * One claim on one cell at one moment: which cell, which absolute half-second bucket, and how
+ * much of a unit is expected to be there.  Weight is in halves, because a claim spills into the
+ * buckets either side of the one it lands in at half strength - a unit's arrival time is an
+ * estimate, and an estimate that is only ever right to the bucket prices nothing.
+ */
+struct PathClaim
+{
+	Int						m_cell;			///< cell index, -1 when the slot has never been used
+	UnsignedInt		m_bucket;		///< absolute bucket (logic frame / PF_CLAIM_BUCKET_FRAMES)
+	UnsignedShort	m_weight;		///< in halves
+};
+
+/**
  * The pathfinding services interface provides access to the 3 expensive path find calls:
  * findPath, findClosestPath, and findAttackPath.
  * It is only available to units when their ai interface doPathfind method is called.
@@ -764,8 +873,32 @@ public:
 	Bool worldToCell( const Coord3D *pos, ICoord2D *cell );	///< Given a world position, return grid cell coordinate
 
 	const ICoord2D *getExtent(void) const {return &m_extent.hi;}
-	
-	void setIgnoreObstacleID( ObjectID objID );					///< if non-zero, the pathfinder will ignore the given obstacle
+
+	// ---- the flow model; see the block comment above PathfindServicesInterface ----
+
+	/// Chamfer distance from this cell to the nearest cell nothing can stand in.  5 units per cell.
+	Int getClearance( Int x, Int y ) const;
+	/// Rebuild the whole clearance field.  Two linear scans over the map, no queue.
+	void buildClearance( void );
+	/* A structure went up or came down, so the field is stale.  It is not rebuilt on the spot:
+		 during base building that would be several rebuilds a second for a field nothing reads
+		 until the next search, so the flag is collected and cashed in once, from the pathfind
+		 queue, at most every PF_CLEARANCE_REBUILD_FRAMES. */
+	void markClearanceDirty( void ) { m_clearanceDirty = true; }
+	void updateClearanceIfDirty( void );
+
+	/// One blocked unit-frame, stamped where it happened and spread over the body's footprint.
+	void noteTraffic( const Coord3D *pos, Int radiusInCells );
+	void decayTraffic( void );							///< age the whole live set; call once per logic frame
+	Int getTraffic( Int x, Int y ) const;
+
+	/// Stamp where this unit expects to be over the next few seconds, from where it actually is.
+	void claimPathTiming( const Object *obj, class Path *path );
+	/// Weight (in halves) claimed on this cell for the bucket holding `frame`.
+	Int getClaims( Int x, Int y, UnsignedInt frame ) const;
+	void resetClaims( void );								///< the ground under every claim is gone
+
+	void setIgnoreObstacleID( ObjectID objID );				///< if non-zero, the pathfinder will ignore the given obstacle
 	void setIgnoreUnderConstruction( Bool ignore );			///< if true, half-built structures are not obstacles to this search
 	Bool builderMayCross( const PathfindCell *cell ) const;	///< is this obstacle cell a structure the builder now searching may walk over?
 	Bool builderMayCrossPinch( Int cellX, Int cellY, PathfindLayerEnum layer );	///< is this cell pinched only by a site that builder may walk over?
@@ -932,6 +1065,59 @@ private:
 	/// This uses WAY too much memory.  Should at least be array of pointers to cells w/ many fewer cells
 	PathfindCell *m_blockOfMapCells;		///< Pathfinding map - contains iconic representation of the map
 	PathfindCell **m_map;		///< Pathfinding map indexes - contains matrix indexing into the map.
+
+	//
+	// The three flow maps.  All of them are (hi.x+1)*(hi.y+1) and indexed [x*(hi.y+1)+y], the same
+	// shape as m_map, so a cell index is a cell index everywhere below.
+	//
+	UnsignedByte *m_clearance;								///< chamfer distance to the nearest impassable cell
+	Bool m_clearanceDirty;										///< a structure changed; rebuild when the throttle allows
+	UnsignedInt m_clearanceFrame;							///< logic frame the last rebuild ran on
+	UnsignedByte *m_traffic;									///< where units are stopped, decayed
+
+	/* The traffic map is nearly all zeroes nearly all of the time, and decaying it by walking the
+		 whole map every third frame costs more than the map buys.  Only the cells that actually
+		 hold something are visited, so an unjammed match pays nothing at all. */
+	Int *m_trafficCells;											///< PF_TRAFFIC_CELLS cell indices, the non-zero set
+	Int m_numTrafficCells;
+	UnsignedInt m_trafficDecayFrame;					///< logic frame the last decay ran on
+
+	/* A dense cell-by-bucket array would be twenty-four whole-map allocations to hold a few
+		 thousand live claims, so they live in one open-addressed table hashed on (cell, bucket).
+		 An entry whose bucket is already in the past is dead and its slot is reused; nothing ever
+		 has to be released, which is what lets a unit simply re-stamp its plan once a second from
+		 where it really is instead of maintaining a claim list per path. */
+	PathClaim *m_claims;
+
+	/* The last bucket any claim was written for, per cell.  Without it every neighbour of every
+		 expansion pays an eight-slot hash probe to be told the cell is empty, which it nearly
+		 always is; with it that is one array read and a compare, and the hash is only walked on
+		 ground somebody has actually spoken for. */
+	UnsignedShort *m_claimTouch;
+
+	void addClaim( Int cell, UnsignedInt bucket, Int weight );
+	void stampClaimAt( const Coord3D *pos, UnsignedInt frame, Int dilation );
+	void allocateFlowMaps( void );
+	void freeFlowMaps( void );
+	Int flowSpeedOf( const Object *obj );
+
+public:
+	/* Arm (or disarm) the flow charge for the search about to run.  Every top-level search calls
+		 it: the two that units actually move on pass their object, the hierarchical, attack, safe
+		 and group-corridor searches pass NULL, because those answer "can this be reached at all"
+		 and pricing traffic into that answer only makes them fail. */
+	void beginFlowSearch( const Object *obj );
+	/// The whole flow charge for one step into (cellX, cellY), given the ground covered to get there.
+	Int flowStepCost( Int baseCost, Int cellX, Int cellY, Int radius, UnsignedInt travelSoFar );
+	Bool flowCostsOn( void ) const { return m_flowCosts; }
+
+private:
+
+	Bool m_flowCosts;													///< is the search now running allowed to price the flow maps?
+	Int m_flowSpeed;													///< cost units of travel the searching unit covers per logic frame, x256
+	UnsignedInt m_flowNow;										///< logic frame the search started on, so an ETA is absolute
+	UnsignedInt m_flowNowBucket;							///< and the claim bucket it falls in, so the screen costs no division
+
 	IRegion2D m_extent;														///< Grid extent limits
 	IRegion2D m_logicalExtent;										///< Logical grid extent limits
 
@@ -1075,6 +1261,23 @@ inline Bool Pathfinder::worldToCell( const Coord3D *pos, ICoord2D *cell )
 	if (cell->x > m_extent.hi.x) {overflow = true; cell->x = m_extent.hi.x;}
 	if (cell->y > m_extent.hi.y) {overflow = true; cell->y = m_extent.hi.y;}
 	return overflow;
+}
+
+/* Both of these are read once per neighbour per expansion - a few million times in a busy frame -
+	 so they are a bounds check and an array index and nothing else.  Off the map reads as "no room
+	 at all" for clearance and "empty" for traffic, which is what the search wants at the edge. */
+inline Int Pathfinder::getClearance( Int x, Int y ) const
+{
+	if (m_clearance == NULL) return PF_CLEARANCE_MAX;
+	if (x < m_extent.lo.x || y < m_extent.lo.y || x > m_extent.hi.x || y > m_extent.hi.y) return 0;
+	return m_clearance[x*(m_extent.hi.y+1) + y];
+}
+
+inline Int Pathfinder::getTraffic( Int x, Int y ) const
+{
+	if (m_traffic == NULL) return 0;
+	if (x < m_extent.lo.x || y < m_extent.lo.y || x > m_extent.hi.x || y > m_extent.hi.y) return 0;
+	return m_traffic[x*(m_extent.hi.y+1) + y];
 }
 
 /**

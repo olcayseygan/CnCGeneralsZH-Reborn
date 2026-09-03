@@ -459,6 +459,30 @@ found and fixed â€” EA's own, not port damage.**
 - A sound finishing does not take the game with it. Every sound carries a description of itself, and that description can be gone by the time the sound ends - it is dropped when the sound is renamed, cleared by hand when what it points at is about to be deleted, and absent on a sound that was queued to repeat after a delay. The 2003 code checked for that in two places and then read straight through it in fifteen others, one of which is where every finished sound goes. It crashed mid-match with a stack that is all audio and names nothing that caused it. A sound with no description is now simply not music and not speech, which is what all fifteen questions were asking; the channel it was using is still handed back, because losing one leaks a voice for the rest of the match and enough of them go quiet.
 - Something going wrong now writes a readable crash report.
 
+## Units take corners wide, and drive round a jam instead of into it
+
+- A route used to be priced by the ground under it and nothing else, so a tank was handed the
+  shortest line whether or not it could drive it. The shortest line scrapes every corner, and a
+  tank that clips a corner stops, reverses and tries again while everything behind it waits. Routes
+  are now charged for how close they run to terrain, and the charge climbs sharply in the last
+  couple of squares, so a wide body swings out where there is room and only squeezes where there is
+  no alternative.
+- Squares where units are actually standing still are expensive for about a second afterwards. A
+  unit that asks for a new route while stuck in a line is no longer handed the same line back: the
+  queue in front of it costs something now, and a way round it that is not much longer wins.
+- Routes also carry a clock. Each unit on the move says where it expects to be and roughly when,
+  half a second at a time, and a route is charged where it wants a square somebody else wants at the
+  same moment. Two columns following the same road are in the same squares at different moments and
+  pay nothing for it; two columns crossing pay, and one of them goes round. That distinction is the
+  whole point - the same map without a clock in it makes a shared road look as bad as a crossing.
+- A group sent across the map plans its corridor from the member already closest to where you
+  clicked, not from the one nearest the middle of the group. Planning from the middle made everyone
+  ahead of it drive backwards to join, straight across the rest of the group.
+- Measured over twenty seven-minute four-way battles on the same twenty maps: time spent standing
+  behind another unit fell 31%. Over six 4v4 battles, where every unit is on one of two fronts, it
+  fell 38%, units left properly stuck fell by half, and the worst single frame of a match went from
+  30.6 milliseconds to 9.9.
+
 ## Long orders stopped hitching
 
 - The coarse pathfinder pass never worked, so every long move searched the whole map.
@@ -538,7 +562,27 @@ found and fixed â€” EA's own, not port damage.**
 - Then the question changed from "how fast" to "how steady", and the stopwatch had to change with it: an average is exactly the number that hides a stutter. The game now keeps the shape of every frame it draws and reports the worst ones, with the name of what took the time. The building-foundation freeze above was found that way, in one run, having been in the game since 2003.
 - The self-play harness can set up teams now, which it never could: every computer opponent used to fight every other one. Eight players in a free-for-all spread the fighting over the whole map, and that is not the load anybody complains about - 4v4 puts every unit on one of two fronts, which is where they bunch up. That is now one switch, and it is how the numbers above were checked at the heavy end.
 - A second pass with the same tool named two more, and the log did the work each time rather than anyone guessing: the computer player's search for somewhere to build, and the angry mob's health count. A third is named and not fixed - a computer team sent across the map on its approach path spends 40 milliseconds finding the wide corridor for it, once or twice a match, and that is one search rather than a mistake repeated. It is the next one.
-- Group movement was asked one more question and answered no. The idea was to stop treating the route as a line and treat it as a band: every unit holds a sideways position inside it and drifts away from whichever side ahead is busiest, so a queue drains outwards where there is room and files up where there is not. It was built in the movement sandbox and measured against the columns the game ships, 96 layouts counted one at a time, at four different drift speeds. It is worse at every speed, and steadily worse the harder it pushes. The columns stay.
+- Group movement was asked a third time and this time answered yes, from a different direction. The
+  version that was thrown out priced squares by how many other units planned to drive over them, and
+  the harness could not see it work because a computer opponent never forms the queue a person makes
+  by dragging a box round fifteen tanks - thirty-three of forty-eight maps came out bit-identical.
+  What went back in is priced by terrain instead, which is on every map on every frame whether or
+  not anyone is queuing, and the traffic and crossing costs ride on top of that rather than carrying
+  the whole change on their own. Every route in every match changes, so there is something to
+  measure: twenty four-player matches, same twenty maps, time spent standing behind another unit
+  31% lower; six 4v4 matches, 38% lower with half the properly-stuck frames.
+- It cost search time and that had to be paid for. Adding a charge the distance estimate cannot see
+  is the same mistake the pathfinder was rescued from two years ago: the search stops walking toward
+  the goal and fans out instead. First measurement, twenty matches, 225,419 squares looked at per
+  match against 57,596 before - four times the work. Raising the estimate to match what the charge
+  adds brought it back to 90,058, and with it the units left properly stuck, from 43 a match to 8.
+  What remains is 56% more searching for 31% less waiting, and on the heavy 4v4 load the worst frame
+  of a match got better rather than worse, because the search work spreads over frames and a traffic
+  jam does not.
+- Every knob in it is one switch away from off, and the switch is in the same executable, because a
+  batch of matches only argues something if both halves of it were built by the same compiler on the
+  same afternoon.
+- Group movement was also asked one more question and answered no. The idea was to stop treating the route as a line and treat it as a band: every unit holds a sideways position inside it and drifts away from whichever side ahead is busiest, so a queue drains outwards where there is room and files up where there is not. It was built in the movement sandbox and measured against the columns the game ships, 96 layouts counted one at a time, at four different drift speeds. It is worse at every speed, and steadily worse the harder it pushes. The columns stay.
 
 ---
 

@@ -378,6 +378,7 @@ public:
 	Int m_traceMoveID;							///< -tracemove [id]: log one movement line a frame for this object (0 = off, -1 = the first unit that gets blocked)
 	Real m_slowFrameMS;							///< -slowframe <ms>: a logic frame over this long logs its own breakdown (default 20)
 	Int m_aiSliceFrames;						///< -aislice <n>: a unit's AI decides once every n logic frames, staggered by id (1 = every frame, the default)
+	Bool m_noFlowPath;							///< -noflowpath: price terrain only, the way retail does - no clearance, traffic or crossing cost
 	AsciiString m_netGameHosts;				///< -netgame <ip>[,<ip>...]: the slot list of a LAN game started from the command line (empty = off)
 	Int m_netGameLocalSlot;						///< -netslot <n>: which of those addresses this copy of the game is
 

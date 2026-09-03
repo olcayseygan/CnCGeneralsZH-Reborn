@@ -1383,6 +1383,21 @@ Int parseAISlice(char *args[], int num)
 	return 1;
 }
 
+/* -noflowpath takes the flow model back out and prices terrain only, the way retail does.
+
+	 It exists to be measured against. A change to how a route is costed is argued with a batch of
+	 matches, and a batch is only an argument if both halves of it are the same binary: two builds
+	 differ in the compiler's mood as well as in the change. So the clearance charge, the traffic
+	 charge and the crossing charge all hang off this one switch, and ai-batch.ps1 runs the same
+	 exe twice. The maps are still built and still maintained under it - they cost almost nothing
+	 to keep and turning them off as well would measure two changes at once. */
+Int parseNoFlowPath(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_noFlowPath = TRUE;
+	return 1;
+}
+
 /* -teams <n> splits an -autoskirmish lobby into n allied teams instead of a free-for-all.
 
 	 Free-for-all and 4v4 are not the same load and not the same game. Eight players each fighting
@@ -1671,6 +1686,7 @@ static CommandLineParam params[] =
 	{ "-slowframe", parseSlowFrame },
 	{ "-teams", parseTeams },
 	{ "-aislice", parseAISlice },
+	{ "-noflowpath", parseNoFlowPath },
 	{ "-replay", parseReplay },
 	{ "-netgame", parseNetGame },
 	{ "-netslot", parseNetSlot },

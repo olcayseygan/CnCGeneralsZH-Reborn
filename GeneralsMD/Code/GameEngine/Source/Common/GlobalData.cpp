@@ -683,6 +683,7 @@ GlobalData::GlobalData()
 	m_traceMoveID = 0; // no movement trace
 	m_slowFrameMS = 20.0f; // a frame worth a line in the log; -slowframe lowers it for a hunt
 	m_aiSliceFrames = 1; // every unit thinks every frame, which is what the game has always done
+	m_noFlowPath = FALSE; // the flow model is on; -noflowpath is the retail baseline to measure against
 	m_netGameHosts.clear(); // no network game from the command line
 	m_netGameLocalSlot = 0;
 	m_horizontalScrollSpeedFactor = 1.0;

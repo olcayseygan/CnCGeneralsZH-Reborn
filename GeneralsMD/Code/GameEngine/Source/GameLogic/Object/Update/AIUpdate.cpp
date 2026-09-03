@@ -2246,10 +2246,34 @@ UpdateSleepTime AIUpdateInterface::doLocomotor( void )
 		// this is the only place a blocked unit is counted once per frame rather than once per
 		// collision pair, so it is where the traffic-jam number for the headless run comes from
 		Pathfinder::bumpBlockedFrame( m_isBlockedAndStuck );
+
+		/* And it is where the traffic map is written.  A unit that is stopped is the definition of
+			 traffic; a unit that is merely slow is not, and neither is a unit parked because it has
+			 arrived.  The cell it is standing in gets more expensive for about a second, which is
+			 long enough for whoever repaths next to be handed a way round the line instead of a
+			 place in it. */
+		if (!TheGlobalData->m_noFlowPath)
+		{
+			Int trafficRadius = 0;
+			Bool trafficCenter = true;
+			TheAI->pathfinder()->getRadiusAndCenter(getObject(), trafficRadius, trafficCenter);
+			TheAI->pathfinder()->noteTraffic(getObject()->getPosition(), trafficRadius);
+		}
 	}
 	else
 	{
 		m_blockedFrames = 0;
+	}
+
+	/* Re-stamp where this unit expects to be over the next few seconds, once a second, offset by
+		 its own id so the whole army does not do it on one frame.  Always from where the unit
+		 actually is - a claim made a second ago against a plan that has since been held up is
+		 exactly the claim that would send somebody else round a crossing that is no longer there. */
+	if (!TheGlobalData->m_noFlowPath && getPath() != NULL)
+	{
+		UnsignedInt stagger = TheGameLogic->getFrame() + (UnsignedInt)getObject()->getID();
+		if ((stagger % PF_CLAIM_REFRESH_FRAMES) == 0)
+			TheAI->pathfinder()->claimPathTiming(getObject(), getPath());
 	}
 
 	const Bool traceWasBlocked = m_isBlocked;	// -tracemove: the flag is cleared on the next line

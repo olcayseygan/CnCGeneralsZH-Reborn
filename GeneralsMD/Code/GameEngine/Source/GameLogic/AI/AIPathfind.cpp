@@ -1344,8 +1344,9 @@ PathfindCellInfo *PathfindCellInfo::getACellInfo(PathfindCell *cell,const ICoord
 		info->m_nextOpen = NULL;
 		info->m_prevOpen = NULL;
 		info->m_pathParent = NULL;
-		info->m_costSoFar = 0;		
+		info->m_costSoFar = 0;
 		info->m_totalCost = 0;
+		info->m_travelSoFar = 0;
 		info->m_open = 0;
 		info->m_closed = 0;
 		info->m_openBucket = 0;
@@ -1425,6 +1426,7 @@ Bool PathfindCell::startPathfind( PathfindCell *goalCell  )
 	m_info->m_pathParent = NULL;
 	m_info->m_costSoFar = 0;		// start node, no cost to get here
 	m_info->m_totalCost = 0;
+	m_info->m_travelSoFar = 0;	// and no ground covered, which is a different number
 	if (goalCell) {
 		m_info->m_totalCost = costToGoal( goalCell );
 	}
@@ -2031,6 +2033,12 @@ PathfindCell *PathfindCell::removeFromClosedList( PathfindCell *list )
 
 const Int COST_ORTHOGONAL = 10;
 const Int COST_DIAGONAL = 14;
+
+/* How far the A* estimate is scaled up over plain octile distance.  See costToGoal below for why
+	 it is scaled at all and Pathfinder::beginFlowSearch for who sets it.  Retail's own searches run
+	 at 3/2; it is only raised while the flow charge is on. */
+Int thePathHeuristicNum = 3;
+Int thePathHeuristicDen = 2;
 const Real COST_TO_DISTANCE_FACTOR = 1.0f/10.0f;
 const Real COST_TO_DISTANCE_FACTOR_SQR = COST_TO_DISTANCE_FACTOR*COST_TO_DISTANCE_FACTOR;
 
@@ -2068,8 +2076,15 @@ UnsignedInt PathfindCell::costToGoal( PathfindCell *goal )
 		 route is a few cells longer, the search is several times cheaper, and the frame does not
 		 stall. It stays integer arithmetic and a fixed ratio, so every machine and every replay
 		 expands the same cells in the same order. */
-	enum { HEURISTIC_WEIGHT_NUM = 3, HEURISTIC_WEIGHT_DEN = 2 };
-	cost = (cost * HEURISTIC_WEIGHT_NUM) / HEURISTIC_WEIGHT_DEN;
+	/* The weight is not a constant any more, because the gap it is closing is not.  With the flow
+		 model on, a step also pays for hugging terrain, for standing traffic and for wanting a cell
+		 somebody else wants at the same moment, and the estimate can see none of the three - so the
+		 same estimate that steers a retail search stops steering a flow one.  Measured, on twenty
+		 four-player matches: cell expansions 57,596 a match at 3/2 against 225,419 with the flow
+		 charge on and the weight left alone, which is the search giving up on the goal and walking
+		 the corridor.  Pathfinder::beginFlowSearch sets the pair, and it is the same pair on every
+		 machine for the whole of one search. */
+	cost = (cost * thePathHeuristicNum) / thePathHeuristicDen;
 
 	return cost;
 }
@@ -4221,7 +4236,11 @@ void PathfindLayer::classifyWallMapCell( Int i, Int j , PathfindCell *cell, Obje
 
 //----------------------- Pathfinder ---------------------------------------
 
-Pathfinder::Pathfinder( void ) :m_map(NULL)
+Pathfinder::Pathfinder( void ) :m_map(NULL),
+	m_clearance(NULL), m_clearanceDirty(true), m_clearanceFrame(0),
+	m_traffic(NULL), m_trafficCells(NULL), m_numTrafficCells(0), m_trafficDecayFrame(0),
+	m_claims(NULL), m_claimTouch(NULL),
+	m_flowCosts(false), m_flowSpeed(0), m_flowNow(0), m_flowNowBucket(0)
 {
 	debugPath = NULL;
 	PathfindCellInfo::allocateCellInfos();
@@ -4231,6 +4250,446 @@ Pathfinder::Pathfinder( void ) :m_map(NULL)
 Pathfinder::~Pathfinder( void )
 {
 	PathfindCellInfo::releaseCellInfos();
+	freeFlowMaps();
+}
+
+//----------------------------------------------------------------------------------------------------------
+//                                       The flow model
+//
+// See the block comment in AIPathfind.h for what the three maps are and why.  Everything below is
+// integer arithmetic over inputs both machines in a network game already agree on - the classified
+// map, which unit was blocked on which frame, and the paths the pathfinder itself handed out - so
+// it costs the same cells in the same order everywhere.
+//----------------------------------------------------------------------------------------------------------
+
+/* The wall-hug charge.  `slack` is how much room the body has past what it needs; at zero the cell
+	 is exactly as tight as the body and the step costs PF_WALLHUG_NUM/DEN extra, and the charge
+	 falls away as the square of the remaining band so open ground is free and merely-narrow ground
+	 is nearly free.  A linear falloff was the first version and it taxed half the map. */
+Int Pathfinder_wallHugCost( Int baseCost, Int clearance, Int needClearance )
+{
+	Int slack = clearance - needClearance;
+	if (slack >= PF_CLEARANCE_SOFT) return 0;
+	if (slack < 0) slack = 0;
+	Int nearness = ((PF_CLEARANCE_SOFT - slack) * 256) / PF_CLEARANCE_SOFT;		// 256 at the wall
+	Int squared = (nearness * nearness) >> 8;																	// still in 256ths
+	return (baseCost * PF_WALLHUG_NUM * squared) / (PF_WALLHUG_DEN * 256);
+}
+
+/* The traffic charge, capped.  An uncapped one is what makes a search balloon: the heuristic knows
+	 nothing about it, so every cost it cannot see costs cells expanded, and a queue that prices at
+	 ten times a step sends the search round the whole map looking for the road that is not there. */
+Int Pathfinder_trafficCost( Int baseCost, Int traffic )
+{
+	if (traffic <= 0) return 0;
+	if (traffic > PF_TRAFFIC_FULL) traffic = PF_TRAFFIC_FULL;
+	return (baseCost * PF_TRAFFIC_NUM * traffic) / (PF_TRAFFIC_DEN * PF_TRAFFIC_FULL);
+}
+
+/* The crossing charge.  Weight arrives in halves because a claim spills either side of its own
+	 bucket at half strength; four whole units wanting one cell at one moment is as bad as it gets. */
+Int Pathfinder_crossingCost( Int baseCost, Int claimHalves )
+{
+	Int units = claimHalves / 2;
+	if (units <= 0) return 0;
+	if (units > PF_CLAIM_UNITS_MAX) units = PF_CLAIM_UNITS_MAX;
+	return (baseCost * PF_CROSSING_NUM * units) / PF_CROSSING_DEN;
+}
+
+/// Is this cell one no ground unit can stand in?  Rubble counts as ground: crushers drive over it.
+static Bool clearanceBlocks( const PathfindCell *cell )
+{
+	if (cell == NULL) return true;
+	PathfindCell::CellType t = cell->getType();
+	return (t != PathfindCell::CELL_CLEAR && t != PathfindCell::CELL_RUBBLE);
+}
+
+void Pathfinder::allocateFlowMaps( void )
+{
+	freeFlowMaps();
+	Int cells = (m_extent.hi.x+1) * (m_extent.hi.y+1);
+	if (cells <= 0) return;
+	m_clearance = MSGNEW("PathfindFlowMaps") UnsignedByte[cells];
+	m_traffic = MSGNEW("PathfindFlowMaps") UnsignedByte[cells];
+	m_claimTouch = MSGNEW("PathfindFlowMaps") UnsignedShort[cells];
+	m_trafficCells = MSGNEW("PathfindFlowMaps") Int[PF_TRAFFIC_CELLS];
+	m_claims = MSGNEW("PathfindFlowMaps") PathClaim[PF_CLAIM_TABLE_SIZE];
+	memset(m_clearance, 0, cells*sizeof(UnsignedByte));
+	memset(m_traffic, 0, cells*sizeof(UnsignedByte));
+	memset(m_claimTouch, 0, cells*sizeof(UnsignedShort));
+	m_numTrafficCells = 0;
+	m_trafficDecayFrame = 0;
+	m_clearanceFrame = 0;
+	m_clearanceDirty = true;
+	resetClaims();
+}
+
+void Pathfinder::freeFlowMaps( void )
+{
+	if (m_clearance) { delete [] m_clearance; m_clearance = NULL; }
+	if (m_traffic) { delete [] m_traffic; m_traffic = NULL; }
+	if (m_claimTouch) { delete [] m_claimTouch; m_claimTouch = NULL; }
+	if (m_trafficCells) { delete [] m_trafficCells; m_trafficCells = NULL; }
+	if (m_claims) { delete [] m_claims; m_claims = NULL; }
+	m_numTrafficCells = 0;
+}
+
+/**
+ * Rebuild the clearance field.
+ *
+ * A chamfer distance transform, which is two linear passes over the map and no queue at all: the
+ * forward pass carries the distance down and right, the backward pass carries it up and left, and
+ * 5/7 is the integer stand-in for 1 and sqrt(2) that keeps the whole thing in bytes.  A breadth
+ * first search would give the same answer for several times the work.
+ */
+void Pathfinder::buildClearance( void )
+{
+	if (m_clearance == NULL || m_map == NULL) return;
+	const Int h = m_extent.hi.y + 1;
+	const Int w = m_extent.hi.x + 1;
+	Int x, y;
+
+	// seed: an impassable cell has no room at all, everything else starts at the ceiling
+	for (x = 0; x < w; x++) {
+		UnsignedByte *col = &m_clearance[x*h];
+		for (y = 0; y < h; y++) {
+			col[y] = clearanceBlocks(&m_map[x][y]) ? 0 : (UnsignedByte)PF_CLEARANCE_MAX;
+		}
+	}
+
+	// the map edge is a wall as far as a body is concerned
+	for (x = 0; x < w; x++) { m_clearance[x*h] = 0; m_clearance[x*h + h-1] = 0; }
+	for (y = 0; y < h; y++) { m_clearance[y] = 0; m_clearance[(w-1)*h + y] = 0; }
+
+	#define CLEAR_RELAX(dst, src, add) \
+		do { Int cand = (Int)(src) + (add); if (cand < (Int)(dst)) (dst) = (UnsignedByte)cand; } while(0)
+
+	for (x = 1; x < w-1; x++) {
+		UnsignedByte *col = &m_clearance[x*h];
+		const UnsignedByte *west = &m_clearance[(x-1)*h];
+		for (y = 1; y < h-1; y++) {
+			if (col[y] == 0) continue;
+			CLEAR_RELAX(col[y], col[y-1], PF_CLEARANCE_ORTHO);
+			CLEAR_RELAX(col[y], west[y], PF_CLEARANCE_ORTHO);
+			CLEAR_RELAX(col[y], west[y-1], PF_CLEARANCE_DIAG);
+			CLEAR_RELAX(col[y], west[y+1], PF_CLEARANCE_DIAG);
+		}
+	}
+	for (x = w-2; x >= 1; x--) {
+		UnsignedByte *col = &m_clearance[x*h];
+		const UnsignedByte *east = &m_clearance[(x+1)*h];
+		for (y = h-2; y >= 1; y--) {
+			if (col[y] == 0) continue;
+			CLEAR_RELAX(col[y], col[y+1], PF_CLEARANCE_ORTHO);
+			CLEAR_RELAX(col[y], east[y], PF_CLEARANCE_ORTHO);
+			CLEAR_RELAX(col[y], east[y+1], PF_CLEARANCE_DIAG);
+			CLEAR_RELAX(col[y], east[y-1], PF_CLEARANCE_DIAG);
+		}
+	}
+	#undef CLEAR_RELAX
+
+	m_clearanceDirty = false;
+	m_clearanceFrame = TheGameLogic ? TheGameLogic->getFrame() : 0;
+}
+
+void Pathfinder::updateClearanceIfDirty( void )
+{
+	if (!m_clearanceDirty || m_clearance == NULL) return;
+	UnsignedInt now = TheGameLogic->getFrame();
+	if (now - m_clearanceFrame < PF_CLEARANCE_REBUILD_FRAMES) return;
+	buildClearance();
+}
+
+//----------------------------------------------------------------------------------------------------------
+
+void Pathfinder::noteTraffic( const Coord3D *pos, Int radiusInCells )
+{
+	if (m_traffic == NULL || pos == NULL) return;
+	ICoord2D c;
+	worldToCell(pos, &c);							// clamps to the map
+	Int r = radiusInCells;
+	if (r < 0) r = 0;
+	if (r > 2) r = 2;
+	const Int h = m_extent.hi.y + 1;
+	for (Int dx = -r; dx <= r; dx++) {
+		Int x = c.x + dx;
+		if (x < m_extent.lo.x || x > m_extent.hi.x) continue;
+		for (Int dy = -r; dy <= r; dy++) {
+			Int y = c.y + dy;
+			if (y < m_extent.lo.y || y > m_extent.hi.y) continue;
+			Int i = x*h + y;
+			if (m_traffic[i] == 0) {
+				// full: the map already knows about four thousand jammed cells, one more says nothing
+				if (m_numTrafficCells >= PF_TRAFFIC_CELLS) continue;
+				m_trafficCells[m_numTrafficCells++] = i;
+			}
+			Int v = (Int)m_traffic[i] + PF_TRAFFIC_DEPOSIT;
+			m_traffic[i] = (UnsignedByte)(v > PF_TRAFFIC_MAX ? PF_TRAFFIC_MAX : v);
+		}
+	}
+}
+
+void Pathfinder::decayTraffic( void )
+{
+	if (m_traffic == NULL || m_numTrafficCells == 0) return;
+	UnsignedInt now = TheGameLogic->getFrame();
+	if (now - m_trafficDecayFrame < PF_TRAFFIC_DECAY_FRAMES) return;
+	m_trafficDecayFrame = now;
+	Int keep = 0;
+	for (Int k = 0; k < m_numTrafficCells; k++) {
+		Int i = m_trafficCells[k];
+		Int v = ((Int)m_traffic[i] * PF_TRAFFIC_DECAY_NUM) / PF_TRAFFIC_DECAY_DEN;
+		m_traffic[i] = (UnsignedByte)v;
+		if (v > 0) m_trafficCells[keep++] = i;		// order preserved: the list stays deterministic
+	}
+	m_numTrafficCells = keep;
+}
+
+//----------------------------------------------------------------------------------------------------------
+
+/// Knuth multiplicative on the cell, mixed with the bucket, masked to the table.
+static inline Int claimSlotOf( Int cell, UnsignedInt bucket )
+{
+	UnsignedInt hash = (UnsignedInt)cell * 2654435761u + bucket * 40503u;
+	return (Int)((hash >> 11) & (PF_CLAIM_TABLE_SIZE - 1));
+}
+
+void Pathfinder::resetClaims( void )
+{
+	if (m_claims == NULL) return;
+	for (Int i = 0; i < PF_CLAIM_TABLE_SIZE; i++) {
+		m_claims[i].m_cell = -1;
+		m_claims[i].m_bucket = 0;
+		m_claims[i].m_weight = 0;
+	}
+	if (m_claimTouch) {
+		memset(m_claimTouch, 0, (m_extent.hi.x+1)*(m_extent.hi.y+1)*sizeof(UnsignedShort));
+	}
+}
+
+/* Two passes over the probe window on purpose.  Reusing the first dead slot as soon as one turns
+	 up would let the same (cell, bucket) exist twice - the live copy further along the window would
+	 never be found again - and the weight the search reads would then depend on which of the two
+	 the probe happened to reach first. */
+void Pathfinder::addClaim( Int cell, UnsignedInt bucket, Int weight )
+{
+	if (m_claims == NULL || weight <= 0) return;
+	const Int base = claimSlotOf(cell, bucket);
+	const UnsignedInt nowBucket = TheGameLogic->getFrame() / PF_CLAIM_BUCKET_FRAMES;
+	Int p;
+	for (p = 0; p < PF_CLAIM_PROBES; p++) {
+		PathClaim& e = m_claims[(base + p) & (PF_CLAIM_TABLE_SIZE - 1)];
+		if (e.m_cell == cell && e.m_bucket == bucket && e.m_weight > 0) {
+			Int w = (Int)e.m_weight + weight;
+			e.m_weight = (UnsignedShort)(w > 0xFFFF ? 0xFFFF : w);
+			return;
+		}
+	}
+	for (p = 0; p < PF_CLAIM_PROBES; p++) {
+		PathClaim& e = m_claims[(base + p) & (PF_CLAIM_TABLE_SIZE - 1)];
+		if (e.m_cell >= 0 && e.m_weight > 0 && e.m_bucket >= nowBucket) continue;		// still live
+		e.m_cell = cell;
+		e.m_bucket = bucket;
+		e.m_weight = (UnsignedShort)weight;
+		return;
+	}
+	// the window is full of live claims: this one is simply not recorded.  Dropping it costs the
+	// search a penalty it will not see, which is the harmless direction to fail in.
+}
+
+Int Pathfinder::getClaims( Int x, Int y, UnsignedInt frame ) const
+{
+	if (m_claims == NULL || m_claimTouch == NULL) return 0;
+	if (x < m_extent.lo.x || y < m_extent.lo.y || x > m_extent.hi.x || y > m_extent.hi.y) return 0;
+	const Int cell = x*(m_extent.hi.y+1) + y;
+	const UnsignedInt bucket = frame / PF_CLAIM_BUCKET_FRAMES;
+	// the cheap screen: nobody has ever claimed this cell for a moment this late
+	if ((UnsignedInt)m_claimTouch[cell] < bucket) return 0;
+	const Int base = claimSlotOf(cell, bucket);
+	for (Int p = 0; p < PF_CLAIM_PROBES; p++) {
+		const PathClaim& e = m_claims[(base + p) & (PF_CLAIM_TABLE_SIZE - 1)];
+		if (e.m_cell == cell && e.m_bucket == bucket) return e.m_weight;
+	}
+	return 0;
+}
+
+/* One sample of a plan: the cell the unit expects to be in, dilated over the body's own footprint,
+	 in the bucket it expects to be there and at half strength in the two either side.  The spill is
+	 not decoration - an arrival time estimated from a straight-line speed is only ever right to
+	 about a bucket, and a claim with no spill prices nothing at all half the time. */
+void Pathfinder::stampClaimAt( const Coord3D *pos, UnsignedInt frame, Int dilation )
+{
+	if (m_claims == NULL || m_claimTouch == NULL) return;
+	ICoord2D c;
+	worldToCell(pos, &c);
+	const UnsignedInt bucket = frame / PF_CLAIM_BUCKET_FRAMES;
+	const Int h = m_extent.hi.y + 1;
+	for (Int dx = -dilation; dx <= dilation; dx++) {
+		Int x = c.x + dx;
+		if (x < m_extent.lo.x || x > m_extent.hi.x) continue;
+		for (Int dy = -dilation; dy <= dilation; dy++) {
+			Int y = c.y + dy;
+			if (y < m_extent.lo.y || y > m_extent.hi.y) continue;
+			Int cell = x*h + y;
+			addClaim(cell, bucket, 2);
+			if (bucket > 0) addClaim(cell, bucket-1, 1);
+			addClaim(cell, bucket+1, 1);
+			UnsignedShort touch = (UnsignedShort)(bucket + 1);
+			if (m_claimTouch[cell] < touch) m_claimTouch[cell] = touch;
+		}
+	}
+}
+
+/**
+ * Stamp where this unit expects to be over the next few seconds.
+ *
+ * Called from the unit itself, about once a second, and it always starts from where the unit
+ * actually is rather than from where the path says it should be by now.  That is the whole reason
+ * nothing has to be released: a claim carries the absolute bucket it was made for, so it expires
+ * by being in the past, and a unit that got held up simply re-stamps later times next second.
+ */
+void Pathfinder::claimPathTiming( const Object *obj, Path *path )
+{
+	if (m_claims == NULL || obj == NULL || path == NULL) return;
+	if (TheGlobalData->m_noFlowPath) return;
+
+	const AIUpdateInterface *ai = obj->getAIUpdateInterface();
+	if (ai == NULL) return;
+	const Locomotor *loco = ai->getCurLocomotor();
+	if (loco == NULL) return;
+	Real speed = loco->getMaxSpeedForCondition(obj->getBodyModule()->getDamageState());
+	if (speed < 0.01f) return;										// world units per logic frame
+
+	Int radius = 0;
+	Bool center = true;
+	getRadiusAndCenter(obj, radius, center);
+	Int dilation = radius;
+	if (dilation > 2) dilation = 2;
+	if (dilation < 0) dilation = 0;
+	// one sample per body width: a tank stamping every cell would claim the same ground five times
+	const Int stride = dilation > 0 ? dilation : 1;
+
+	const Coord3D *myPos = obj->getPosition();
+	// where on the path we actually are.  The path is a line-of-sight skeleton after optimize(),
+	// so this is a handful of nodes, not a cell walk.
+	PathNode *from = path->getFirstNode();
+	PathNode *node;
+	Real bestSqr = FLT_MAX;
+	for (node = path->getFirstNode(); node; node = node->getNext()) {
+		const Coord3D *p = node->getPosition();
+		Real dx = p->x - myPos->x, dy = p->y - myPos->y;
+		Real d = dx*dx + dy*dy;
+		if (d < bestSqr) { bestSqr = d; from = node; }
+	}
+	if (from == NULL) return;
+
+	const UnsignedInt now = TheGameLogic->getFrame();
+	const Real horizon = speed * (Real)(PF_CLAIM_BUCKETS * PF_CLAIM_BUCKET_FRAMES);
+	Coord3D cur = *myPos;
+	Real travelled = 0.0f;
+	Int sample = 0, stamped = 0;
+
+	for (node = from; node; node = node->getNext()) {
+		const Coord3D *to = node->getPosition();
+		Real dx = to->x - cur.x, dy = to->y - cur.y;
+		Real segLen = (Real)sqrt(dx*dx + dy*dy);
+		if (segLen < 0.01f) { cur = *to; continue; }
+		Int steps = (Int)(segLen / PATHFIND_CELL_SIZE_F) + 1;
+		for (Int s = 1; s <= steps; s++) {
+			Real t = (Real)s / (Real)steps;
+			travelled += segLen / (Real)steps;
+			if (travelled > horizon) return;
+			if ((sample++ % stride) != 0) continue;
+			if (++stamped > PF_CLAIM_SAMPLES_MAX) return;
+			Coord3D p;
+			p.x = cur.x + dx*t;
+			p.y = cur.y + dy*t;
+			p.z = cur.z;
+			stampClaimAt(&p, now + (UnsignedInt)(travelled / speed), dilation);
+		}
+		cur = *to;
+	}
+}
+
+/**
+ * The travel speed the search now running should convert distance into time with, x256 so the
+ * division in the inner loop stays integer.  Cost units per logic frame: a step of one cell is
+ * COST_ORTHOGONAL, and a cell is PATHFIND_CELL_SIZE_F wide.
+ */
+Int Pathfinder::flowSpeedOf( const Object *obj )
+{
+	if (obj == NULL) return 0;
+	const AIUpdateInterface *ai = obj->getAIUpdateInterface();
+	if (ai == NULL) return 0;
+	const Locomotor *loco = ai->getCurLocomotor();
+	if (loco == NULL) return 0;
+	Real speed = loco->getMaxSpeedForCondition(obj->getBodyModule()->getDamageState());
+	if (speed < 0.01f) return 0;
+	// the sandbox plans at four fifths of top speed, because nothing ever holds top speed
+	Real costPerFrame = speed * 0.8f * (Real)COST_ORTHOGONAL / PATHFIND_CELL_SIZE_F;
+	Int scaled = (Int)(costPerFrame * 256.0f);
+	return scaled > 0 ? scaled : 0;
+}
+
+/**
+ * The whole of the flow charge for one step, so both places that expand a cell price it the same
+ * way and a test can hold the three parts against each other.
+ *
+ * This runs once per neighbour per expansion - low millions of times in a busy frame - so the
+ * common case has to be cheap.  It is: one bounds check for all three maps, then a screen in
+ * front of each of them that the overwhelming majority of cells fail.  Open ground reads one byte
+ * and returns.  In particular the crossing charge's division is behind the claim screen, not in
+ * front of it, because nearly every cell on the map has never been claimed by anybody.
+ */
+Int Pathfinder::flowStepCost( Int baseCost, Int cellX, Int cellY, Int radius, UnsignedInt travelSoFar )
+{
+	if (cellX < m_extent.lo.x || cellY < m_extent.lo.y || cellX > m_extent.hi.x || cellY > m_extent.hi.y)
+		return 0;
+	const Int cell = cellX*(m_extent.hi.y+1) + cellY;
+	Int extra = 0;
+
+	/* Exempting infantry from this charge was tried and is not in: over twenty four-player matches
+		 it changed not one cell of one route, so it is a branch that buys nothing.  Every class
+		 pays, which is also what the sandbox does. */
+	// a body of radius r needs r+0.5 cells of room; clearance counts five to the cell
+	const Int need = PF_CLEARANCE_ORTHO*radius + PF_CLEARANCE_ORTHO/2;
+	const Int clearance = m_clearance[cell];
+	if (clearance - need < PF_CLEARANCE_SOFT)
+		extra += Pathfinder_wallHugCost(baseCost, clearance, need);
+
+	if (m_numTrafficCells > 0) {
+		const Int jam = m_traffic[cell];
+		if (jam > 0)
+			extra += Pathfinder_trafficCost(baseCost, jam);
+	}
+
+	if (m_flowSpeed > 0 && (UnsignedInt)m_claimTouch[cell] >= m_flowNowBucket) {
+		const UnsignedInt eta = m_flowNow + ((UnsignedInt)travelSoFar * 256) / (UnsignedInt)m_flowSpeed;
+		const UnsignedInt bucket = eta / PF_CLAIM_BUCKET_FRAMES;
+		if ((UnsignedInt)m_claimTouch[cell] >= bucket) {
+			const Int base = claimSlotOf(cell, bucket);
+			for (Int p = 0; p < PF_CLAIM_PROBES; p++) {
+				const PathClaim& e = m_claims[(base + p) & (PF_CLAIM_TABLE_SIZE - 1)];
+				if (e.m_cell == cell && e.m_bucket == bucket) {
+					extra += Pathfinder_crossingCost(baseCost, e.m_weight);
+					break;
+				}
+			}
+		}
+	}
+	return extra;
+}
+
+void Pathfinder::beginFlowSearch( const Object *obj )
+{
+	m_flowNow = TheGameLogic ? TheGameLogic->getFrame() : 0;
+	m_flowNowBucket = m_flowNow / PF_CLAIM_BUCKET_FRAMES;
+	m_flowCosts = !TheGlobalData->m_noFlowPath && obj != NULL &&
+								m_clearance != NULL && m_traffic != NULL && m_claims != NULL && m_claimTouch != NULL;
+	m_flowSpeed = m_flowCosts ? flowSpeedOf(obj) : 0;
+	// and the estimate is raised to match what the charge adds, or the search stops steering
+	thePathHeuristicNum = m_flowCosts ? PF_HEURISTIC_FLOW_NUM : 3;
+	thePathHeuristicDen = m_flowCosts ? PF_HEURISTIC_FLOW_DEN : 2;
 }
 
 
@@ -4336,10 +4795,13 @@ void Pathfinder::reset( void )
 		delete []m_blockOfMapCells;
 		m_blockOfMapCells = NULL;
 	}
-	if (m_map) {	 
+	if (m_map) {
 		delete [] m_map;
 		m_map = NULL;
 	}
+	freeFlowMaps();
+	m_flowCosts = false;
+	m_flowSpeed = 0;
 
 	Int i;
 	for (i=0; i<=LAYER_LAST; i++) {
@@ -4564,6 +5026,7 @@ void Pathfinder::classifyFence( Object *obj, Bool insert )
 	if (didAnything) {
 		m_zoneManager.markZonesDirty( insert );
 		m_zoneManager.updateZonesForModify(m_map, m_layers, cellBounds, m_extent);
+		markClearanceDirty();
 	}
 #if 0 
 	// Perhaps it would make more sense to use the iteratecellsalongpath() provided in this class,
@@ -4820,7 +5283,8 @@ void Pathfinder::internal_classifyObjectFootprint( Object *obj, Bool insert )
 		break;
 	} // switch
 	m_zoneManager.updateZonesForModify(m_map, m_layers, cellBounds, m_extent);
-	
+	markClearanceDirty();
+
 	Int i, j;
 	cellBounds.lo.x -= 2;
 	cellBounds.lo.y -= 2;
@@ -5079,6 +5543,7 @@ void Pathfinder::newMap( void )
 			m_layers[LAYER_WALL].allocateCellsForWallLayer(&m_extent, m_wallPieces, m_numWallPieces);
 		}
 	}
+	allocateFlowMaps();
 	classifyMap();
 	// Add existing objects.
 	Object *obj;
@@ -5086,6 +5551,9 @@ void Pathfinder::newMap( void )
 	{
 		classifyObjectFootprint(obj, true);
 	}
+
+	// only now does the map hold the buildings, and clearance is a measure of the buildings
+	buildClearance();
 
 	m_isMapReady = true;
 }
@@ -5177,6 +5645,7 @@ void Pathfinder::classifyMap(void)
 void Pathfinder::forceMapRecalculation( void )
 {
 	classifyMap( );
+	buildClearance( );
 }
 
 /**
@@ -6667,6 +7136,16 @@ struct ExamineCellsStruct
  				return 1;
 			}								
 			to->setBlockedByAlly(false);
+			/* The shortcut probe has to be priced the same way the ordinary expansion is, or it
+				 undercuts it: a straight run at the goal that pays nothing for traffic would beat
+				 every route the flow model just spent its cost steering units onto. */
+			{
+				const UnsignedInt travel = from->getTravelSoFar() + COST_ORTHOGONAL;
+				to->setTravelSoFar(travel);
+				if (d->thePathfinder->flowCostsOn() && to->getLayer()==LAYER_GROUND) {
+					newCostSoFar += d->thePathfinder->flowStepCost(COST_ORTHOGONAL, to_x, to_y, d->radius, travel);
+				}
+			}
 			Int costRemaining = 0;
 			costRemaining = to->costToGoal( d->goalCell );
 			// check if this neighbor cell is already on the open (waiting to be tried) 
@@ -6889,6 +7368,20 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 			}
 
 			newCostSoFar = newCell->costSoFar( parentCell );
+
+			/* The flow charge.  Ground covered is tracked separately from cost paid, because the
+				 crossing charge asks "when will we be standing here" and a detour taken to dodge
+				 somebody does not slow the unit down - charging the penalties into the clock as well
+				 would have the search believe it arrives whole seconds later than it does. */
+			{
+				const Int stepBase = (i>=firstDiagonal) ? COST_DIAGONAL : COST_ORTHOGONAL;
+				const UnsignedInt travel = parentCell->getTravelSoFar() + stepBase;
+				newCell->setTravelSoFar(travel);
+				if (m_flowCosts && newCell->getLayer()==LAYER_GROUND) {
+					newCostSoFar += flowStepCost(stepBase, newCellCoord.x, newCellCoord.y, radius, travel);
+				}
+			}
+
 			if (info.allyMoving && dx<10 && dy<10) {
 				newCostSoFar += 3*COST_DIAGONAL;
 			}
@@ -7105,7 +7598,8 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 	if (obj) {
 		getRadiusAndCenter(obj, radius, centerInCell);
 	}
-	
+	beginFlowSearch(obj);
+
 	Bool isHuman = true;
 	if (obj && obj->getControllingPlayer() && (obj->getControllingPlayer()->getPlayerType()==PLAYER_COMPUTER)) {
 		isHuman = false; // computer gets to cheat.
@@ -7751,7 +8245,8 @@ Path *Pathfinder::findGroundPath( const Coord3D *from,
 	DEBUG_LOG(("Find ground path..."));
 #endif	
 	Bool centerInCell = false;
-	
+	beginFlowSearch(NULL);		// the group corridor is terrain, and every member rides it
+
 	m_zoneManager.clearPassableFlags();
 	Bool isHuman = true;
 
@@ -8244,7 +8739,8 @@ Path *Pathfinder::internal_findHierarchicalPath( Bool isHuman, const LocomotorSu
 #if defined _DEBUG || defined _INTERNAL
 	Int startTimeMS = ::GetTickCount();
 #endif
-	
+	beginFlowSearch(NULL);		// "is there a way at all" must not be talked out of it by traffic
+
 	if (rawTo->x == 0.0f && rawTo->y == 0.0f) {
 		DEBUG_LOG(("Attempting pathfind to 0,0, generally a bug.\n"));
 		return NULL;
@@ -8997,7 +9493,8 @@ Bool Pathfinder::pathDestination( 	Object *obj, const LocomotorSet& locomotorSet
 {
 	//CRCDEBUG_LOG(("Pathfinder::pathDestination()\n"));
 	if (m_isMapReady == false) return NULL;
-	
+	beginFlowSearch(NULL);
+
 	if (!obj) return false;
 
 	Int cellCount = 0;
@@ -9283,7 +9780,8 @@ Int Pathfinder::checkPathCost(Object *obj, const LocomotorSet& locomotorSet, con
 {
 	//CRCDEBUG_LOG(("Pathfinder::checkPathCost()\n"));
 	if (m_isMapReady == false) return NULL;
-	enum {MAX_COST = 0x7fff0000};	
+	beginFlowSearch(NULL);		// this is a yardstick between two points, not a route anybody drives
+	enum {MAX_COST = 0x7fff0000};
 	if (!obj) return MAX_COST;
 
 	Int cellCount = 0;
@@ -9491,6 +9989,7 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
 																	Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies)
 {
 	PathProfile pfProfile( PF_CLOSEST );
+	beginFlowSearch(obj);
 	//CRCDEBUG_LOG(("Pathfinder::findClosestPath()\n"));
 #if defined _DEBUG || defined _INTERNAL
 	Int startTimeMS = ::GetTickCount();
@@ -11042,6 +11541,7 @@ Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
 											Path *pathToAvoid, Object *otherObj2, Path *pathToAvoid2)
 {
 	PathProfile pfProfile( PF_MOVEAWAY );
+	beginFlowSearch(NULL);
 	if (m_isMapReady == false) return false; // Should always be ok.
 #if defined _DEBUG || defined _INTERNAL
 	Int startTimeMS = ::GetTickCount();
@@ -11218,6 +11718,7 @@ Path *Pathfinder::patchPath( const Object *obj, const LocomotorSet& locomotorSet
 		Path *originalPath, Bool blocked )
 {
 	PathProfile pfProfile( PF_PATCH );
+	beginFlowSearch(obj);
 	//CRCDEBUG_LOG(("Pathfinder::patchPath()\n"));
 #if defined _DEBUG || defined _INTERNAL
 	Int startTimeMS = ::GetTickCount();
@@ -11404,6 +11905,7 @@ Path *Pathfinder::findAttackPath( const Object *obj, const LocomotorSet& locomot
 		const Object *victim, const Coord3D* victimPos, const Weapon *weapon ) 
 {
 	PathProfile pfProfile( PF_ATTACK );
+	beginFlowSearch(NULL);		// "where can I shoot from" is not a movement route
 	/*
 	CRCDEBUG_LOG(("Pathfinder::findAttackPath() for object %d (%s)\n", obj->getID(), obj->getTemplate()->getName().str()));
 	XferCRC xferCRC;
@@ -11762,6 +12264,7 @@ Path *Pathfinder::findSafePath( const Object *obj, const LocomotorSet& locomotor
 		const Coord3D *from, const Coord3D* repulsorPos1, const Coord3D* repulsorPos2, Real repulsorRadius) 
 {
 	PathProfile pfProfile( PF_SAFE );
+	beginFlowSearch(NULL);		// running away prices danger, not traffic
 	//CRCDEBUG_LOG(("Pathfinder::findSafePath()\n"));
 	if (m_isMapReady == false) return false; // Should always be ok.
 #if defined _DEBUG || defined _INTERNAL
@@ -11974,5 +12477,18 @@ void Pathfinder::xfer( Xfer *xfer )
 //-----------------------------------------------------------------------------
 void Pathfinder::loadPostProcess( void )
 {
+	/* None of the three flow maps is saved, and only one of them needs to be.  Clearance is a
+		 measure of the map, so it is simply recomputed from the map that has just been loaded and
+		 comes out identical to the one the save was taken from.  Traffic and claims are a few
+		 seconds of history that the game rebuilds by playing: a loaded game starts with nobody
+		 jammed and nobody's plan on the map, and is back to the same state within a second or two.
+		 The cost of that is a unit or two picking a marginally different route just after a load,
+		 which is a single-player concern - Generals has no mid-game save in a network match, so
+		 there is no second machine to disagree with. */
+	buildClearance();
+	resetClaims();
+	m_numTrafficCells = 0;
+	if (m_traffic)
+		memset(m_traffic, 0, (m_extent.hi.x+1)*(m_extent.hi.y+1)*sizeof(UnsignedByte));
 
 }  // end loadPostProcess

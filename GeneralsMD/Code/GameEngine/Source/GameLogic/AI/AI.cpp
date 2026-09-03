@@ -376,6 +376,11 @@ void AI::update( void )
 	Int64 start, afterPathfind, end;
 	QueryPerformanceCounter( (LARGE_INTEGER *)&start );
 
+	// Age the flow maps before anything reads them: the traffic left by last frame's jams decays,
+	// and a clearance field made stale by a building going up is rebuilt at most once a second.
+	m_pathfinder->decayTraffic();
+	m_pathfinder->updateClearanceIfDirty();
+
 	// Do pathfinding.
 	m_pathfinder->processPathfindQueue();
 
