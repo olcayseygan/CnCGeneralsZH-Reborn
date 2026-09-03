@@ -1005,6 +1005,9 @@ InGameUI::InGameUI()
 	
   m_inputEnabled = true;
 	m_isDragSelecting = false;
+	m_isFormationDragging = FALSE;
+	m_formationDragAnchor.x = m_formationDragAnchor.y = 0;
+	m_formationDragCurrent = m_formationDragAnchor;
 	m_nextMoveHint = 0;
 	m_selectCount = 0;
 	m_frameSelectionChanged = 0;
@@ -2585,6 +2588,16 @@ void InGameUI::beginAreaSelectHint( const GameMessage *msg )
 void InGameUI::endAreaSelectHint( const GameMessage *msg )
 {
 	m_isDragSelecting = false;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The player is dragging out the line a formation move will spread along. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::setFormationDrag( const ICoord2D& anchor, const ICoord2D& current )
+{
+	m_isFormationDragging = TRUE;
+	m_formationDragAnchor = anchor;
+	m_formationDragCurrent = current;
 }
 
 //-------------------------------------------------------------------------------------------------

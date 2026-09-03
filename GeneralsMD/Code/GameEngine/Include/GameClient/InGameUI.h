@@ -397,6 +397,13 @@ public:  // ********************************************************************
 	// interface for graphical "hints" which provide visual feedback for user-interface commands
 	virtual void beginAreaSelectHint( const GameMessage *msg );	///< Used by HintSpy. An area selection is occurring, start graphical "hint"
 	virtual void endAreaSelectHint( const GameMessage *msg );		///< Used by HintSpy. An area selection had occurred, finish graphical "hint"
+	// the line the player is dragging out for a formation move, in screen pixels
+	void setFormationDrag( const ICoord2D& anchor, const ICoord2D& current );
+	void clearFormationDrag( void ) { m_isFormationDragging = FALSE; }
+	Bool isFormationDragging( void ) const { return m_isFormationDragging; }
+	const ICoord2D& getFormationDragAnchor( void ) const { return m_formationDragAnchor; }
+	const ICoord2D& getFormationDragCurrent( void ) const { return m_formationDragCurrent; }
+
 	virtual void createMoveHint( const GameMessage *msg );			///< A move command has occurred, start graphical "hint"
 	virtual void createAttackHint( const GameMessage *msg );		///< An attack command has occurred, start graphical "hint"
 	virtual void createForceAttackHint( const GameMessage *msg );		///< A force attack command has occurred, start graphical "hint"
@@ -954,6 +961,9 @@ protected:
 	DrawableList								m_selectedLocalDrawables;											///< A list of all selected drawables owned by the local player
 	Bool												m_isDragSelecting;														///< If TRUE, an area selection is in progress
 	IRegion2D										m_dragSelectRegion;														///< if isDragSelecting is TRUE, this contains select region
+	Bool												m_isFormationDragging;												///< TRUE while a formation line is being drawn (fork)
+	ICoord2D										m_formationDragAnchor;												///< where that line started, in pixels
+	ICoord2D										m_formationDragCurrent;												///< where the cursor is now, in pixels
 	Bool												m_displayedMaxWarning;                        ///< keeps the warning from being shown over and over
 	MoveHintStruct							m_moveHint[ MAX_MOVE_HINTS ];
 	Int													m_nextMoveHint;

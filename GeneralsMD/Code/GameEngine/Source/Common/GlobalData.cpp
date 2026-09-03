@@ -194,6 +194,7 @@ GlobalData* GlobalData::m_theOriginal = NULL;
 	{ "NudgeBuildPlacement",			INI::parseBool,				NULL,			offsetof( GlobalData, m_nudgeBuildPlacement ) },
 	{ "MiddleMousePans",					INI::parseBool,				NULL,			offsetof( GlobalData, m_middleMousePans ) },
 	{ "ZoomToCursor",							INI::parseBool,				NULL,			offsetof( GlobalData, m_zoomToCursor ) },
+	{ "FormationDrag",						INI::parseInt,				NULL,			offsetof( GlobalData, m_formationDrag ) },
 	{ "ShowHudOverlay",						INI::parseBool,				NULL,			offsetof( GlobalData, m_showHudOverlay ) },
 	{ "ShowPlacementRangeRing",		INI::parseBool,				NULL,			offsetof( GlobalData, m_showPlacementRangeRing ) },
 	{ "WorkersReturnToSupply",		INI::parseBool,				NULL,			offsetof( GlobalData, m_workersReturnToSupply ) },
@@ -1053,6 +1054,8 @@ GlobalData::GlobalData()
 	// middle-drag stays a rotate by default (it snaps to 45 degrees on release); pan is opt-in
 	m_middleMousePans = FALSE;
 	m_zoomToCursor = TRUE;
+	// ctrl plus the right button, so plain right-drag scrolling is untouched
+	m_formationDrag = 1;
 
 	m_snapBuildPlacementTo45 = TRUE;
 	m_gridBuildPlacement = TRUE;

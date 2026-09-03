@@ -405,6 +405,10 @@ void W3DInGameUI::draw( void )
 	if( m_isDragSelecting )
 		drawSelectionRegion();
 
+	// draw the formation line if one is being dragged out
+	if( m_isFormationDragging )
+		drawFormationLine();
+
 	// for each view draw hints
 	/// @todo should the UI be iterating through views like this?
 	if( TheDisplay )
@@ -767,6 +771,49 @@ void W3DInGameUI::drawSelectionRegion( void )
 														color );
 
 }  // end drawSelectionRegion
+
+//-------------------------------------------------------------------------------------------------
+/** draw the line a right drag is spreading the selection along, with one tick per unit so the
+	* spacing you are about to get is visible before you let go */
+//-------------------------------------------------------------------------------------------------
+void W3DInGameUI::drawFormationLine( void )
+{
+	const Real width = 2.0f;
+	const UnsignedInt color = 0xCC33FF33;  //0xAARRGGBB
+	const Real tickHalfLength = 6.0f;
+
+	const Real ax = (Real)m_formationDragAnchor.x;
+	const Real ay = (Real)m_formationDragAnchor.y;
+	const Real bx = (Real)m_formationDragCurrent.x;
+	const Real by = (Real)m_formationDragCurrent.y;
+
+	TheDisplay->drawLine( m_formationDragAnchor.x, m_formationDragAnchor.y,
+												m_formationDragCurrent.x, m_formationDragCurrent.y,
+												width, color );
+
+	const Int count = getSelectCount();
+	const Real span = sqrtf( (bx - ax) * (bx - ax) + (by - ay) * (by - ay) );
+	if( count < 2 || span < 1.0f )
+		return;
+
+	// perpendicular to the line, so a tick reads as a slot rather than as part of the line
+	const Real px = -(by - ay) / span;
+	const Real py = (bx - ax) / span;
+
+	for( Int i = 0; i < count; ++i )
+	{
+		const Real t = (Real)i / (Real)(count - 1);
+		const Real sx = ax + (bx - ax) * t;
+		const Real sy = ay + (by - ay) * t;
+
+		TheDisplay->drawLine( REAL_TO_INT_FLOOR( sx - px * tickHalfLength ),
+													REAL_TO_INT_FLOOR( sy - py * tickHalfLength ),
+													REAL_TO_INT_FLOOR( sx + px * tickHalfLength ),
+													REAL_TO_INT_FLOOR( sy + py * tickHalfLength ),
+													width, color );
+	}
+
+}  // end drawFormationLine
 
 //-------------------------------------------------------------------------------------------------
 /** Draw the visual feedback for clicking in the world and telling units

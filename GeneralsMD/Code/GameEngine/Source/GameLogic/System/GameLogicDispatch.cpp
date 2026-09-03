@@ -60,6 +60,7 @@
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/DozerAIUpdate.h"
 #include "GameLogic/Module/SupplyTruckAIUpdate.h"
+#include "GameLogic/TerrainLogic.h"
 
 //-------------------------------------------------------------------------------------------------
 /** Which builder takes a structure job: the free one nearest the site, or failing that the
@@ -963,6 +964,89 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 					if (ai)
 						ai->aiGuardPosition( obj->getPosition(), gm, CMD_FROM_PLAYER );
 				}
+			}
+
+			break;
+		}
+
+		//---------------------------------------------------------------------------------------------
+		//
+		// Formation move (fork).  The player drags a line and the selection spreads itself along
+		// it, one unit per station, which is the one thing the removed group movement work was
+		// trying to do for them and could not: where the units end up is now drawn rather than
+		// guessed at.  The stations are handed out in the order the units already stand along the
+		// line, so nobody crosses anybody on the way in, and the whole thing is resolved here so
+		// the message is two points instead of a list of orders.
+		//
+		case GameMessage::MSG_DO_FORMATION_MOVETO:
+		{
+			Coord3D from = msg->getArgument( 0 )->location;
+			Coord3D to = msg->getArgument( 1 )->location;
+
+			if (currentlySelectedGroup == NULL)
+				break;
+
+			std::vector<Object *> movers;
+			const VecObjectID& ids = currentlySelectedGroup->getAllIDs();
+			for (VecObjectID::const_iterator it = ids.begin(); it != ids.end(); ++it)
+			{
+				Object *obj = TheGameLogic->findObjectByID( *it );
+				if (!obj || obj->getControllingPlayer() != thisPlayer)
+					continue;
+				if (obj->isKindOf( KINDOF_IMMOBILE ) || obj->getAIUpdateInterface() == NULL)
+					continue;
+				movers.push_back( obj );
+			}
+
+			if (movers.empty())
+				break;
+
+			Coord2D along;
+			along.x = to.x - from.x;
+			along.y = to.y - from.y;
+			const Real span = along.length();
+			if (span < 1.0f)
+				break;
+			along.x /= span;
+			along.y /= span;
+
+			//
+			// Sort by where each unit already sits along the line.  Insertion sort: the selection is
+			// a few dozen objects at most, and it keeps the order a total one - the object id breaks
+			// a tie - so every machine hands out the same stations.
+			//
+			for (Int i = 1; i < (Int)movers.size(); i++)
+			{
+				Object *held = movers[ i ];
+				const Real heldKey = (held->getPosition()->x - from.x) * along.x +
+														 (held->getPosition()->y - from.y) * along.y;
+				Int j = i - 1;
+				while (j >= 0)
+				{
+					const Real key = (movers[ j ]->getPosition()->x - from.x) * along.x +
+													 (movers[ j ]->getPosition()->y - from.y) * along.y;
+					if (key < heldKey || (key == heldKey && movers[ j ]->getID() < held->getID()))
+						break;
+					movers[ j + 1 ] = movers[ j ];
+					j--;
+				}
+				movers[ j + 1 ] = held;
+			}
+
+			currentlySelectedGroup->releaseWeaponLockForGroup( LOCKED_TEMPORARILY );
+
+			const Int count = movers.size();
+			for (Int i = 0; i < count; i++)
+			{
+				// one unit stands where the line ends, everyone else divides it evenly
+				const Real t = (count == 1) ? 1.0f : ((Real)i / (Real)(count - 1));
+
+				Coord3D station;
+				station.x = from.x + along.x * span * t;
+				station.y = from.y + along.y * span * t;
+				station.z = TheTerrainLogic->getGroundHeight( station.x, station.y );
+
+				movers[ i ]->getAIUpdateInterface()->aiMoveToPosition( &station, CMD_FROM_PLAYER );
 			}
 
 			break;

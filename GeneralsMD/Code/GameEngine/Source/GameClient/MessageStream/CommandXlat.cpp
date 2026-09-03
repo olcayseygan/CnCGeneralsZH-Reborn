@@ -125,6 +125,31 @@ Bool Command_stopMeansCancelConstruction( Int selectionCount, Bool locallyContro
 	return selectionCount == 1 && locallyControlled && underConstruction;
 }
 
+//-------------------------------------------------------------------------------------------------
+/**
+ * Is this right-button press the start of a formation line?
+ * A GUI command waiting for a target owns the next click whatever the mouse settings say, and with
+ * nothing of your own selected there is nobody to spread, so both of those fall through to the
+ * camera scroll the right button has always been.
+ */
+Bool Command_formationDragArmed( Int setting, Bool ctrlHeld, Bool haveMovableSelection,
+																 Bool guiCommandPending )
+{
+	if( setting <= 0 || guiCommandPending || !haveMovableSelection )
+		return FALSE;
+
+	return setting >= 2 || ctrlHeld;
+}
+
+Bool CommandXlat_isFormationDragArmed( void )
+{
+	return Command_formationDragArmed( TheGlobalData->m_formationDrag,
+																		 TheInGameUI->isInForceAttackMode(),
+																		 TheInGameUI->getSelectCount() > 0
+																			&& TheInGameUI->areSelectedObjectsControllable(),
+																		 TheInGameUI->getGUICommand() != NULL );
+}
+
 
 #if defined(_DEBUG) || defined(_INTERNAL)
 /*non-static*/ Real TheSkateDistOverride = 0.0f;
@@ -1354,7 +1379,8 @@ CommandTranslator::CommandTranslator() :
 	m_objective(0),
 	m_teamExists(false),
 	m_mouseRightDown(0),
-	m_mouseRightUp(0)
+	m_mouseRightUp(0),
+	m_formationDragArmed(FALSE)
 {
 	m_mouseRightDragAnchor.x = 0;
 	m_mouseRightDragAnchor.y = 0;
@@ -3857,6 +3883,24 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			m_mouseRightDragAnchor = msg->getArgument( 0 )->pixel;
 			m_mouseRightDown = (UnsignedInt) msg->getArgument( 2 )->integer;
 
+			m_formationDragArmed = CommandXlat_isFormationDragArmed();
+
+			break;
+		}
+
+		//-----------------------------------------------------------------------------
+		case GameMessage::MSG_RAW_MOUSE_POSITION:
+		{
+			// the line only appears once the cursor has travelled far enough that this is a drag and
+			// not a click that wobbled
+			if( m_formationDragArmed )
+			{
+				const ICoord2D& here = msg->getArgument( 0 )->pixel;
+				if( (UnsignedInt)abs( here.x - m_mouseRightDragAnchor.x ) > TheMouse->m_dragTolerance
+						|| (UnsignedInt)abs( here.y - m_mouseRightDragAnchor.y ) > TheMouse->m_dragTolerance )
+					TheInGameUI->setFormationDrag( m_mouseRightDragAnchor, here );
+			}
+
 			break;
 		}
 
@@ -3866,6 +3910,35 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			// register this event for determining if the click was fast or short enough not to be a drag
 			m_mouseRightDragLift = msg->getArgument( 0 )->pixel;
 			m_mouseRightUp = (UnsignedInt) msg->getArgument( 2 )->integer;
+
+			if( m_formationDragArmed )
+			{
+				const Bool wasDrag = TheInGameUI->isFormationDragging();
+
+				TheInGameUI->clearFormationDrag();
+				m_formationDragArmed = FALSE;
+
+				if( wasDrag )
+				{
+					// two screen points become two world points; who stands where along the line between
+					// them is decided on the logic side, where every machine decides it the same way
+					Coord3D from, to;
+					TheTacticalView->screenToTerrain( &m_mouseRightDragAnchor, &from );
+					TheTacticalView->screenToTerrain( &m_mouseRightDragLift, &to );
+
+					GameMessage *newMsg = TheMessageStream->appendMessage( GameMessage::MSG_DO_FORMATION_MOVETO );
+					newMsg->appendLocationArgument( from );
+					newMsg->appendLocationArgument( to );
+
+					TheInGameUI->clearAttackMoveToMode();
+
+					const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
+					if( selected && !selected->empty() )
+						pickAndPlayUnitVoiceResponse( selected, GameMessage::MSG_DO_MOVETO );
+
+					break;
+				}
+			}
 
 			//Kris: July 7, 2003. Added this code to deselect build placement mode when right clicked. This fixes
 			//a bug where you couldn't cancel the sneak attack mode via right click. This only happened when you

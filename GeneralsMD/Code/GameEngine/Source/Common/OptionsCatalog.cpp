@@ -49,6 +49,7 @@ OPTION_INT_ACCESSORS( m_bloomThreshold )
 OPTION_INT_ACCESSORS( m_windowMode )
 OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_INT_ACCESSORS( m_healthBarMode )
+OPTION_INT_ACCESSORS( m_formationDrag )
 
 //-----------------------------------------------------------------------------
 static const unsigned TheMsaaSamples[ OPTION_MSAA_LEVEL_COUNT ] = { 0, 2, 4, 8, 16 };
@@ -111,6 +112,14 @@ const OptionDef TheOptionCatalog[] =
 	{ "ZoomToCursor",							"", "",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_zoomToCursor, set_m_zoomToCursor },
+
+	// Which drag draws the line a selection spreads itself along.  0 is off, 1 is Ctrl and the right
+	// button, which is the default because it leaves right-drag scrolling exactly where it was, and
+	// 2 is the bare right button for players who never scroll that way and want the drag on one
+	// hand.  Under 2 a right drag with units selected no longer moves the camera.
+	{ "FormationDrag",						"", "",
+		OPTION_INT, APPLY_LIVE, 0, 2,
+		get_m_formationDrag, set_m_formationDrag },
 
 	// Eight rows used to sit here: grid and nudge build placement, snap-to-45 building rotation, the
 	// placement range ring, workers returning to supply, detailed build tooltips, the HUD overlay

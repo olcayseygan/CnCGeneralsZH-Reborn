@@ -48,6 +48,7 @@
 #include "GameClient/View.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/LookAtXlat.h"
+#include "GameClient/CommandXlat.h"		// for the formation drag, which takes the right button away
 #include "GameLogic/Module/UpdateModule.h"
 #include "GameLogic/GameLogic.h"
 
@@ -292,7 +293,9 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 			m_anchor = msg->getArgument( 0 )->pixel;
 			m_currentPos = msg->getArgument( 0 )->pixel;
 
-			if (!TheInGameUI->isSelecting() && !m_isScrolling)
+			// a right button that is about to draw a formation line is not a scroll; this translator
+			// runs before CommandTranslator, so it has to ask the same question for itself
+			if (!TheInGameUI->isSelecting() && !m_isScrolling && !CommandXlat_isFormationDragArmed())
 			{
 				setScrolling(SCROLL_RMB);
 			}
