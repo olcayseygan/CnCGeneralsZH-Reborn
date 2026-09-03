@@ -406,8 +406,18 @@ private:
 /** Command sets are collections of configurable command buttons.  They are used in the
 	* command context sensitive window in the battle user interface */
 //-------------------------------------------------------------------------------------------------
-// how many units a shift-click on a build button queues at once, and a shift-right-click cancels
+//
+// How many units one click on a build button queues, and how many a right-click takes back out.
+// Shift is five, control is twenty, the two together mean "as many as will go" - the queue is nine
+// deep by default and the batch loop stops on its own at a full queue or an empty bank, so the
+// third rung fills every selected factory and spends whatever is left.
+//
 enum { SHIFT_BUILD_QUEUE_COUNT = 5 };
+enum { CTRL_BUILD_QUEUE_COUNT = 20 };
+enum { CTRL_SHIFT_BUILD_QUEUE_COUNT = 100 };
+
+// the count the modifiers currently held ask for; 1 with nothing held
+Int getBuildBatchCount( void );
 
 enum { MAX_COMMANDS_PER_SET = 18 };  // user interface max is 14 (but internally it's 18 for script only buttons!)
 enum { MAX_RIGHT_HUD_UPGRADE_CAMEOS = 5};

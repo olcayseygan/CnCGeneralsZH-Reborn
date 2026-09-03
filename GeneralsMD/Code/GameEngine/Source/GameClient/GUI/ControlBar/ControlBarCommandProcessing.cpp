@@ -529,8 +529,8 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 			DEBUG_ASSERTCRASH( whatToBuild, ("Undefined BUILD command for object '%s'\n",
 												 commandButton->getThingTemplate()->getName().str()) );
 
-			// holding shift queues a whole batch with one click
-			Int wanted = TheKeyboard->isShift() ? SHIFT_BUILD_QUEUE_COUNT : 1;
+			// shift, control or both queue a whole batch with one click
+			Int wanted = getBuildBatchCount();
 
 			// gather the "factory" objects that could make the thing. With several factories
 			// selected (multi-select context) every one that can make it is a candidate, and each

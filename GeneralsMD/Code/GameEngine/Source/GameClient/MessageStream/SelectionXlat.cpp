@@ -645,9 +645,73 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			// if there were drawables in the region, then we should determine if there is a context 
 			// sensitive command that should take place. If there is, then this isn't a selection thing
 			const DrawableList *currentList = TheInGameUI->getAllSelectedDrawables();
-			if (!currentlyLookingForSelection()) 
+			if (!currentlyLookingForSelection())
 			{
 				break;
+			}
+
+			/* Box select modifiers, taken from Beyond All Reason, where they are the difference
+				 between a selection and the right selection.  Shift already adds, so what was missing
+				 was a way to take things back out and a way to leave the base staff behind: Alt keeps
+				 only what can shoot, Ctrl removes the box from the selection instead of replacing it.
+				 Both are drag-only.  A point click has to stay exactly what it was - a filter that eats
+				 single clicks reads as a broken mouse, and Ctrl on a point click is force fire. */
+			if (!isPoint)
+			{
+				if (TheKeyboard->isAlt())
+				{
+					DrawableListIt fit = drawablesThatWillSelect.begin();
+					while (fit != drawablesThatWillSelect.end())
+					{
+						Object *candidate = (*fit) ? (*fit)->getObject() : NULL;
+						const Bool fights = candidate && candidate->hasAnyWeapon() &&
+																!candidate->isKindOf(KINDOF_STRUCTURE);
+						if (fights)
+							++fit;
+						else
+							fit = drawablesThatWillSelect.erase(fit);
+					}
+
+					// a box with nothing armed in it is a miss, not an order to select the base
+					if (drawablesThatWillSelect.empty())
+					{
+						disp = DESTROY_MESSAGE;
+						break;
+					}
+				}
+
+				if (TheKeyboard->isCtrl())
+				{
+					GameMessage *removeMsg = NULL;
+					DrawableListIt rit;
+					for (rit = drawablesThatWillSelect.begin(); rit != drawablesThatWillSelect.end(); ++rit)
+					{
+						Drawable *draw = *rit;
+						if (draw == NULL || !draw->isSelected())
+						{
+							continue;
+						}
+
+						Object *objToDeselect = draw->getObject();
+						if (objToDeselect == NULL)
+						{
+							continue;
+						}
+
+						// the message is only worth making once something is actually coming out
+						if (removeMsg == NULL)
+						{
+							removeMsg = TheMessageStream->appendMessage(GameMessage::MSG_REMOVE_FROM_SELECTED_GROUP);
+						}
+
+						removeMsg->appendObjectIDArgument(objToDeselect->getID());
+						TheInGameUI->deselectDrawable(draw);
+					}
+
+					m_lastGroupSelGroup = -1;
+					disp = DESTROY_MESSAGE;
+					break;
+				}
 			}
 
 			SelectionInfo si;

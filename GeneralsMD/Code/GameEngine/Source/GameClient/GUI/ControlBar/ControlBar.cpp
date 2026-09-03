@@ -2853,6 +2853,22 @@ CommandSet *ControlBar::newCommandSetOverride( CommandSet *setToOverride )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** How many units this click on a build button is worth.  Three rungs, taken from Beyond All
+	Reason's build menu, which is the only RTS that treats the batch size as a first class thing:
+	shift is a squad, control is a queue, both together is everything the bank will pay for.  The
+	same number runs the right button, so whatever a click queued, one right-click of the same
+	shape takes back out. */
+//-------------------------------------------------------------------------------------------------
+Int getBuildBatchCount( void )
+{
+	if( TheKeyboard->isCtrl() )
+		return TheKeyboard->isShift() ? CTRL_SHIFT_BUILD_QUEUE_COUNT : CTRL_BUILD_QUEUE_COUNT;
+
+	return TheKeyboard->isShift() ? SHIFT_BUILD_QUEUE_COUNT : 1;
+
+}  // end getBuildBatchCount
+
+//-------------------------------------------------------------------------------------------------
 /** Process a button click for the context sensitive GUI */
 //-------------------------------------------------------------------------------------------------
 CBCommandStatus ControlBar::processContextSensitiveButtonClick( GameWindow *button,
@@ -2879,8 +2895,8 @@ CBCommandStatus ControlBar::processContextSensitiveButtonClick( GameWindow *butt
 
 		if( command->getCommandType() == GUI_COMMAND_UNIT_BUILD )
 		{
-			// holding shift takes a whole batch back out, mirroring the shift-click that queued one
-			Int wanted = (TheKeyboard && TheKeyboard->isShift()) ? SHIFT_BUILD_QUEUE_COUNT : 1;
+			// a modifier takes the same batch back out that it would have queued
+			Int wanted = getBuildBatchCount();
 			while( wanted-- > 0 && cancelLastQueuedUnit( command->getThingTemplate() ) )
 				;
 			return CBC_COMMAND_USED;

@@ -114,6 +114,7 @@ found and fixed â€” EA's own, not port damage.**
 - Your own right-click orders always win, however much fire is already inbound.
 - A reservation lapses within half a second if the shot never arrives.
 - Ctrl+Q now takes infantry only, not every armed thing you own.
+- A box drawn with Ctrl held takes those units back out of your selection instead of replacing it, so a group is trimmed by dragging over the corner of it rather than picked again from scratch. Held with Alt the box keeps only what can shoot: drag across your base and you get the tanks, not the dozers and supply trucks standing among them. Both are drag-only, and a single click still means exactly what it always did.
 - Ctrl+D takes every unit of the kinds you have selected that is on the screen, and pressed twice inside half a second takes them across the whole map. One tank selected and two keystrokes is your whole armour, wherever it is standing. It was on Shift+Ctrl+E, which is three fingers for something you do in every fight, and it only ever reached across the map when the screen had nothing left to give - so the wide selection happened to you instead of being asked for.
 
 ## Aircraft, guards, and orders that used to be ignored
@@ -266,6 +267,7 @@ found and fixed â€” EA's own, not port damage.**
 - A unit finishes walking out of its factory before it takes an order.
 - An upgrade stays available if any selected building can still buy it.
 - One right click cancels one thing, counted the moment you press.
+- A build button takes a batch: Shift queues five, Ctrl twenty, both together as many as the queue will hold and the bank will pay for. Right-click with the same keys and the same number comes back out. Ten tanks used to be ten clicks.
 - Buying an upgrade for a group starts it in all of them.
 - The progress clock over a picture is steady at any frame rate.
 - A group's upgrade shows its progress, whichever building is paying for it.
