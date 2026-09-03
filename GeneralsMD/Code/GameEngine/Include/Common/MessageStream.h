@@ -634,7 +634,7 @@ public:
 		MSG_SET_MINE_CLEARING_DETAIL,								///< CRC from the logic passed around in a network game :)
 		MSG_ENABLE_RETALIATION_MODE,								///< Turn retaliation mode on or off for the player who sent it.
 		MSG_DO_HOLD_POSITION,												///< Every selected unit guards the spot it is standing on (fork)
-		MSG_DO_FORMATION_MOVETO,										///< (location, location) spread the selection along a drawn line (fork)
+		MSG_DO_FORMATION_MOVETO,										///< (location...) spread the selection along a drawn curve (fork)
 
 		MSG_BEGIN_DEBUG_NETWORK_MESSAGES = 1900,		///< network messages that exist only in debug/internal builds. all grouped separately.
 

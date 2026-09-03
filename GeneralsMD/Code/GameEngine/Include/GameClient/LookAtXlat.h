@@ -39,6 +39,8 @@ public:
 	LookAtTranslator();
 	~LookAtTranslator();
 	virtual GameMessageDisposition translateGameMessage(const GameMessage *msg);
+	/// where the middle-button scroll was started from, or NULL if no such scroll is running
+	const ICoord2D* getScrollAnchor( void );
 	Bool hasMouseMovedRecently( void );
 	void setCurrentPos( const ICoord2D& pos );
 

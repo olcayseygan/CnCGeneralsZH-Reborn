@@ -3890,9 +3890,17 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			if( m_formationDragArmed )
 			{
 				const ICoord2D& here = msg->getArgument( 0 )->pixel;
-				if( (UnsignedInt)abs( here.x - m_mouseRightDragAnchor.x ) > TheMouse->m_dragTolerance
-						|| (UnsignedInt)abs( here.y - m_mouseRightDragAnchor.y ) > TheMouse->m_dragTolerance )
-					TheInGameUI->setFormationDrag( m_mouseRightDragAnchor, here );
+				if( TheInGameUI->isFormationDragging() )
+				{
+					// once it is a drag, every position message is a point on the curve
+					TheInGameUI->addFormationDragPoint( here );
+				}
+				else if( (UnsignedInt)abs( here.x - m_mouseRightDragAnchor.x ) > TheMouse->m_dragTolerance
+								 || (UnsignedInt)abs( here.y - m_mouseRightDragAnchor.y ) > TheMouse->m_dragTolerance )
+				{
+					TheInGameUI->addFormationDragPoint( m_mouseRightDragAnchor );
+					TheInGameUI->addFormationDragPoint( here );
+				}
 			}
 
 			break;
@@ -3909,20 +3917,26 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			{
 				const Bool wasDrag = TheInGameUI->isFormationDragging();
 
+				if( wasDrag )
+					TheInGameUI->addFormationDragPoint( m_mouseRightDragLift );
+
+				// copied out before the drag is cleared, which throws the curve away
+				std::vector<ICoord2D> curve = TheInGameUI->getFormationDragPoints();
+
 				TheInGameUI->clearFormationDrag();
 				m_formationDragArmed = FALSE;
 
-				if( wasDrag )
+				if( wasDrag && curve.size() >= 2 )
 				{
-					// two screen points become two world points; who stands where along the line between
-					// them is decided on the logic side, where every machine decides it the same way
-					Coord3D from, to;
-					TheTacticalView->screenToTerrain( &m_mouseRightDragAnchor, &from );
-					TheTacticalView->screenToTerrain( &m_mouseRightDragLift, &to );
-
+					// the traced curve becomes world points; who stands where along it is decided on
+					// the logic side, where every machine decides it the same way
 					GameMessage *newMsg = TheMessageStream->appendMessage( GameMessage::MSG_DO_FORMATION_MOVETO );
-					newMsg->appendLocationArgument( from );
-					newMsg->appendLocationArgument( to );
+					for( std::vector<ICoord2D>::const_iterator it = curve.begin(); it != curve.end(); ++it )
+					{
+						Coord3D world;
+						TheTacticalView->screenToTerrain( &(*it), &world );
+						newMsg->appendLocationArgument( world );
+					}
 
 					TheInGameUI->clearAttackMoveToMode();
 

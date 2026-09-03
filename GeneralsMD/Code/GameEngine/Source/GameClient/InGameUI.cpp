@@ -1006,8 +1006,6 @@ InGameUI::InGameUI()
   m_inputEnabled = true;
 	m_isDragSelecting = false;
 	m_isFormationDragging = FALSE;
-	m_formationDragAnchor.x = m_formationDragAnchor.y = 0;
-	m_formationDragCurrent = m_formationDragAnchor;
 	m_nextMoveHint = 0;
 	m_selectCount = 0;
 	m_frameSelectionChanged = 0;
@@ -2593,11 +2591,39 @@ void InGameUI::endAreaSelectHint( const GameMessage *msg )
 //-------------------------------------------------------------------------------------------------
 /** The player is dragging out the line a formation move will spread along. */
 //-------------------------------------------------------------------------------------------------
-void InGameUI::setFormationDrag( const ICoord2D& anchor, const ICoord2D& current )
+void InGameUI::addFormationDragPoint( const ICoord2D& pt )
 {
 	m_isFormationDragging = TRUE;
-	m_formationDragAnchor = anchor;
-	m_formationDragCurrent = current;
+
+	if( m_formationDragPoints.empty() )
+	{
+		m_formationDragPoints.push_back( pt );
+		return;
+	}
+
+	// The last point always follows the cursor, so the end of the line sits exactly where the hand
+	// is.  A new point is only kept once the cursor has moved far enough for the curve to be saying
+	// something; without that a slow drag stores one point a frame and fills the message with noise.
+	const Int MIN_SPACING = 12;
+	if( (Int)m_formationDragPoints.size() < MAX_FORMATION_DRAG_POINTS )
+	{
+		const Int keptIndex = (Int)m_formationDragPoints.size() - 2;
+		if( keptIndex < 0 )
+		{
+			m_formationDragPoints.push_back( pt );
+			return;
+		}
+
+		const Int dx = pt.x - m_formationDragPoints[ keptIndex ].x;
+		const Int dy = pt.y - m_formationDragPoints[ keptIndex ].y;
+		if( dx * dx + dy * dy >= MIN_SPACING * MIN_SPACING )
+		{
+			m_formationDragPoints.push_back( pt );
+			return;
+		}
+	}
+
+	m_formationDragPoints.back() = pt;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4537,9 +4563,23 @@ void InGameUI::postDraw( void )
 		}
 	}
 	
-	// The right-button scroll anchor used to be drawn here.  The right button does not scroll any
-	// more, so there is nothing to mark.  DrawRMBScrollAnchor and MoveRMBScrollAnchor stay in the
-	// INI table above because shipped InGameUI.ini sets them and an unknown field is a parse error.
+	// draw the scroll anchor, which sits on the middle button now
+	if (TheLookAtTranslator && m_drawRMBScrollAnchor)
+	{
+		const ICoord2D* anchor = TheLookAtTranslator->getScrollAnchor();
+		if (anchor)
+		{
+			static const Int w = 2;
+			static const Int h = 2;
+			static const Int r = 4; // ratio
+			static const Color mainColor = GameMakeColor(0, 255, 0, 255);
+			static const Color dropColor = GameMakeColor(0, 0, 0, 255);
+			TheDisplay->drawFillRect( anchor->x-w*r-1, anchor->y-h-1, w*2*r+3, h*2+3, dropColor );
+			TheDisplay->drawFillRect( anchor->x-w-1, anchor->y-h*r-1, w*2+3, h*2*r+3, dropColor );
+			TheDisplay->drawFillRect( anchor->x-w*r, anchor->y-h, w*2*r+1, h*2+1, mainColor );
+			TheDisplay->drawFillRect( anchor->x-w, anchor->y-h*r, w*2+1, h*2*r+1, mainColor );
+		}
+	}
 
 	//draw superweapon ready multipliers
 	TheControlBar->drawSpecialPowerShortcutMultiplierText();

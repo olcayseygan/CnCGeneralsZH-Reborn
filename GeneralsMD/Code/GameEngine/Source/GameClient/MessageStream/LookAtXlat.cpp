@@ -137,6 +137,15 @@ LookAtTranslator::~LookAtTranslator()
 		TheLookAtTranslator = NULL;
 }
 
+const ICoord2D* LookAtTranslator::getScrollAnchor(void)
+{
+	if (m_isScrolling && m_scrollType == SCROLL_MMB)
+	{
+		return &m_anchor;
+	}
+	return NULL;
+}
+
 Bool LookAtTranslator::hasMouseMovedRecently( void )
 {
 	if (m_lastMouseMoveFrame > TheGameLogic->getFrame())
@@ -513,11 +522,35 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 				{
 				case SCROLL_MMB:
 					{
-						// straight drag-the-world pan: no anchor chasing and no keyboard minimum,
-						// so the map follows the cursor one-to-one.
-						offset.x = -TheGlobalData->m_horizontalScrollSpeedFactor * (m_currentPos.x - m_anchor.x);
-						offset.y = -TheGlobalData->m_verticalScrollSpeedFactor * (m_currentPos.y - m_anchor.y);
-						m_anchor = m_currentPos;
+						// The anchor stays where the button went down and the camera runs away from it,
+						// faster the further the cursor gets.  This is what the right button used to do,
+						// and it is what the hand expects; a one-to-one drag of the world is not the same
+						// gesture and reads as sluggish at these scroll factors.
+						if (TheInGameUI->shouldMoveScrollAnchor())
+						{
+							Int maxX = TheDisplay->getWidth()/2;
+							Int maxY = TheDisplay->getHeight()/2;
+
+							if (m_currentPos.x + maxX < m_anchor.x)
+								m_anchor.x = m_currentPos.x + maxX;
+							else if (m_currentPos.x - maxX > m_anchor.x)
+								m_anchor.x = m_currentPos.x - maxX;
+
+							if (m_currentPos.y + maxY < m_anchor.y)
+								m_anchor.y = m_currentPos.y + maxY;
+							else if (m_currentPos.y - maxY > m_anchor.y)
+								m_anchor.y = m_currentPos.y - maxY;
+						}
+
+						offset.x = TheGlobalData->m_horizontalScrollSpeedFactor * (m_currentPos.x - m_anchor.x);
+						offset.y = TheGlobalData->m_verticalScrollSpeedFactor * (m_currentPos.y - m_anchor.y);
+						Coord2D vec;
+						vec.x = offset.x;
+						vec.y = offset.y;
+						vec.normalize();
+						// Add in the window scroll amount as the minimum.
+						offset.x += TheGlobalData->m_horizontalScrollSpeedFactor * vec.x * sqr(TheGlobalData->m_keyboardScrollFactor);
+						offset.y += TheGlobalData->m_verticalScrollSpeedFactor * vec.y * sqr(TheGlobalData->m_keyboardScrollFactor);
 					}
 					break;
 				case SCROLL_KEY:

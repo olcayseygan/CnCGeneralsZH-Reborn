@@ -260,6 +260,63 @@ static void doSetRallyPoint( Object *obj, const Coord3D& pos )
 
 }
 
+//-------------------------------------------------------------------------------------------------
+/** How far along a drawn curve the point nearest to (x,y) sits.  The formation move uses this to
+  * order the units: whoever is nearest the start of the curve takes the first station. */
+//-------------------------------------------------------------------------------------------------
+static Real distanceAlongPath( const std::vector<Coord3D>& path, const std::vector<Real>& arc,
+															 Real x, Real y )
+{
+	Real best = 0.0f;
+	Real bestDistSqr = -1.0f;
+
+	for (Int i = 1; i < (Int)path.size(); i++)
+	{
+		const Real sx = path[ i - 1 ].x;
+		const Real sy = path[ i - 1 ].y;
+		const Real dx = path[ i ].x - sx;
+		const Real dy = path[ i ].y - sy;
+		const Real segLenSqr = dx * dx + dy * dy;
+
+		Real t = 0.0f;
+		if (segLenSqr > 0.0f)
+		{
+			t = ((x - sx) * dx + (y - sy) * dy) / segLenSqr;
+			if (t < 0.0f)
+				t = 0.0f;
+			else if (t > 1.0f)
+				t = 1.0f;
+		}
+
+		const Real px = sx + dx * t;
+		const Real py = sy + dy * t;
+		const Real distSqr = (x - px) * (x - px) + (y - py) * (y - py);
+		if (bestDistSqr < 0.0f || distSqr < bestDistSqr)
+		{
+			bestDistSqr = distSqr;
+			best = arc[ i - 1 ] + sqrtf( segLenSqr ) * t;
+		}
+	}
+
+	return best;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The point that far along a drawn curve, ground height not filled in. */
+//-------------------------------------------------------------------------------------------------
+static void pointAlongPath( const std::vector<Coord3D>& path, const std::vector<Real>& arc,
+														Real dist, Coord3D *out )
+{
+	Int i = 1;
+	while (i < (Int)path.size() - 1 && arc[ i ] < dist)
+		i++;
+
+	const Real segLen = arc[ i ] - arc[ i - 1 ];
+	const Real t = (segLen > 0.0f) ? ((dist - arc[ i - 1 ]) / segLen) : 0.0f;
+	out->x = path[ i - 1 ].x + (path[ i ].x - path[ i - 1 ].x) * t;
+	out->y = path[ i - 1 ].y + (path[ i ].y - path[ i - 1 ].y) * t;
+}
+
 static Object * getSingleObjectFromSelection(const AIGroup *currentlySelectedGroup)
 {
 	// an empty group is not the same as no group: the iterator below was taken from an empty
@@ -976,14 +1033,20 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 		// trying to do for them and could not: where the units end up is now drawn rather than
 		// guessed at.  The stations are handed out in the order the units already stand along the
 		// line, so nobody crosses anybody on the way in, and the whole thing is resolved here so
-		// the message is two points instead of a list of orders.
+		// the message is the drawn curve instead of a list of orders.
 		//
 		case GameMessage::MSG_DO_FORMATION_MOVETO:
 		{
-			Coord3D from = msg->getArgument( 0 )->location;
-			Coord3D to = msg->getArgument( 1 )->location;
-
 			if (currentlySelectedGroup == NULL)
+				break;
+
+			// the curve the cursor traced, however many corners the player's hand put in it
+			std::vector<Coord3D> path;
+			const Int pointCount = msg->getArgumentCount();
+			for (Int p = 0; p < pointCount; p++)
+				path.push_back( msg->getArgument( p )->location );
+
+			if (path.size() < 2)
 				break;
 
 			std::vector<Object *> movers;
@@ -1001,30 +1064,37 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 			if (movers.empty())
 				break;
 
-			Coord2D along;
-			along.x = to.x - from.x;
-			along.y = to.y - from.y;
-			const Real span = along.length();
+			// arc length up to each point, so a station is a distance along the whole curve and not a
+			// fraction of one segment - a hand-drawn line has segments of every size
+			std::vector<Real> arc;
+			arc.push_back( 0.0f );
+			for (Int i = 1; i < (Int)path.size(); i++)
+			{
+				const Real dx = path[ i ].x - path[ i - 1 ].x;
+				const Real dy = path[ i ].y - path[ i - 1 ].y;
+				arc.push_back( arc[ i - 1 ] + sqrtf( dx * dx + dy * dy ) );
+			}
+
+			const Real span = arc.back();
 			if (span < 1.0f)
 				break;
-			along.x /= span;
-			along.y /= span;
 
 			//
-			// Sort by where each unit already sits along the line.  Insertion sort: the selection is
+			// Sort by where each unit already sits along the curve.  Insertion sort: the selection is
 			// a few dozen objects at most, and it keeps the order a total one - the object id breaks
 			// a tie - so every machine hands out the same stations.
 			//
 			for (Int i = 1; i < (Int)movers.size(); i++)
 			{
 				Object *held = movers[ i ];
-				const Real heldKey = (held->getPosition()->x - from.x) * along.x +
-														 (held->getPosition()->y - from.y) * along.y;
+				const Real heldKey = distanceAlongPath( path, arc,
+																							 held->getPosition()->x, held->getPosition()->y );
 				Int j = i - 1;
 				while (j >= 0)
 				{
-					const Real key = (movers[ j ]->getPosition()->x - from.x) * along.x +
-													 (movers[ j ]->getPosition()->y - from.y) * along.y;
+					const Real key = distanceAlongPath( path, arc,
+																							movers[ j ]->getPosition()->x,
+																							movers[ j ]->getPosition()->y );
 					if (key < heldKey || (key == heldKey && movers[ j ]->getID() < held->getID()))
 						break;
 					movers[ j + 1 ] = movers[ j ];
@@ -1038,12 +1108,11 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 			const Int count = movers.size();
 			for (Int i = 0; i < count; i++)
 			{
-				// one unit stands where the line ends, everyone else divides it evenly
+				// one unit stands where the curve ends, everyone else divides it evenly
 				const Real t = (count == 1) ? 1.0f : ((Real)i / (Real)(count - 1));
 
 				Coord3D station;
-				station.x = from.x + along.x * span * t;
-				station.y = from.y + along.y * span * t;
+				pointAlongPath( path, arc, span * t, &station );
 				station.z = TheTerrainLogic->getGroundHeight( station.x, station.y );
 
 				movers[ i ]->getAIUpdateInterface()->aiMoveToPosition( &station, CMD_FROM_PLAYER );

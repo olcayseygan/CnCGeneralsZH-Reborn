@@ -782,29 +782,48 @@ void W3DInGameUI::drawFormationLine( void )
 	const UnsignedInt color = 0xCC33FF33;  //0xAARRGGBB
 	const Real tickHalfLength = 6.0f;
 
-	const Real ax = (Real)m_formationDragAnchor.x;
-	const Real ay = (Real)m_formationDragAnchor.y;
-	const Real bx = (Real)m_formationDragCurrent.x;
-	const Real by = (Real)m_formationDragCurrent.y;
+	const std::vector<ICoord2D>& curve = m_formationDragPoints;
+	const Int points = (Int)curve.size();
+	if( points < 2 )
+		return;
 
-	TheDisplay->drawLine( m_formationDragAnchor.x, m_formationDragAnchor.y,
-												m_formationDragCurrent.x, m_formationDragCurrent.y,
-												width, color );
+	// arc length up to each point, so the ticks divide the whole curve rather than each segment
+	Real arc[ MAX_FORMATION_DRAG_POINTS ];
+	arc[ 0 ] = 0.0f;
+	for( Int i = 1; i < points; ++i )
+	{
+		const Real dx = (Real)(curve[ i ].x - curve[ i - 1 ].x);
+		const Real dy = (Real)(curve[ i ].y - curve[ i - 1 ].y);
+		arc[ i ] = arc[ i - 1 ] + sqrtf( dx * dx + dy * dy );
+
+		TheDisplay->drawLine( curve[ i - 1 ].x, curve[ i - 1 ].y, curve[ i ].x, curve[ i ].y,
+													width, color );
+	}
 
 	const Int count = getSelectCount();
-	const Real span = sqrtf( (bx - ax) * (bx - ax) + (by - ay) * (by - ay) );
+	const Real span = arc[ points - 1 ];
 	if( count < 2 || span < 1.0f )
 		return;
 
-	// perpendicular to the line, so a tick reads as a slot rather than as part of the line
-	const Real px = -(by - ay) / span;
-	const Real py = (bx - ax) / span;
-
+	Int seg = 1;
 	for( Int i = 0; i < count; ++i )
 	{
-		const Real t = (Real)i / (Real)(count - 1);
-		const Real sx = ax + (bx - ax) * t;
-		const Real sy = ay + (by - ay) * t;
+		const Real dist = span * (Real)i / (Real)(count - 1);
+		while( seg < points - 1 && arc[ seg ] < dist )
+			++seg;
+
+		const Real segLen = arc[ seg ] - arc[ seg - 1 ];
+		const Real t = (segLen > 0.0f) ? ((dist - arc[ seg - 1 ]) / segLen) : 0.0f;
+		const Real dx = (Real)(curve[ seg ].x - curve[ seg - 1 ].x);
+		const Real dy = (Real)(curve[ seg ].y - curve[ seg - 1 ].y);
+		const Real sx = (Real)curve[ seg - 1 ].x + dx * t;
+		const Real sy = (Real)curve[ seg - 1 ].y + dy * t;
+
+		// perpendicular to the segment the station sits on, so a tick reads as a slot rather than as
+		// part of the line
+		const Real segSpan = (segLen > 0.0f) ? segLen : 1.0f;
+		const Real px = -dy / segSpan;
+		const Real py = dx / segSpan;
 
 		TheDisplay->drawLine( REAL_TO_INT_FLOOR( sx - px * tickHalfLength ),
 													REAL_TO_INT_FLOOR( sy - py * tickHalfLength ),

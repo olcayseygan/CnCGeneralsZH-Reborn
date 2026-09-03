@@ -397,12 +397,14 @@ public:  // ********************************************************************
 	// interface for graphical "hints" which provide visual feedback for user-interface commands
 	virtual void beginAreaSelectHint( const GameMessage *msg );	///< Used by HintSpy. An area selection is occurring, start graphical "hint"
 	virtual void endAreaSelectHint( const GameMessage *msg );		///< Used by HintSpy. An area selection had occurred, finish graphical "hint"
-	// the line the player is dragging out for a formation move, in screen pixels
-	void setFormationDrag( const ICoord2D& anchor, const ICoord2D& current );
-	void clearFormationDrag( void ) { m_isFormationDragging = FALSE; }
+	// The line the player is dragging out for a formation move, in screen pixels.  It is the curve
+	// the cursor actually traced, not the chord: an arc round a rock is a shape a straight segment
+	// cannot say.
+	enum { MAX_FORMATION_DRAG_POINTS = 32 };
+	void addFormationDragPoint( const ICoord2D& pt );
+	void clearFormationDrag( void ) { m_isFormationDragging = FALSE; m_formationDragPoints.clear(); }
 	Bool isFormationDragging( void ) const { return m_isFormationDragging; }
-	const ICoord2D& getFormationDragAnchor( void ) const { return m_formationDragAnchor; }
-	const ICoord2D& getFormationDragCurrent( void ) const { return m_formationDragCurrent; }
+	const std::vector<ICoord2D>& getFormationDragPoints( void ) const { return m_formationDragPoints; }
 
 	virtual void createMoveHint( const GameMessage *msg );			///< A move command has occurred, start graphical "hint"
 	virtual void createAttackHint( const GameMessage *msg );		///< An attack command has occurred, start graphical "hint"
@@ -808,6 +810,10 @@ public:  // ********************************************************************
 	void setDrawRMBScrollAnchor(Bool b) { m_drawRMBScrollAnchor = b; }
 	void setMoveRMBScrollAnchor(Bool b) { m_moveRMBScrollAnchor = b; }
 
+	// The camera scroll moved from the right button to the middle one; the two INI fields keep their
+	// shipped names because InGameUI.ini sets them and an unknown field is a parse error.
+	Bool shouldMoveScrollAnchor( void ) const { return m_moveRMBScrollAnchor; }
+
 private:
 	virtual Int getIdleWorkerCount( void );
 	virtual Object *findIdleWorker( Object *obj);
@@ -960,8 +966,7 @@ protected:
 	Bool												m_isDragSelecting;														///< If TRUE, an area selection is in progress
 	IRegion2D										m_dragSelectRegion;														///< if isDragSelecting is TRUE, this contains select region
 	Bool												m_isFormationDragging;												///< TRUE while a formation line is being drawn (fork)
-	ICoord2D										m_formationDragAnchor;												///< where that line started, in pixels
-	ICoord2D										m_formationDragCurrent;												///< where the cursor is now, in pixels
+	std::vector<ICoord2D>				m_formationDragPoints;												///< the traced curve, in pixels, first point is where it started
 	Bool												m_displayedMaxWarning;                        ///< keeps the warning from being shown over and over
 	MoveHintStruct							m_moveHint[ MAX_MOVE_HINTS ];
 	Int													m_nextMoveHint;
