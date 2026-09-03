@@ -264,9 +264,9 @@ WindowMsgHandledType LeftHUDInput( GameWindow *window, UnsignedInt msg,
 				const DrawableList *drawableList = TheInGameUI->getAllSelectedLocalDrawables(); // locally-owned only
 				
 				// see if the user wants to move the tactical view
-				if (	drawableList->empty() 
-					||	(! TheGlobalData->m_useAlternateMouse && msg == GWM_RIGHT_DOWN)
-					||	(TheGlobalData->m_useAlternateMouse && msg == GWM_LEFT_DOWN)	)
+				// Left on the radar looks, right on the radar orders - the same division the world
+				// has.  It used to depend on UseAlternateMouse, which no longer exists.
+				if( drawableList->empty() || msg == GWM_LEFT_DOWN )
 				{
 					TheTacticalView->lookAt( &world );
 					break;

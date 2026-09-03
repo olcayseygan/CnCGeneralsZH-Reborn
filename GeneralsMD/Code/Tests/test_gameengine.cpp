@@ -924,28 +924,22 @@ TEST(ctrl_is_force_fire_only_while_the_attack_move_cursor_is_down)
 	CHECK( !CommandXlat_isForceAttackTargeting( false, true ) );
 }
 
-/* CommandXlat.cpp: the right button already scrolls the camera, so the formation line has to be
-   sure it is wanted before it takes that drag away.  LookAtXlat asks the same question one
-   translator earlier, which is why the rule is a function rather than a condition written twice. */
-extern Bool Command_formationDragArmed( Int setting, Bool ctrlHeld, Bool haveMovableSelection,
+/* CommandXlat.cpp: a right drag spreads the selection along the line drawn, but only when there is
+   a selection to spread and no GUI command already waiting for the click. */
+extern Bool Command_formationDragArmed( Bool setting, Bool haveMovableSelection,
 																				Bool guiCommandPending );
 
 TEST(formation_drag_takes_the_right_button_only_when_it_is_asked_for)
 {
-	/* setting 1, the default: ctrl and the right button together, and nothing else. */
-	CHECK(  Command_formationDragArmed( 1, true,  true, false ) );
-	CHECK( !Command_formationDragArmed( 1, false, true, false ) );
-
-	/* setting 2: the right button on its own, ctrl or no ctrl. */
-	CHECK(  Command_formationDragArmed( 2, false, true, false ) );
-	CHECK(  Command_formationDragArmed( 2, true,  true, false ) );
+	/* on by default: a right drag with your own units selected draws the line. */
+	CHECK(  Command_formationDragArmed( true, true, false ) );
 
 	/* off is off. */
-	CHECK( !Command_formationDragArmed( 0, true,  true, false ) );
+	CHECK( !Command_formationDragArmed( false, true, false ) );
 
 	/* nobody to spread, or a GUI command already waiting for this click. */
-	CHECK( !Command_formationDragArmed( 2, true,  false, false ) );
-	CHECK( !Command_formationDragArmed( 2, true,  true,  true ) );
+	CHECK( !Command_formationDragArmed( true, false, false ) );
+	CHECK( !Command_formationDragArmed( true, true,  true ) );
 }
 
 /* AssaultTransportAIUpdate.cpp: the troop crawler deploys its passengers at a target and used to
@@ -8039,7 +8033,7 @@ TEST(gameplay_conveniences_are_forced_on_and_left_the_catalog)
 		 Options.ini that names one still wins over the default. */
 	static const char *const hidden[] =
 	{
-		"MiddleMousePans", "ZoomToCursor", "EdgeScrollInWindowedMode", "SnapCameraRotateTo45", NULL
+		"FormationDrag", "ZoomToCursor", "EdgeScrollInWindowedMode", "SnapCameraRotateTo45", NULL
 	};
 	for( Int i = 0; hidden[ i ] != NULL; ++i )
 	{

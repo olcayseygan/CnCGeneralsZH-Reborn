@@ -138,7 +138,6 @@ public:
 	Bool m_enableDynamicLOD;
 	Bool m_enableStaticLOD;
 	Int m_terrainLODTargetTimeMS;
-	Bool m_useAlternateMouse;
 	Bool m_clientRetaliationModeEnabled;
 	Bool m_doubleClickAttackMove;
 	Bool m_rightMouseAlwaysScrolls;
@@ -355,9 +354,8 @@ public:
 	Bool m_snapCameraRotateTo45;		///< quantize the camera heading to 45 degrees when a middle-drag rotate ends
 	Bool m_gridBuildPlacement;			///< quantize structure placement to the pathfinder's build grid
 	Bool m_nudgeBuildPlacement;			///< slide a blocked structure to the nearest spot it does fit
-	Bool m_middleMousePans;				///< middle-button drag pans the camera instead of rotating it
 	Bool m_zoomToCursor;				///< the mouse wheel zooms toward whatever the cursor is over
-	Int m_formationDrag;				///< 0 off, 1 ctrl and the right button draw a formation line, 2 the right button alone
+	Bool m_formationDrag;				///< dragging the right button spreads the selection along the line drawn
 	Bool m_showHudOverlay;				///< draw the fps / elapsed time / income line in the corner
 	Bool m_showPlacementRangeRing;		///< while placing a structure, ring its weapon range
 	Bool m_workersReturnToSupply;		///< a worker that finishes a build job goes back to the dock it left

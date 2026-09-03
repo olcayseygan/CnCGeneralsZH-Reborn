@@ -72,9 +72,13 @@ RULES = ["Line1", "Line2", "Line3", "Line4"]
 # positioned by hand, so it gets a name on the way through.
 NAME_THE_UNNAMED = [("GUI:AntiAliasing", "AntiAliasingLabel")]
 
+# Controls that are in the shipped file and are not wanted at all.  CheckAlternateMouse chose
+# between the classic mouse and the alternate one; there is one mouse now, so the choice is gone.
+DELETE = ["CheckAlternateMouse"]
+
 # The new controls, cloned from a control of the same kind that is already in the file.
 #   (page, template, name, text key, left, top, width, height)
-CHECK, LABEL, COMBO, SLIDER = "CheckAlternateMouse", "DetailLabel", "ComboBoxDetail", "SliderGamma"
+CHECK, LABEL, COMBO, SLIDER = "Retaliation", "DetailLabel", "ComboBoxDetail", "SliderGamma"
 
 CONTROLS = [
     # Display: the two device settings and the two bloom knobs, in the space the audio panel left
@@ -120,12 +124,11 @@ RELAYOUT = [
     ("VoiceVolumeLabel",              160, 216, 183, 24),
     ("SliderVoiceVolume",             164, 240, 208, 24),
 
-    ("ScrollParent",                  151, 100, 484, 112),
-    ("CheckAlternateMouse",           160, 104, 192, 24),
+    ("ScrollParent",                  151, 100, 484,  88),
+    ("Retaliation",                   160, 104, 192, 24),
     ("CheckDoubleClickAttackMove",    387, 104, 246, 24),
-    ("Retaliation",                   160, 128, 192, 24),
-    ("ScrollSpeedLabel",              160, 160, 464, 24),
-    ("SliderScrollSpeed",             167, 184, 444, 24),
+    ("ScrollSpeedLabel",              160, 136, 464, 24),
+    ("SliderScrollSpeed",             167, 160, 444, 24),
 
     ("NetworkParent",                 151, 100, 484, 96),
     ("StaticTextOnlineIpAddresses",   152, 104,  88, 24),
@@ -204,6 +207,14 @@ def drawn_text(window):
     return match.group(1) if match else None
 
 
+def drop_by_name(root, names):
+    """Delete every window with one of these names, wherever it sits."""
+    wanted = set(names)
+    for node in list(root.walk()):
+        node.children = [child for child in node.children
+                         if (child.name or "").split(":")[-1] not in wanted]
+
+
 def drop_by_text(root, texts):
     """Delete every window drawing one of these strings, wherever it sits."""
     wanted = set(texts)
@@ -224,6 +235,7 @@ def build(layout):
                 node.name = _named(name)
 
     drop_by_text(layout.root, HEADINGS)
+    drop_by_name(layout.root, DELETE)
     for name in RULES:
         detach(old, name)
 

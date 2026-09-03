@@ -192,9 +192,8 @@ GlobalData* GlobalData::m_theOriginal = NULL;
 	{ "SnapCameraRotateTo45",			INI::parseBool,				NULL,			offsetof( GlobalData, m_snapCameraRotateTo45 ) },
 	{ "GridBuildPlacement",				INI::parseBool,				NULL,			offsetof( GlobalData, m_gridBuildPlacement ) },
 	{ "NudgeBuildPlacement",			INI::parseBool,				NULL,			offsetof( GlobalData, m_nudgeBuildPlacement ) },
-	{ "MiddleMousePans",					INI::parseBool,				NULL,			offsetof( GlobalData, m_middleMousePans ) },
 	{ "ZoomToCursor",							INI::parseBool,				NULL,			offsetof( GlobalData, m_zoomToCursor ) },
-	{ "FormationDrag",						INI::parseInt,				NULL,			offsetof( GlobalData, m_formationDrag ) },
+	{ "FormationDrag",						INI::parseBool,				NULL,			offsetof( GlobalData, m_formationDrag ) },
 	{ "ShowHudOverlay",						INI::parseBool,				NULL,			offsetof( GlobalData, m_showHudOverlay ) },
 	{ "ShowPlacementRangeRing",		INI::parseBool,				NULL,			offsetof( GlobalData, m_showPlacementRangeRing ) },
 	{ "WorkersReturnToSupply",		INI::parseBool,				NULL,			offsetof( GlobalData, m_workersReturnToSupply ) },
@@ -1051,11 +1050,9 @@ GlobalData::GlobalData()
 	//
 	m_edgeScrollInWindowedMode = TRUE;
 	m_snapCameraRotateTo45 = TRUE;
-	// middle-drag stays a rotate by default (it snaps to 45 degrees on release); pan is opt-in
-	m_middleMousePans = FALSE;
 	m_zoomToCursor = TRUE;
-	// ctrl plus the right button, so plain right-drag scrolling is untouched
-	m_formationDrag = 1;
+	// the right button no longer scrolls, so a right-drag is free to mean something
+	m_formationDrag = TRUE;
 
 	m_snapBuildPlacementTo45 = TRUE;
 	m_gridBuildPlacement = TRUE;
@@ -1318,7 +1315,6 @@ void GlobalData::parseGameDataDefinition( INI* ini )
 
 	// override INI values with user preferences
 	OptionPreferences optionPref;
-	TheWritableGlobalData->m_useAlternateMouse = optionPref.getAlternateMouseModeEnabled();
 	TheWritableGlobalData->m_clientRetaliationModeEnabled = optionPref.getRetaliationModeEnabled();
 	TheWritableGlobalData->m_doubleClickAttackMove = optionPref.getDoubleClickAttackMoveEnabled();
 	TheWritableGlobalData->m_keyboardScrollFactor = optionPref.getScrollFactor();

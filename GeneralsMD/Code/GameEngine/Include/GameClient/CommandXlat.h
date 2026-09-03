@@ -60,7 +60,7 @@ private:
 	UnsignedInt m_mouseRightUp;		// when the mouse up happened
 
 	// latched the moment the right button goes down: whether this drag is drawing a formation line.
-	// Latched rather than asked again, so letting go of ctrl halfway through does not abandon a line
+	// Latched rather than asked again, so a selection that changes mid-drag cannot abandon a line
 	// the player is already dragging.
 	Bool m_formationDragArmed;
 
@@ -134,14 +134,9 @@ extern void pickAndPlayUnitVoiceResponse( const DrawableList *list, GameMessage:
 ///< does the stop key cancel a building that is going up, rather than stopping a unit?
 extern Bool Command_stopMeansCancelConstruction( Int selectionCount, Bool locallyControlled, Bool underConstruction );
 
-/** Is this right-button press the start of a formation line rather than a camera scroll?
-	* setting is TheGlobalData->m_formationDrag: 0 off, 1 ctrl and the right button, 2 the right
-	* button on its own. */
-extern Bool Command_formationDragArmed( Int setting, Bool ctrlHeld, Bool haveMovableSelection,
+/** Does this right-button press start a formation line?  setting is TheGlobalData->m_formationDrag. */
+extern Bool Command_formationDragArmed( Bool setting, Bool haveMovableSelection,
 																				Bool guiCommandPending );
-
-///< the same question against the live UI; LookAtXlat asks it to keep its hands off the scroll
-extern Bool CommandXlat_isFormationDragArmed( void );
 
 class Player;
 /** Single-player test hook: make this player the one at the keyboard, throwing away any AI behind

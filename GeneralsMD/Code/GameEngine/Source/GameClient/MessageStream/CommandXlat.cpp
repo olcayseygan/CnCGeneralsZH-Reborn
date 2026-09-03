@@ -128,23 +128,17 @@ Bool Command_stopMeansCancelConstruction( Int selectionCount, Bool locallyContro
 //-------------------------------------------------------------------------------------------------
 /**
  * Is this right-button press the start of a formation line?
- * A GUI command waiting for a target owns the next click whatever the mouse settings say, and with
- * nothing of your own selected there is nobody to spread, so both of those fall through to the
- * camera scroll the right button has always been.
+ * A GUI command waiting for a target owns the next click, and with nothing of your own selected
+ * there is nobody to spread, so both of those leave the drag meaning nothing.
  */
-Bool Command_formationDragArmed( Int setting, Bool ctrlHeld, Bool haveMovableSelection,
-																 Bool guiCommandPending )
+Bool Command_formationDragArmed( Bool setting, Bool haveMovableSelection, Bool guiCommandPending )
 {
-	if( setting <= 0 || guiCommandPending || !haveMovableSelection )
-		return FALSE;
-
-	return setting >= 2 || ctrlHeld;
+	return setting && !guiCommandPending && haveMovableSelection;
 }
 
-Bool CommandXlat_isFormationDragArmed( void )
+static Bool isFormationDragArmed( void )
 {
 	return Command_formationDragArmed( TheGlobalData->m_formationDrag,
-																		 TheInGameUI->isInForceAttackMode(),
 																		 TheInGameUI->getSelectCount() > 0
 																			&& TheInGameUI->areSelectedObjectsControllable(),
 																		 TheInGameUI->getGUICommand() != NULL );
@@ -3883,7 +3877,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			m_mouseRightDragAnchor = msg->getArgument( 0 )->pixel;
 			m_mouseRightDown = (UnsignedInt) msg->getArgument( 2 )->integer;
 
-			m_formationDragArmed = CommandXlat_isFormationDragArmed();
+			m_formationDragArmed = isFormationDragArmed();
 
 			break;
 		}
@@ -3955,9 +3949,9 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_MOUSE_RIGHT_DOUBLE_CLICK:
 		{
-			if( TheGlobalData->m_useAlternateMouse && TheGlobalData->m_doubleClickAttackMove )
+			if( TheGlobalData->m_doubleClickAttackMove )
 			{
-				// create the message and append arguments for a guard location	
+				// create the message and append arguments for a guard location
 				GameMessage *newMsg = TheMessageStream->appendMessage( GameMessage::MSG_DO_GUARD_POSITION );
 				Coord3D pos;
 				TheTacticalView->screenToTerrain( &msg->getArgument( 0 )->pixel, &pos );
@@ -3974,9 +3968,10 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		}
 		case GameMessage::MSG_MOUSE_RIGHT_CLICK:
 		{
-			// right click is only actioned here if we're in alternate mouse mode
-			if (TheGlobalData->m_useAlternateMouse 
-				&& TheMouse->isClick(&m_mouseRightDragAnchor, &m_mouseRightDragLift, m_mouseRightDown, m_mouseRightUp))
+			// The right button is the order button, always.  It used to depend on UseAlternateMouse,
+			// which is gone: a click here commands, a drag draws a formation line, and neither of
+			// them scrolls.
+			if (TheMouse->isClick(&m_mouseRightDragAnchor, &m_mouseRightDragLift, m_mouseRightDown, m_mouseRightUp))
 			{
 				Bool isPoint = (msg->getArgument(0)->pixelRegion.height() == 0 && msg->getArgument(0)->pixelRegion.width() == 0);
 
@@ -4018,21 +4013,9 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_MOUSE_LEFT_DOUBLE_CLICK:
 		{
-			if( !TheGlobalData->m_useAlternateMouse && TheGlobalData->m_doubleClickAttackMove )
-			{
-				// create the message and append arguments for a guard location	
-				GameMessage *newMsg = TheMessageStream->appendMessage( GameMessage::MSG_DO_GUARD_POSITION );
-				Coord3D pos;
-				TheTacticalView->screenToTerrain( &msg->getArgument( 0 )->pixel, &pos );
-				newMsg->appendLocationArgument(pos);
-				newMsg->appendIntegerArgument(GUARDMODE_NORMAL);
-
-				ThePlayerList->getLocalPlayer()->getAcademyStats()->recordDoubleClickAttackMoveOrderGiven();
-
-        TheInGameUI->triggerDoubleClickAttackMoveGuardHint();
-
-				break;
-			}
+			// The double-click attack move used to sit here as well, for the classic mouse.  There is
+			// only one mouse now and its orders are on the right button, so this case does nothing of
+			// its own.
 			//intentional fall through
 		}
 		case GameMessage::MSG_MOUSE_LEFT_CLICK:
@@ -4052,7 +4035,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			TheTacticalView->screenToTerrain( &msg->getArgument( 0 )->pixel, &pos );
 
 			const CommandButton *command = TheInGameUI->getGUICommand();
-			// maintain this as the list of GUI button initiated commands that fire with left click in alt mouse mode
+			// maintain this as the list of GUI button initiated commands that fire with left click
   			Bool isFiringGUICommand = (command	&& (command->getCommandType() == GUI_COMMAND_SPECIAL_POWER
   												|| command->getCommandType() == GUI_COMMAND_SPECIAL_POWER_FROM_SHORTCUT
  												|| command->getCommandType() == GUI_COMMAND_FIRE_WEAPON
@@ -4060,8 +4043,10 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 												|| command->getCommandType() == GUICOMMANDMODE_HIJACK_VEHICLE
 												|| command->getCommandType() == GUICOMMANDMODE_CONVERT_TO_CARBOMB));
 
-			// in alternate mouse mode, this left click is only actioned here if we're firing a gui command
-			if ((TheGlobalData->m_useAlternateMouse) && (! isFiringGUICommand))
+			// The left button selects and nothing else.  The one exception is a GUI command that is
+			// already armed and waiting for a target, which is aimed with the left button because the
+			// right one cancels it.
+			if( !isFiringGUICommand )
 				break;
 
 			Bool controllable = TheInGameUI->areSelectedObjectsControllable()

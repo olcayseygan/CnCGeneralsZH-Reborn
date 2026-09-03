@@ -42,14 +42,13 @@
 
 OPTION_BOOL_ACCESSORS( m_edgeScrollInWindowedMode )
 OPTION_BOOL_ACCESSORS( m_snapCameraRotateTo45 )
-OPTION_BOOL_ACCESSORS( m_middleMousePans )
 OPTION_BOOL_ACCESSORS( m_zoomToCursor )
+OPTION_BOOL_ACCESSORS( m_formationDrag )
 OPTION_INT_ACCESSORS( m_bloomIntensity )
 OPTION_INT_ACCESSORS( m_bloomThreshold )
 OPTION_INT_ACCESSORS( m_windowMode )
 OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_INT_ACCESSORS( m_healthBarMode )
-OPTION_INT_ACCESSORS( m_formationDrag )
 
 //-----------------------------------------------------------------------------
 static const unsigned TheMsaaSamples[ OPTION_MSAA_LEVEL_COUNT ] = { 0, 2, 4, 8, 16 };
@@ -105,20 +104,17 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_snapCameraRotateTo45, set_m_snapCameraRotateTo45 },
 
-	{ "MiddleMousePans",					"", "",
-		OPTION_BOOL, APPLY_LIVE, 0, 1,
-		get_m_middleMousePans, set_m_middleMousePans },
-
+	// MiddleMousePans used to sit here.  The middle button is the only camera drag there is now, so
+	// there is nothing left to choose: it pans, and Ctrl turns the same drag into a rotate.
 	{ "ZoomToCursor",							"", "",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_zoomToCursor, set_m_zoomToCursor },
 
-	// Which drag draws the line a selection spreads itself along.  0 is off, 1 is Ctrl and the right
-	// button, which is the default because it leaves right-drag scrolling exactly where it was, and
-	// 2 is the bare right button for players who never scroll that way and want the drag on one
-	// hand.  Under 2 a right drag with units selected no longer moves the camera.
+	// A right drag over the ground spreads the selection along the line drawn instead of sending
+	// everyone to one point.  On by default - the right button stopped scrolling, so the drag was
+	// free - and here for anyone who would rather a slipped click did nothing at all.
 	{ "FormationDrag",						"", "",
-		OPTION_INT, APPLY_LIVE, 0, 2,
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_formationDrag, set_m_formationDrag },
 
 	// Eight rows used to sit here: grid and nudge build placement, snap-to-45 building rotation, the

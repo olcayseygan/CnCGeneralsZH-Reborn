@@ -1035,8 +1035,8 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				//when you right click.
 				if( !TheInGameUI->getGUICommand() && !TheKeyboard->isShift() && !TheKeyboard->isCtrl() && !TheKeyboard->isAlt() )
 				{
-					//No GUI command mode, so deselect everyone if we're in alternate mouse mode.
-					if( TheGlobalData->m_useAlternateMouse && TheInGameUI->getPendingPlaceSourceObjectID() == INVALID_ID )
+					//No GUI command mode, so a click on empty ground deselects everyone.
+					if( TheInGameUI->getPendingPlaceSourceObjectID() == INVALID_ID )
 					{
 						if( !TheInGameUI->getPreventLeftClickDeselectionInAlternateMouseModeForOneClick() )
 						{
@@ -1128,11 +1128,8 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 					disp = DESTROY_MESSAGE;
 					TheInGameUI->setScrolling( FALSE );
 				}
-				else if( !TheGlobalData->m_useAlternateMouse )
-				{
-					//No GUI command mode, so deselect everyone if we're in regular mouse mode.
-					deselectAll();
-				}
+				// The right button used to deselect here in the classic mouse mode.  It does not any
+				// more: it is the order button, and an order that hits nothing is simply no order.
 			}
 
 			break;

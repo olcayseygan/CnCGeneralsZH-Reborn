@@ -48,7 +48,6 @@
 #include "GameClient/View.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/LookAtXlat.h"
-#include "GameClient/CommandXlat.h"		// for the formation drag, which takes the right button away
 #include "GameLogic/Module/UpdateModule.h"
 #include "GameLogic/GameLogic.h"
 
@@ -136,15 +135,6 @@ LookAtTranslator::~LookAtTranslator()
 {
 	if (TheLookAtTranslator == this)
 		TheLookAtTranslator = NULL;
-}
-
-const ICoord2D* LookAtTranslator::getRMBScrollAnchor(void)
-{
-	if (m_isScrolling && m_scrollType == SCROLL_RMB)
-	{
-		return &m_anchor;
-	}
-	return NULL;
 }
 
 Bool LookAtTranslator::hasMouseMovedRecently( void )
@@ -286,31 +276,13 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 		}
 
 		//-----------------------------------------------------------------------------
+		// The right button belongs to the order layer now - a click commands, a drag draws a
+		// formation line - so nothing here touches the camera.  Both cases stay only to keep the
+		// idle timer honest: a player who is right-clicking is not away from the keyboard.
 		case GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_DOWN:
-		{
-			m_lastMouseMoveFrame = TheGameLogic->getFrame();
-
-			m_anchor = msg->getArgument( 0 )->pixel;
-			m_currentPos = msg->getArgument( 0 )->pixel;
-
-			// a right button that is about to draw a formation line is not a scroll; this translator
-			// runs before CommandTranslator, so it has to ask the same question for itself
-			if (!TheInGameUI->isSelecting() && !m_isScrolling && !CommandXlat_isFormationDragArmed())
-			{
-				setScrolling(SCROLL_RMB);
-			}
-			break;
-		}
-
-		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_UP:
 		{
 			m_lastMouseMoveFrame = TheGameLogic->getFrame();
-
-			if (m_scrollType == SCROLL_RMB)
-			{
-				stopScrolling();
-			}
 			break;
 		}
 
@@ -324,9 +296,12 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 			m_currentPos = msg->getArgument( 0 )->pixel;
 			m_timestamp = TheGameClient->getFrame();
 
-			// MiddleMousePans in Options.ini swaps the middle-drag from rotate to pan; the
-			// click-to-reset below still works either way.
-			if( TheGlobalData->m_middleMousePans )
+			// The middle button is the camera: drag it and the map follows the cursor, hold ctrl and
+			// the drag turns the camera instead.  It used to be the other way round, with a
+			// MiddleMousePans switch in Options.ini deciding; there is no switch now because the
+			// right button no longer scrolls anything and the pan has to live somewhere.  The
+			// click-to-reset below works either way.
+			if( !TheKeyboard->isCtrl() )
 			{
 				m_isRotating = false;
 				if (!TheInGameUI->isSelecting() && !m_isScrolling)
@@ -543,35 +518,6 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 						offset.x = -TheGlobalData->m_horizontalScrollSpeedFactor * (m_currentPos.x - m_anchor.x);
 						offset.y = -TheGlobalData->m_verticalScrollSpeedFactor * (m_currentPos.y - m_anchor.y);
 						m_anchor = m_currentPos;
-					}
-					break;
-				case SCROLL_RMB:
-					{
-						if (TheInGameUI->shouldMoveRMBScrollAnchor())
-						{
-							Int maxX = TheDisplay->getWidth()/2;
-							Int maxY = TheDisplay->getHeight()/2;
-
-							if (m_currentPos.x + maxX < m_anchor.x)
-								m_anchor.x = m_currentPos.x + maxX;
-							else if (m_currentPos.x - maxX > m_anchor.x)
-								m_anchor.x = m_currentPos.x - maxX;
-
-							if (m_currentPos.y + maxY < m_anchor.y)
-								m_anchor.y = m_currentPos.y + maxY;
-							else if (m_currentPos.y - maxY > m_anchor.y)
-								m_anchor.y = m_currentPos.y - maxY;
-						}
-
-						offset.x = TheGlobalData->m_horizontalScrollSpeedFactor * (m_currentPos.x - m_anchor.x);
-						offset.y = TheGlobalData->m_verticalScrollSpeedFactor * (m_currentPos.y - m_anchor.y);
-						Coord2D vec;
-						vec.x = offset.x;
-						vec.y = offset.y;
-						vec.normalize();
-						// Add in the window scroll amount as the minimum.
-						offset.x += TheGlobalData->m_horizontalScrollSpeedFactor * vec.x * sqr(TheGlobalData->m_keyboardScrollFactor);
-						offset.y += TheGlobalData->m_verticalScrollSpeedFactor * vec.y * sqr(TheGlobalData->m_keyboardScrollFactor);
 					}
 					break;
 				case SCROLL_KEY:

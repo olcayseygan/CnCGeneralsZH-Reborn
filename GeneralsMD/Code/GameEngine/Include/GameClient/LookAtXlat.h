@@ -39,7 +39,6 @@ public:
 	LookAtTranslator();
 	~LookAtTranslator();
 	virtual GameMessageDisposition translateGameMessage(const GameMessage *msg);
-	virtual const ICoord2D* getRMBScrollAnchor(void); // get m_anchor ICoord2D if we're RMB scrolling
 	Bool hasMouseMovedRecently( void );
 	void setCurrentPos( const ICoord2D& pos );
 
@@ -67,13 +66,14 @@ private:
 	{
 		MAX_VIEW_LOCS = 8
 	};
+	// The right button used to be in here as SCROLL_RMB.  It is not any more: the right button
+	// gives orders now, and the camera drag lives on the middle one.
 	enum
 	{
 		SCROLL_NONE = 0,
-		SCROLL_RMB,
 		SCROLL_KEY,
 		SCROLL_SCREENEDGE,
-		SCROLL_MMB				// middle-button drag pan (MiddleMousePans in Options.ini)
+		SCROLL_MMB				// middle-button drag pan
 	};
 	ICoord2D m_anchor;
 	ICoord2D m_originalAnchor;
