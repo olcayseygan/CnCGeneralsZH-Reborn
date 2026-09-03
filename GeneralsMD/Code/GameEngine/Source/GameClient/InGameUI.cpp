@@ -32,6 +32,7 @@
 #define DEFINE_SHADOW_NAMES
 
 #include "Common/ActionManager.h"
+#include "Common/DrawnPath.h"
 #include "Common/GameAudio.h"
 #include "Common/GameEngine.h"
 #include "Common/GameType.h"
@@ -79,6 +80,8 @@
 #include "GameClient/GlobalLanguage.h"
 
 #include "GameLogic/AIGuard.h"
+#include "GameLogic/AIStateMachine.h"
+#include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Weapon.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/GameLogic.h"
@@ -1006,6 +1009,7 @@ InGameUI::InGameUI()
   m_inputEnabled = true;
 	m_isDragSelecting = false;
 	m_isFormationDragging = FALSE;
+	m_formationDragSpacing = FORMATION_DRAG_MIN_SPACING;
 	m_nextMoveHint = 0;
 	m_selectCount = 0;
 	m_frameSelectionChanged = 0;
@@ -1209,7 +1213,11 @@ InGameUI::InGameUI()
 	m_forceAttackMode		= false;
 	m_forceMoveToMode		= false;
 	m_attackMoveToMode	= false;
+	m_forceAttackArmed	= false;
 	m_preferSelection		= false;
+	m_isAttackCircling	= FALSE;
+	m_attackQueueTarget	= INVALID_ID;
+	m_shiftAttackQueueRunning = FALSE;
 
 	m_curRcType = RADIUSCURSOR_NONE;
 	
@@ -1919,6 +1927,15 @@ void InGameUI::preDraw( void )
 	// handle radius-cursors, if any
 	handleRadiusCursor();
 
+	// where the selection is headed, read fresh from the units themselves
+	updateOrderHints();
+
+	// and the next target of an attack circle, if the current one has stopped existing
+	updateAttackQueue();
+
+	// and the next point of a shift-queued attack, if the current one is over
+	updateShiftAttackQueue();
+
 	// the build grid under a structure waiting to be placed is not drawn here: it is terrain
 	// geometry now, and HeightMapRenderObjClass::Render puts it down with the ground itself
 
@@ -2393,7 +2410,15 @@ void InGameUI::reset( void )
 	m_forceAttackMode		= false;
 	m_forceMoveToMode		= false;
 	m_attackMoveToMode	= false;
+	m_forceAttackArmed	= false;
 	m_preferSelection		= false;
+	m_isAttackCircling	= FALSE;
+	m_attackQueueTarget	= INVALID_ID;
+	m_attackQueue.clear();
+	m_attackQueueUnits.clear();
+	m_shiftAttackQueue.clear();
+	m_shiftAttackQueueUnits.clear();
+	m_shiftAttackQueueRunning = FALSE;
 	m_clientQuiet    = false;
 	
 	m_windowLayouts.clear();
@@ -2597,33 +2622,516 @@ void InGameUI::addFormationDragPoint( const ICoord2D& pt )
 
 	if( m_formationDragPoints.empty() )
 	{
+		m_formationDragSpacing = FORMATION_DRAG_MIN_SPACING;
 		m_formationDragPoints.push_back( pt );
+		updateFormationHints();
 		return;
 	}
 
 	// The last point always follows the cursor, so the end of the line sits exactly where the hand
 	// is.  A new point is only kept once the cursor has moved far enough for the curve to be saying
 	// something; without that a slow drag stores one point a frame and fills the message with noise.
-	const Int MIN_SPACING = 12;
-	if( (Int)m_formationDragPoints.size() < MAX_FORMATION_DRAG_POINTS )
+	Bool keep = TRUE;
+	const Int keptIndex = (Int)m_formationDragPoints.size() - 2;
+	if( keptIndex >= 0 )
 	{
-		const Int keptIndex = (Int)m_formationDragPoints.size() - 2;
-		if( keptIndex < 0 )
-		{
-			m_formationDragPoints.push_back( pt );
-			return;
-		}
-
 		const Int dx = pt.x - m_formationDragPoints[ keptIndex ].x;
 		const Int dy = pt.y - m_formationDragPoints[ keptIndex ].y;
-		if( dx * dx + dy * dy >= MIN_SPACING * MIN_SPACING )
+		keep = ( dx * dx + dy * dy >= m_formationDragSpacing * m_formationDragSpacing );
+	}
+
+	if( keep )
+	{
+		// A long drag would otherwise run out of points, and everything after that would collapse
+		// into one straight rubber band from the last kept point to the cursor - which is the kink
+		// that showed up in play.  Halve the resolution instead: throw away every second point and
+		// double the spacing.  The shape survives at a coarser step and the line keeps growing for
+		// as long as the player keeps dragging.
+		if( (Int)m_formationDragPoints.size() >= MAX_FORMATION_DRAG_POINTS )
 		{
-			m_formationDragPoints.push_back( pt );
+			std::vector<ICoord2D> thinned;
+			for( Int i = 0; i < (Int)m_formationDragPoints.size(); i += 2 )
+				thinned.push_back( m_formationDragPoints[ i ] );
+			m_formationDragPoints = thinned;
+			m_formationDragSpacing *= 2;
+		}
+
+		m_formationDragPoints.push_back( pt );
+	}
+	else
+	{
+		m_formationDragPoints.back() = pt;
+	}
+
+	updateFormationHints();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Work out who is going where, from the curve as it stands.  This is the same arithmetic the logic
+	* runs when the button comes up - same curve, same filter, same total order - so what the player
+	* is shown is what the units will do. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::updateFormationHints( void )
+{
+	m_orderHints.clear();
+
+	if( m_formationDragPoints.size() < 2 )
+		return;
+
+	std::vector<Coord3D> path;
+	for( std::vector<ICoord2D>::const_iterator pt = m_formationDragPoints.begin();
+			 pt != m_formationDragPoints.end(); ++pt )
+	{
+		Coord3D world;
+		TheTacticalView->screenToTerrain( &(*pt), &world );
+		path.push_back( world );
+	}
+
+	std::vector<Real> arc;
+	buildPathArcLengths( path, arc );
+
+	const Real span = arc.back();
+	if( span < 1.0f )
+		return;
+
+	std::vector<Object *> movers;
+	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
+			 it != m_selectedDrawables.end(); ++it )
+	{
+		Object *obj = (*it)->getObject();
+		if( !obj || obj->getControllingPlayer() != ThePlayerList->getLocalPlayer() )
+			continue;
+		if( obj->isKindOf( KINDOF_IMMOBILE ) || obj->getAIUpdateInterface() == NULL )
+			continue;
+		movers.push_back( obj );
+	}
+
+	if( movers.empty() )
+		return;
+
+	orderAlongPath( movers, path, arc );
+
+	const Int count = movers.size();
+	for( Int i = 0; i < count; i++ )
+	{
+		OrderHint hint;
+		hint.kind = isInAttackMoveToMode() ? ORDER_HINT_ATTACK_MOVE
+							: isForceAttackArmed() ? ORDER_HINT_ATTACK
+							: ORDER_HINT_MOVE;
+		hint.from = *movers[ i ]->getPosition();
+		pointAlongPath( path, arc, span * ((count == 1) ? 1.0f : ((Real)i / (Real)(count - 1))),
+										&hint.to );
+		hint.to.z = TheTerrainLogic->getGroundHeight( hint.to.x, hint.to.y );
+		m_orderHints.push_back( hint );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Where each selected unit is going, asked of the unit rather than remembered from the order.  A
+	* line therefore lives exactly as long as the order behind it: it appears the frame the unit
+	* accepts the command and goes when the unit arrives, changes its mind or leaves the selection. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::updateOrderHints( void )
+{
+	if( m_isFormationDragging )
+	{
+		updateFormationHints();
+		return;
+	}
+
+	m_orderHints.clear();
+
+	Player *local = ThePlayerList->getLocalPlayer();
+	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
+			 it != m_selectedDrawables.end(); ++it )
+	{
+		Object *obj = (*it)->getObject();
+		if( !obj || obj->getControllingPlayer() != local )
+			continue;
+
+		AIUpdateInterface *ai = obj->getAIUpdateInterface();
+		if( ai == NULL )
+			continue;
+
+		OrderHint hint;
+		switch( ai->getCurrentStateID() )
+		{
+			case AI_MOVE_TO:
+			case AI_FOLLOW_PATH:
+			case AI_FOLLOW_EXITPRODUCTION_PATH:
+			case AI_MOVE_AND_EVACUATE:
+			case AI_MOVE_AND_EVACUATE_AND_EXIT:
+			case AI_MOVE_AND_DELETE:
+			case AI_MOVE_AND_TIGHTEN:
+			case AI_PICK_UP_CRATE:
+				hint.kind = ORDER_HINT_MOVE;
+				break;
+
+			case AI_FOLLOW_WAYPOINT_PATH_AS_TEAM:
+			case AI_FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS:
+			case AI_FOLLOW_WAYPOINT_PATH_AS_TEAM_EXACT:
+			case AI_FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS_EXACT:
+				hint.kind = ORDER_HINT_WAYPOINT;
+				break;
+
+			case AI_ATTACK_MOVE_TO:
+			case AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS:
+			case AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_TEAM:
+			case AI_HUNT:
+				hint.kind = ORDER_HINT_ATTACK_MOVE;
+				break;
+
+			case AI_ATTACK_OBJECT:
+			case AI_ATTACK_AND_FOLLOW_OBJECT:
+			case AI_ATTACK_SQUAD:
+				hint.kind = ORDER_HINT_ATTACK;
+				break;
+
+			case AI_FORCE_ATTACK_OBJECT:
+				hint.kind = ORDER_HINT_FORCE_ATTACK;
+				break;
+
+			case AI_ATTACK_POSITION:
+			case AI_ATTACK_AREA:
+				hint.kind = ORDER_HINT_ATTACK_GROUND;
+				break;
+
+			case AI_ENTER:
+			case AI_RAPPEL_INTO:
+			case AI_COMBATDROP:
+				hint.kind = ORDER_HINT_ENTER;
+				break;
+
+			case AI_DOCK:
+				hint.kind = ORDER_HINT_DOCK;
+				break;
+
+			case AI_GET_REPAIRED:
+				hint.kind = ORDER_HINT_GET_REPAIRED;
+				break;
+
+			case AI_HACK_INTERNET:
+				hint.kind = ORDER_HINT_HACK;
+				break;
+
+			case AI_GUARD:
+			case AI_GUARD_RETALIATE:
+			case AI_GUARD_TUNNEL_NETWORK:
+				hint.kind = ORDER_HINT_GUARD;
+				break;
+
+			default:
+				continue;
+		}
+
+		hint.from = *obj->getPosition();
+
+		// a queued path is shown point by point: one thread from the unit to its next point and one
+		// from each point to the one after it, so the whole shift queue is on the ground at once and
+		// stays there after the key is let go
+		const Int pathSize = ai->friend_getWaypointGoalPathSize();
+		const Int pathIndex = ai->friend_getCurrentGoalPathIndex();
+		if( pathSize > 0 && pathIndex >= 0 && pathIndex < pathSize )
+		{
+			for( Int i = pathIndex; i < pathSize; i++ )
+			{
+				hint.to = *ai->friend_getGoalPathPosition( i );
+				m_orderHints.push_back( hint );
+				hint.from = hint.to;
+			}
+			continue;
+		}
+
+		// a goal object outranks the goal position: a unit chasing something is headed wherever that
+		// thing is standing now, not where it stood when the order was given
+		Object *goalObj = ai->getGoalObject();
+		if( goalObj )
+			hint.to = *goalObj->getPosition();
+		else
+			hint.to = *ai->getGoalPosition();
+
+		m_orderHints.push_back( hint );
+
+		// the rest of a shift-queued attack: every point still owed after this one, drawn the same
+		// way a queued move is.  The queue is shared by the whole group rather than kept per unit,
+		// so each member's tail starts wherever that unit's own current order leaves off
+		if( !m_shiftAttackQueue.empty() &&
+				std::find( m_shiftAttackQueueUnits.begin(), m_shiftAttackQueueUnits.end(), obj->getID() ) != m_shiftAttackQueueUnits.end() )
+		{
+			hint.from = hint.to;
+			for( std::vector<AttackWaypoint>::const_iterator qit = m_shiftAttackQueue.begin();
+					 qit != m_shiftAttackQueue.end(); ++qit )
+			{
+				hint.to = qit->pos;
+				m_orderHints.push_back( hint );
+				hint.from = hint.to;
+			}
+		}
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The attack key is armed and the player has pressed the left button: from here a drag draws a
+	* circle rather than a selection box. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::beginAttackCircle( const ICoord2D& pt )
+{
+	m_isAttackCircling = TRUE;
+	m_attackCircleAnchor = pt;
+	m_attackCircleCursor = pt;
+	DEBUG_LOG(("attack circle: begun at %d,%d with %d selected\n", pt.x, pt.y, getSelectCount()));
+}
+
+//-------------------------------------------------------------------------------------------------
+void InGameUI::updateAttackCircle( const ICoord2D& pt )
+{
+	m_attackCircleCursor = pt;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Everything hostile standing in the circle becomes a queue, nearest first, and the group is put
+	* on the head of it.  Shroud decides membership: a target the player cannot see is not in the
+	* circle, whatever the partition manager knows about it. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::issueAttackCircle( void )
+{
+	m_isAttackCircling = FALSE;
+	clearAttackQueue();
+
+	Coord3D center, rim;
+	TheTacticalView->screenToTerrain( &m_attackCircleAnchor, &center );
+	TheTacticalView->screenToTerrain( &m_attackCircleCursor, &rim );
+
+	const Real dx = rim.x - center.x;
+	const Real dy = rim.y - center.y;
+	const Real radius = sqrtf( dx * dx + dy * dy );
+	if( radius < 1.0f )
+		return;
+
+	Player *local = ThePlayerList->getLocalPlayer();
+	const Int localIndex = local->getPlayerIndex();
+
+	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( &center, radius,
+																																		FROM_CENTER_2D, NULL,
+																																		ITER_SORTED_NEAR_TO_FAR );
+	MemoryPoolObjectHolder holder( iter );
+	for( Object *obj = iter->first(); obj; obj = iter->next() )
+	{
+		if( obj->isEffectivelyDead() )
+			continue;
+		if( local->getRelationship( obj->getTeam() ) != ENEMIES )
+			continue;
+		if( obj->getShroudedStatus( localIndex ) > OBJECTSHROUD_PARTIAL_CLEAR )
+			continue;
+
+		m_attackQueue.push_back( obj->getID() );
+	}
+
+	DEBUG_LOG(("attack circle: radius %.0f, %d targets\n", radius, (Int)m_attackQueue.size()));
+	if( m_attackQueue.empty() )
+		return;
+
+	// who the queue belongs to.  The orders go to whatever is selected when each one is sent, so a
+	// changed selection has to end the queue rather than quietly redirect it
+	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
+			 it != m_selectedDrawables.end(); ++it )
+	{
+		Object *obj = (*it)->getObject();
+		if( obj )
+			m_attackQueueUnits.push_back( obj->getID() );
+	}
+	std::sort( m_attackQueueUnits.begin(), m_attackQueueUnits.end() );
+
+	updateAttackQueue();
+}
+
+//-------------------------------------------------------------------------------------------------
+void InGameUI::clearAttackQueue( void )
+{
+	m_attackQueue.clear();
+	m_attackQueueUnits.clear();
+	m_attackQueueTarget = INVALID_ID;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** One order per target, sent when the target before it stops existing.  This is the player's own
+	* click repeated by the client, so it is an ordinary message on the stream and the logic learns
+	* nothing new: no queue lives in the simulation. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::updateAttackQueue( void )
+{
+	if( m_attackQueue.empty() && m_attackQueueTarget == INVALID_ID )
+		return;
+
+	// the selection is the queue's owner, so a different selection means the queue is over
+	std::vector<ObjectID> current;
+	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
+			 it != m_selectedDrawables.end(); ++it )
+	{
+		Object *obj = (*it)->getObject();
+		if( obj )
+			current.push_back( obj->getID() );
+	}
+	std::sort( current.begin(), current.end() );
+
+	if( current != m_attackQueueUnits )
+	{
+		clearAttackQueue();
+		return;
+	}
+
+	Object *target = TheGameLogic->findObjectByID( m_attackQueueTarget );
+	if( target && !target->isEffectivelyDead() )
+		return;
+
+	while( !m_attackQueue.empty() )
+	{
+		const ObjectID next = m_attackQueue.front();
+		m_attackQueue.erase( m_attackQueue.begin() );
+
+		Object *obj = TheGameLogic->findObjectByID( next );
+		if( obj == NULL || obj->isEffectivelyDead() )
+			continue;
+
+		GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
+		msg->appendObjectIDArgument( next );
+		m_attackQueueTarget = next;
+		return;
+	}
+
+	clearAttackQueue();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Shift held, attack armed (force-attack or attack-move), left click: the order joins the shift
+	* queue instead of the goal path a plain move rides on, since that path carries no order type.
+	* The first order of a fresh queue is sent immediately, exactly like an unqueued attack; every
+	* one after it waits on the client for the order in front of it to be over, the same way the
+	* attack circle's queue does. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::queueAttackWaypoint( const Coord3D *pos, Object *targetObj )
+{
+	AttackWaypoint order;
+	order.pos = *pos;
+	order.targetID = targetObj ? targetObj->getID() : INVALID_ID;
+
+	// who the queue belongs to.  A changed selection starts a fresh queue rather than adding to
+	// whatever the old selection was doing
+	std::vector<ObjectID> current;
+	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
+			 it != m_selectedDrawables.end(); ++it )
+	{
+		Object *obj = (*it)->getObject();
+		if( obj )
+			current.push_back( obj->getID() );
+	}
+	std::sort( current.begin(), current.end() );
+
+	if( !m_shiftAttackQueueRunning || current != m_shiftAttackQueueUnits )
+	{
+		clearShiftAttackQueue();
+		m_shiftAttackQueueUnits = current;
+		m_shiftAttackQueueRunning = TRUE;
+		m_shiftAttackQueueActive = order;
+
+		if( order.targetID != INVALID_ID )
+		{
+			GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
+			msg->appendObjectIDArgument( order.targetID );
+		}
+		else
+		{
+			GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACKMOVETO );
+			msg->appendLocationArgument( order.pos );
+			msg->appendBooleanArgument( isInForceAttackMode() );
+		}
+		return;
+	}
+
+	m_shiftAttackQueue.push_back( order );
+}
+
+//-------------------------------------------------------------------------------------------------
+void InGameUI::clearShiftAttackQueue( void )
+{
+	m_shiftAttackQueue.clear();
+	m_shiftAttackQueueUnits.clear();
+	m_shiftAttackQueueRunning = FALSE;
+	m_shiftAttackQueueActive.targetID = INVALID_ID;
+	m_shiftAttackQueueActive.pos.zero();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The order in flight ends when its target dies (an object target) or nobody selected is still
+	* chasing it down (an attack-move point); either way, the next queued order goes out then, same
+	* as updateAttackQueue(). */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::updateShiftAttackQueue( void )
+{
+	if( !m_shiftAttackQueueRunning )
+		return;
+
+	// the selection is the queue's owner, so a different selection means the queue is over
+	std::vector<ObjectID> current;
+	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
+			 it != m_selectedDrawables.end(); ++it )
+	{
+		Object *obj = (*it)->getObject();
+		if( obj )
+			current.push_back( obj->getID() );
+	}
+	std::sort( current.begin(), current.end() );
+
+	if( current != m_shiftAttackQueueUnits )
+	{
+		clearShiftAttackQueue();
+		return;
+	}
+
+	if( m_shiftAttackQueueActive.targetID != INVALID_ID )
+	{
+		Object *target = TheGameLogic->findObjectByID( m_shiftAttackQueueActive.targetID );
+		if( target && !target->isEffectivelyDead() )
 			return;
+	}
+	else
+	{
+		for( DrawableList::const_iterator it = m_selectedDrawables.begin();
+				 it != m_selectedDrawables.end(); ++it )
+		{
+			Object *obj = (*it)->getObject();
+			AIUpdateInterface *ai = obj ? obj->getAIUpdateInterface() : NULL;
+			if( ai && ai->getAIStateType() == AI_ATTACK_MOVE_TO )
+				return;
 		}
 	}
 
-	m_formationDragPoints.back() = pt;
+	while( !m_shiftAttackQueue.empty() )
+	{
+		const AttackWaypoint next = m_shiftAttackQueue.front();
+		m_shiftAttackQueue.erase( m_shiftAttackQueue.begin() );
+
+		if( next.targetID != INVALID_ID )
+		{
+			Object *obj = TheGameLogic->findObjectByID( next.targetID );
+			if( obj == NULL || obj->isEffectivelyDead() )
+				continue;
+
+			GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
+			msg->appendObjectIDArgument( next.targetID );
+		}
+		else
+		{
+			GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACKMOVETO );
+			msg->appendLocationArgument( next.pos );
+			msg->appendBooleanArgument( isInForceAttackMode() );
+		}
+
+		m_shiftAttackQueueActive = next;
+		return;
+	}
+
+	clearShiftAttackQueue();
 }
 
 //-------------------------------------------------------------------------------------------------

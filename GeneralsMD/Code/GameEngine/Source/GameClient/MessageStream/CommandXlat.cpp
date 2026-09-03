@@ -110,7 +110,10 @@ Bool CommandXlat_isForceAttackTargeting( Bool ctrlHeld, Bool attackMoveArmed )
 
 static Bool isForceAttackTargeting( void )
 {
-	return CommandXlat_isForceAttackTargeting( TheInGameUI->isInForceAttackMode(),
+	// ctrl still does it while held; the attack key arms the same thing for one click, which is
+	// what leaves ctrl free to mean something else on a plain move
+	return CommandXlat_isForceAttackTargeting( TheInGameUI->isInForceAttackMode()
+																						 || TheInGameUI->isForceAttackArmed(),
 																						 TheInGameUI->isInAttackMoveToMode() );
 }
 
@@ -923,7 +926,20 @@ GameMessage::Type CommandTranslator::issueMoveToLocationCommand( const Coord3D *
 
 	if (m_teamExists)
 	{
-		if( TheInGameUI->isInWaypointMode() )
+		// under shift, an attack (force-attack on an attackable, or attack-move) joins the shift
+		// queue instead of the plain waypoint path - that path is a bare list of points with no
+		// order type, so it cannot carry an attack.  See InGameUI::queueAttackWaypoint.
+		Bool forceAttackHere = isForceAttackTargeting() && isForceAttackable;
+		Bool queuedAttack = TheInGameUI->isInWaypointMode()
+												 && ( TheInGameUI->isInAttackMoveToMode() || forceAttackHere );
+
+		if( queuedAttack )
+		{
+			msgType = forceAttackHere ? GameMessage::MSG_DO_ATTACK_OBJECT : GameMessage::MSG_DO_ATTACKMOVETO;
+			if( commandType == DO_COMMAND )
+				TheInGameUI->queueAttackWaypoint( pos, forceAttackHere ? obj : NULL );
+		}
+		else if( TheInGameUI->isInWaypointMode() )
 		{
 			msgType = GameMessage::MSG_ADD_WAYPOINT;
 		}
@@ -931,11 +947,11 @@ GameMessage::Type CommandTranslator::issueMoveToLocationCommand( const Coord3D *
 		{
 			msgType = GameMessage::MSG_DO_ATTACKMOVETO;
 		}
-		else if( TheInGameUI->isInForceMoveToMode() ) 
+		else if( TheInGameUI->isInForceMoveToMode() )
 		{
 			msgType = GameMessage::MSG_DO_FORCEMOVETO;
 		}
-		else if( isForceAttackTargeting() && isForceAttackable )
+		else if( forceAttackHere )
 		{
 			msgType = GameMessage::MSG_DO_ATTACK_OBJECT;
 		}
@@ -943,7 +959,7 @@ GameMessage::Type CommandTranslator::issueMoveToLocationCommand( const Coord3D *
 		{
 			msgType = GameMessage::MSG_DO_MOVETO;
 		}
-		if( commandType == DO_COMMAND )
+		if( commandType == DO_COMMAND && !queuedAttack )
 		{
 			GameMessage *movemsg = TheMessageStream->appendMessage( msgType );
 			if (msgType == GameMessage::MSG_DO_ATTACK_OBJECT)
@@ -957,7 +973,7 @@ GameMessage::Type CommandTranslator::issueMoveToLocationCommand( const Coord3D *
 				movemsg->appendBooleanArgument( TheInGameUI->isInForceAttackMode() );
 
 		}  // end if
-	} 
+	}
 	
 	// only make sounds if we really did the command messages
 	if( commandType == DO_COMMAND )
@@ -3378,6 +3394,12 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			break;
 
 		//-----------------------------------------------------------------------------------------
+		// the attack key, which arms force fire the same way the key above arms an attack move
+		case GameMessage::MSG_META_TOGGLE_FORCEATTACK:
+			TheInGameUI->toggleForceAttackArmed( );
+			break;
+
+		//-----------------------------------------------------------------------------------------
 		// the general's promotion screen. It is one click away on the stars button and nowhere on
 		// the keyboard, which is the wrong way round for something you open the moment a promotion
 		// lands - and the star only flashes until you look at it.
@@ -3923,14 +3945,25 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 				// copied out before the drag is cleared, which throws the curve away
 				std::vector<ICoord2D> curve = TheInGameUI->getFormationDragPoints();
 
+				// the preview goes with the drag; from here on the units' own goals are what gets drawn,
+				// so the picture carries on without a break
 				TheInGameUI->clearFormationDrag();
 				m_formationDragArmed = FALSE;
 
 				if( wasDrag && curve.size() >= 2 )
 				{
+					// the same curve means "attack along this" while one of the attack modes is armed, which
+					// is the artillery gesture: a line of fire instead of a line of tanks.  Attack move
+					// walks it and shoots what it meets; the attack key fires on the line where it stands
+					GameMessage::Type formationType = GameMessage::MSG_DO_FORMATION_MOVETO;
+					if( TheInGameUI->isInAttackMoveToMode() )
+						formationType = GameMessage::MSG_DO_FORMATION_ATTACKMOVETO;
+					else if( TheInGameUI->isForceAttackArmed() )
+						formationType = GameMessage::MSG_DO_FORMATION_FORCEATTACK;
+
 					// the traced curve becomes world points; who stands where along it is decided on
 					// the logic side, where every machine decides it the same way
-					GameMessage *newMsg = TheMessageStream->appendMessage( GameMessage::MSG_DO_FORMATION_MOVETO );
+					GameMessage *newMsg = TheMessageStream->appendMessage( formationType );
 					for( std::vector<ICoord2D>::const_iterator it = curve.begin(); it != curve.end(); ++it )
 					{
 						Coord3D world;
@@ -3939,6 +3972,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 					}
 
 					TheInGameUI->clearAttackMoveToMode();
+					TheInGameUI->clearAttackQueue();
 
 					const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
 					if( selected && !selected->empty() )
@@ -4018,6 +4052,8 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 
 					disp = DESTROY_MESSAGE;
 					TheInGameUI->clearAttackMoveToMode();
+					// a hand-given order ends whatever list the circle was working through
+					TheInGameUI->clearAttackQueue();
 				}
 			}
 

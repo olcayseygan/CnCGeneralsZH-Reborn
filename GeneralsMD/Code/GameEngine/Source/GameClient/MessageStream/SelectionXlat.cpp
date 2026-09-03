@@ -268,6 +268,7 @@ SelectionTranslator::SelectionTranslator()
 {
 	m_leftMouseButtonIsDown = FALSE;
 	m_dragSelecting = FALSE;
+	m_attackCircleJustIssued = FALSE;
 	m_lastGroupSelTime = 0;
 	m_lastGroupSelGroup = -1;
 	m_selectFeedbackAnchor.x = 0;
@@ -412,6 +413,13 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 
 			// modifier appears to be unused, and the argument doesn't exist.  jba.
 			//Int modifier = msg->getArgument( 1 )->integer;
+
+			// an attack circle owns the button while it is being dragged, so no box grows behind it
+			if( TheInGameUI->isAttackCircling() )
+			{
+				TheInGameUI->updateAttackCircle( pixel );
+				break;
+			}
 
 			if (m_leftMouseButtonIsDown)
 			{
@@ -620,6 +628,16 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_MOUSE_LEFT_CLICK:
 		{
+			// the release that ended an attack circle still arrives here as a click.  Letting it
+			// through would reselect whatever sat under the anchor, and a changed selection is exactly
+			// what drops the queue that was just built
+			if( m_attackCircleJustIssued )
+			{
+				m_attackCircleJustIssued = FALSE;
+				disp = DESTROY_MESSAGE;
+				break;
+			}
+
 			// If the quit menu is visible, we need to not process left clicks through the selection translator.
 			if (TheInGameUI->isQuitMenuVisible()) 
 			{
@@ -1001,6 +1019,11 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			// cannot actually start area selection yet - have to wait for cursor to move a bit
 			m_leftMouseButtonIsDown = true;
 			m_selectFeedbackAnchor = msg->getArgument( 0 )->pixel;
+
+			// with the attack key armed the left button draws a circle instead of a selection box,
+			// and everything hostile inside it becomes a target list
+			if( TheInGameUI->isForceAttackArmed() && TheInGameUI->getSelectCount() > 0 )
+				TheInGameUI->beginAttackCircle( m_selectFeedbackAnchor );
 			break;
 		}
 
@@ -1011,7 +1034,17 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 		case GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_UP:
 		{
 			m_leftMouseButtonIsDown = FALSE;
-			
+
+			// the circle is finished on the same button that drew it: the targets go out here, and the
+			// click that follows this release has to be eaten or it would reselect under the anchor
+			if( TheInGameUI->isAttackCircling() )
+			{
+				TheInGameUI->issueAttackCircle();
+				TheInGameUI->clearAttackMoveToMode();
+				m_attackCircleJustIssued = TRUE;
+				break;
+			}
+
 			if (m_dragSelecting) {
 				// Stop drag selecting now, thanks.
 				m_dragSelecting = FALSE;

@@ -31,6 +31,7 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
 #include "Common/CRCDebug.h"
+#include "Common/DrawnPath.h"
 #include "Common/GameAudio.h"
 #include "Common/GameEngine.h"
 #include "Common/GlobalData.h"
@@ -258,63 +259,6 @@ static void doSetRallyPoint( Object *obj, const Coord3D& pos )
 
 	}
 
-}
-
-//-------------------------------------------------------------------------------------------------
-/** How far along a drawn curve the point nearest to (x,y) sits.  The formation move uses this to
-  * order the units: whoever is nearest the start of the curve takes the first station. */
-//-------------------------------------------------------------------------------------------------
-static Real distanceAlongPath( const std::vector<Coord3D>& path, const std::vector<Real>& arc,
-															 Real x, Real y )
-{
-	Real best = 0.0f;
-	Real bestDistSqr = -1.0f;
-
-	for (Int i = 1; i < (Int)path.size(); i++)
-	{
-		const Real sx = path[ i - 1 ].x;
-		const Real sy = path[ i - 1 ].y;
-		const Real dx = path[ i ].x - sx;
-		const Real dy = path[ i ].y - sy;
-		const Real segLenSqr = dx * dx + dy * dy;
-
-		Real t = 0.0f;
-		if (segLenSqr > 0.0f)
-		{
-			t = ((x - sx) * dx + (y - sy) * dy) / segLenSqr;
-			if (t < 0.0f)
-				t = 0.0f;
-			else if (t > 1.0f)
-				t = 1.0f;
-		}
-
-		const Real px = sx + dx * t;
-		const Real py = sy + dy * t;
-		const Real distSqr = (x - px) * (x - px) + (y - py) * (y - py);
-		if (bestDistSqr < 0.0f || distSqr < bestDistSqr)
-		{
-			bestDistSqr = distSqr;
-			best = arc[ i - 1 ] + sqrtf( segLenSqr ) * t;
-		}
-	}
-
-	return best;
-}
-
-//-------------------------------------------------------------------------------------------------
-/** The point that far along a drawn curve, ground height not filled in. */
-//-------------------------------------------------------------------------------------------------
-static void pointAlongPath( const std::vector<Coord3D>& path, const std::vector<Real>& arc,
-														Real dist, Coord3D *out )
-{
-	Int i = 1;
-	while (i < (Int)path.size() - 1 && arc[ i ] < dist)
-		i++;
-
-	const Real segLen = arc[ i ] - arc[ i - 1 ];
-	const Real t = (segLen > 0.0f) ? ((dist - arc[ i - 1 ]) / segLen) : 0.0f;
-	out->x = path[ i - 1 ].x + (path[ i ].x - path[ i - 1 ].x) * t;
-	out->y = path[ i - 1 ].y + (path[ i ].y - path[ i - 1 ].y) * t;
 }
 
 static Object * getSingleObjectFromSelection(const AIGroup *currentlySelectedGroup)
@@ -1036,9 +980,14 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 		// the message is the drawn curve instead of a list of orders.
 		//
 		case GameMessage::MSG_DO_FORMATION_MOVETO:
+		case GameMessage::MSG_DO_FORMATION_ATTACKMOVETO:
+		case GameMessage::MSG_DO_FORMATION_FORCEATTACK:
 		{
 			if (currentlySelectedGroup == NULL)
 				break;
+
+			const Bool attackAlong = (msg->getType() == GameMessage::MSG_DO_FORMATION_ATTACKMOVETO);
+			const Bool fireAlong = (msg->getType() == GameMessage::MSG_DO_FORMATION_FORCEATTACK);
 
 			// the curve the cursor traced, however many corners the player's hand put in it
 			std::vector<Coord3D> path;
@@ -1067,41 +1016,13 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 			// arc length up to each point, so a station is a distance along the whole curve and not a
 			// fraction of one segment - a hand-drawn line has segments of every size
 			std::vector<Real> arc;
-			arc.push_back( 0.0f );
-			for (Int i = 1; i < (Int)path.size(); i++)
-			{
-				const Real dx = path[ i ].x - path[ i - 1 ].x;
-				const Real dy = path[ i ].y - path[ i - 1 ].y;
-				arc.push_back( arc[ i - 1 ] + sqrtf( dx * dx + dy * dy ) );
-			}
+			buildPathArcLengths( path, arc );
 
 			const Real span = arc.back();
 			if (span < 1.0f)
 				break;
 
-			//
-			// Sort by where each unit already sits along the curve.  Insertion sort: the selection is
-			// a few dozen objects at most, and it keeps the order a total one - the object id breaks
-			// a tie - so every machine hands out the same stations.
-			//
-			for (Int i = 1; i < (Int)movers.size(); i++)
-			{
-				Object *held = movers[ i ];
-				const Real heldKey = distanceAlongPath( path, arc,
-																							 held->getPosition()->x, held->getPosition()->y );
-				Int j = i - 1;
-				while (j >= 0)
-				{
-					const Real key = distanceAlongPath( path, arc,
-																							movers[ j ]->getPosition()->x,
-																							movers[ j ]->getPosition()->y );
-					if (key < heldKey || (key == heldKey && movers[ j ]->getID() < held->getID()))
-						break;
-					movers[ j + 1 ] = movers[ j ];
-					j--;
-				}
-				movers[ j + 1 ] = held;
-			}
+			orderAlongPath( movers, path, arc );
 
 			currentlySelectedGroup->releaseWeaponLockForGroup( LOCKED_TEMPORARILY );
 
@@ -1115,7 +1036,12 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 				pointAlongPath( path, arc, span * t, &station );
 				station.z = TheTerrainLogic->getGroundHeight( station.x, station.y );
 
-				movers[ i ]->getAIUpdateInterface()->aiMoveToPosition( &station, CMD_FROM_PLAYER );
+				if (fireAlong)
+					movers[ i ]->getAIUpdateInterface()->aiAttackPosition( &station, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );
+				else if (attackAlong)
+					movers[ i ]->getAIUpdateInterface()->aiAttackMoveToPosition( &station, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );
+				else
+					movers[ i ]->getAIUpdateInterface()->aiMoveToPosition( &station, CMD_FROM_PLAYER );
 			}
 
 			break;

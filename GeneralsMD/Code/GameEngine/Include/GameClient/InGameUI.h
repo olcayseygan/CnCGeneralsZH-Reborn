@@ -400,11 +400,72 @@ public:  // ********************************************************************
 	// The line the player is dragging out for a formation move, in screen pixels.  It is the curve
 	// the cursor actually traced, not the chord: an arc round a rock is a shape a straight segment
 	// cannot say.
-	enum { MAX_FORMATION_DRAG_POINTS = 32 };
+	enum
+	{
+		MAX_FORMATION_DRAG_POINTS = 32,		///< the message carries these, so the curve cannot grow forever
+		FORMATION_DRAG_MIN_SPACING = 12		///< pixels between kept points, doubled when the curve fills up
+	};
 	void addFormationDragPoint( const ICoord2D& pt );
-	void clearFormationDrag( void ) { m_isFormationDragging = FALSE; m_formationDragPoints.clear(); }
+	void clearFormationDrag( void ) { m_isFormationDragging = FALSE; m_formationDragPoints.clear(); m_orderHints.clear(); }
 	Bool isFormationDragging( void ) const { return m_isFormationDragging; }
 	const std::vector<ICoord2D>& getFormationDragPoints( void ) const { return m_formationDragPoints; }
+
+	// Where each selected unit is headed, and what kind of order sent it there.  While a formation
+	// line is being drawn these are worked out from the curve, with the same ordering the logic
+	// uses, so the preview and the orders agree; the rest of the time they are read straight off
+	// the units' own goals, so they last exactly as long as the order does.
+	// One kind per cursor the game already owns, because the marker on the destination is that
+	// cursor: an order the player can give with a distinct cursor reads back with the same one.
+	enum OrderHintKind
+	{
+		ORDER_HINT_MOVE = 0,				///< go there
+		ORDER_HINT_ATTACK_MOVE,			///< go there, shooting whatever gets in the way
+		ORDER_HINT_ATTACK,					///< kill that
+		ORDER_HINT_FORCE_ATTACK,		///< kill that, whoever owns it
+		ORDER_HINT_ATTACK_GROUND,		///< shoot that spot
+		ORDER_HINT_ENTER,						///< get inside it
+		ORDER_HINT_DOCK,						///< dock with it
+		ORDER_HINT_GET_REPAIRED,		///< go and be repaired
+		ORDER_HINT_GET_HEALED,			///< go and be healed
+		ORDER_HINT_DO_REPAIR,				///< go and repair it
+		ORDER_HINT_CAPTURE,					///< go and take it
+		ORDER_HINT_HACK,						///< go and hack it
+		ORDER_HINT_GUARD,						///< hold that spot
+		ORDER_HINT_WAYPOINT					///< walking a path somebody laid down
+	};
+	struct OrderHint
+	{
+		Coord3D from;						///< where the unit is now
+		Coord3D to;							///< where it is going
+		OrderHintKind kind;
+	};
+	const std::vector<OrderHint>& getOrderHints( void ) const { return m_orderHints; }
+
+	// A circle dragged out with the left button while the attack key is armed.  Everything hostile
+	// and visible inside it becomes a list, and the selection works down that list one target at a
+	// time: the next one is ordered the moment the current one stops existing.
+	void beginAttackCircle( const ICoord2D& pt );
+	void updateAttackCircle( const ICoord2D& pt );
+	void issueAttackCircle( void );
+	void cancelAttackCircle( void ) { m_isAttackCircling = FALSE; }
+	Bool isAttackCircling( void ) const { return m_isAttackCircling; }
+	const ICoord2D& getAttackCircleAnchor( void ) const { return m_attackCircleAnchor; }
+	const ICoord2D& getAttackCircleCursor( void ) const { return m_attackCircleCursor; }
+	void clearAttackQueue( void );
+
+	// An attack order (force-attack or attack-move) added to the shift queue.  The goal path the
+	// plain move queue rides on carries no order type, so this is a second queue, driven the same
+	// way the attack circle's is: an ordinary message the client sends again once the order before
+	// it is over, nothing new for the logic to learn.
+	struct AttackWaypoint
+	{
+		Coord3D		pos;					///< where to attack-move to, or the last known spot of targetID
+		ObjectID	targetID;			///< INVALID_ID for a plain attack-move point, a specific victim otherwise
+	};
+	void queueAttackWaypoint( const Coord3D *pos, Object *targetObj );
+	void clearShiftAttackQueue( void );
+	Bool isShiftAttackQueueActive( void ) const { return !m_shiftAttackQueue.empty() || m_shiftAttackQueueRunning; }
+	const std::vector<AttackWaypoint>& getShiftAttackQueue( void ) const { return m_shiftAttackQueue; }
 
 	virtual void createMoveHint( const GameMessage *msg );			///< A move command has occurred, start graphical "hint"
 	virtual void createAttackHint( const GameMessage *msg );		///< An attack command has occurred, start graphical "hint"
@@ -776,9 +837,15 @@ public:  // ********************************************************************
 	void setForceAttackMode( Bool enabled )		{ m_forceAttackMode = enabled; }
 	void setPreferSelectionMode( Bool enabled )		{ m_preferSelection = enabled; }
 	
-	void toggleAttackMoveToMode( void )				{ m_attackMoveToMode = !m_attackMoveToMode; }
+	void toggleAttackMoveToMode( void )				{ m_attackMoveToMode = !m_attackMoveToMode; m_forceAttackArmed = FALSE; }
 	Bool isInAttackMoveToMode( void ) const		{ return m_attackMoveToMode; }
-	void clearAttackMoveToMode( void )				{ m_attackMoveToMode = FALSE; }
+	void clearAttackMoveToMode( void )				{ m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; }
+
+	// the attack key arms force fire the way the attack move key arms an attack move: the next
+	// order click shoots whatever is under it, ground included, and the mode drops again with the
+	// same call that drops attack move
+	void toggleForceAttackArmed( void )				{ m_forceAttackArmed = !m_forceAttackArmed; m_attackMoveToMode = FALSE; }
+	Bool isForceAttackArmed( void ) const			{ return m_forceAttackArmed; }
 	
 	// zeroing the repeat clock makes the first quantized step happen on the very next update, so a
 	// tap of the key is one eighth and a hold is one eighth every CAMERA_SNAP_REPEAT_MS.
@@ -967,6 +1034,25 @@ protected:
 	IRegion2D										m_dragSelectRegion;														///< if isDragSelecting is TRUE, this contains select region
 	Bool												m_isFormationDragging;												///< TRUE while a formation line is being drawn (fork)
 	std::vector<ICoord2D>				m_formationDragPoints;												///< the traced curve, in pixels, first point is where it started
+	Int													m_formationDragSpacing;												///< pixels a new point has to earn, doubled each time the curve fills up
+	std::vector<OrderHint>			m_orderHints;																	///< who is going where, for drawing
+
+	Bool												m_isAttackCircling;														///< TRUE while an attack circle is being dragged (fork)
+	ICoord2D										m_attackCircleAnchor;													///< where the circle was started, in pixels
+	ICoord2D										m_attackCircleCursor;													///< where the cursor is now, which is the rim
+	std::vector<ObjectID>				m_attackQueue;																///< targets still owed, nearest first
+	ObjectID										m_attackQueueTarget;													///< the one the group is on now
+	std::vector<ObjectID>				m_attackQueueUnits;														///< who was told, so a changed selection drops the queue
+
+	std::vector<AttackWaypoint>	m_shiftAttackQueue;														///< attack points still owed, in click order (fork)
+	Bool												m_shiftAttackQueueRunning;										///< TRUE once the first order of the queue has been sent
+	AttackWaypoint							m_shiftAttackQueueActive;											///< the order that was sent, so its completion can be noticed
+	std::vector<ObjectID>				m_shiftAttackQueueUnits;											///< who was told, so a changed selection drops the queue
+
+	void updateFormationHints( void );													///< recompute who goes where from the curve being drawn
+	void updateOrderHints( void );															///< read the selection's own goals, once a frame
+	void updateAttackQueue( void );															///< order the next target when the current one is gone
+	void updateShiftAttackQueue( void );												///< send the next queued attack once the current one is over
 	Bool												m_displayedMaxWarning;                        ///< keeps the warning from being shown over and over
 	MoveHintStruct							m_moveHint[ MAX_MOVE_HINTS ];
 	Int													m_nextMoveHint;
@@ -1198,6 +1284,7 @@ protected:
 	Bool												m_forceAttackMode;		///< are we in force attack mode?
 	Bool												m_forceMoveToMode;		///< are we in force move mode?
 	Bool												m_attackMoveToMode;	///< are we in attack move mode?
+	Bool												m_forceAttackArmed;	///< is the attack key holding force fire for the next click?
 	Bool												m_preferSelection;		///< the shift key has been depressed.
 
 	// wall clock of the previous update(), so a held camera key can be stepped by elapsed

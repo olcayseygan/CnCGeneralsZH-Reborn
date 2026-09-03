@@ -942,6 +942,75 @@ TEST(formation_drag_takes_the_right_button_only_when_it_is_asked_for)
 	CHECK( !Command_formationDragArmed( true, true,  true ) );
 }
 
+/* DrawnPath.cpp: the drawn curve is measured by arc length, not by segment, so the stations divide
+   the whole line however uneven the hand that drew it was. */
+#include "Common/DrawnPath.h"
+
+static Coord3D drawnPathPoint( Real x, Real y )
+{
+	Coord3D p;
+	p.x = x; p.y = y; p.z = 0.0f;
+	return p;
+}
+
+TEST(drawn_path_measures_by_arc_length_not_by_segment)
+{
+	/* an L: 100 along x, then 100 along y, with the corner deliberately not in the middle of the
+	   point list - the second segment is one point, the first is two. */
+	std::vector<Coord3D> path;
+	path.push_back( drawnPathPoint(   0.0f,   0.0f ) );
+	path.push_back( drawnPathPoint(  40.0f,   0.0f ) );
+	path.push_back( drawnPathPoint( 100.0f,   0.0f ) );
+	path.push_back( drawnPathPoint( 100.0f, 100.0f ) );
+
+	std::vector<Real> arc;
+	buildPathArcLengths( path, arc );
+
+	CHECK_EQ( 4, (int)arc.size() );
+	CHECK_NEAR( 0.0f, arc[0], 0.001f );
+	CHECK_NEAR( 40.0f, arc[1], 0.001f );
+	CHECK_NEAR( 200.0f, arc[3], 0.001f );
+
+	/* halfway along the whole curve is the corner, not the middle of either segment. */
+	Coord3D at;
+	pointAlongPath( path, arc, 100.0f, &at );
+	CHECK_NEAR( 100.0f, at.x, 0.001f );
+	CHECK_NEAR( 0.0f, at.y, 0.001f );
+
+	/* three quarters along is halfway up the second leg. */
+	pointAlongPath( path, arc, 150.0f, &at );
+	CHECK_NEAR( 100.0f, at.x, 0.001f );
+	CHECK_NEAR( 50.0f, at.y, 0.001f );
+
+	/* the ends stay put. */
+	pointAlongPath( path, arc, 0.0f, &at );
+	CHECK_NEAR( 0.0f, at.x, 0.001f );
+	pointAlongPath( path, arc, 200.0f, &at );
+	CHECK_NEAR( 100.0f, at.x, 0.001f );
+	CHECK_NEAR( 100.0f, at.y, 0.001f );
+}
+
+TEST(drawn_path_orders_units_by_where_they_already_stand)
+{
+	std::vector<Coord3D> path;
+	path.push_back( drawnPathPoint(   0.0f,   0.0f ) );
+	path.push_back( drawnPathPoint( 100.0f,   0.0f ) );
+	path.push_back( drawnPathPoint( 100.0f, 100.0f ) );
+
+	std::vector<Real> arc;
+	buildPathArcLengths( path, arc );
+
+	/* a unit sitting off to one side belongs to the nearest point on the curve. */
+	CHECK_NEAR( 30.0f, distanceAlongPath( path, arc, 30.0f, -25.0f ), 0.001f );
+
+	/* one past the corner is measured round it, not across it. */
+	CHECK_NEAR( 160.0f, distanceAlongPath( path, arc, 140.0f, 60.0f ), 0.001f );
+
+	/* before the start clamps to the start, past the end to the end. */
+	CHECK_NEAR( 0.0f, distanceAlongPath( path, arc, -50.0f, -50.0f ), 0.001f );
+	CHECK_NEAR( 200.0f, distanceAlongPath( path, arc, 100.0f, 400.0f ), 0.001f );
+}
+
 /* AssaultTransportAIUpdate.cpp: the troop crawler deploys its passengers at a target and used to
    leave them walking behind it for the rest of the attack move once that target died - and on a
    plain attack order it re-boarded them the instant the target died, once per dead enemy.  Both

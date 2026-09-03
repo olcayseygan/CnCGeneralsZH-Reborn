@@ -178,6 +178,7 @@ static const LookupListRec GameMessageMetaTypeNames[] =
 	{ "SCATTER",																	GameMessage::MSG_META_SCATTER },
 	{ "STOP",																			GameMessage::MSG_META_STOP },
 	{ "TOGGLE_ATTACKMOVE",											GameMessage::MSG_META_TOGGLE_ATTACKMOVE },
+	{ "TOGGLE_FORCEATTACK",											GameMessage::MSG_META_TOGGLE_FORCEATTACK },
 	{ "TOGGLE_PURCHASE_SCIENCE",								GameMessage::MSG_META_TOGGLE_PURCHASE_SCIENCE },
 	{ "HOLD_POSITION",													GameMessage::MSG_META_HOLD_POSITION },
 	{ "TOGGLE_PAUSE",														GameMessage::MSG_META_TOGGLE_PAUSE },
@@ -568,7 +569,10 @@ GameMessageDisposition MetaEventTranslator::translateGameMessage(const GameMessa
 				//DEBUG_LOG(("Frame %d: MetaEventTranslator::translateGameMessage() Mods-only change: %s\n", TheGameLogic->getFrame(), findGameMessageNameByType(map->m_meta)));
 				/*GameMessage *metaMsg =*/ TheMessageStream->appendMessage(map->m_meta);
 				disp = DESTROY_MESSAGE;
-				break;
+				// every record on this modifier fires, not the first one found: shift is both "add to
+				// the selection" on the left button and "queue the order" on the right, and the two
+				// are separate records that have to come on and go off together
+				continue;
 			}
 
 			// ok, now check for "normal" key transitions.

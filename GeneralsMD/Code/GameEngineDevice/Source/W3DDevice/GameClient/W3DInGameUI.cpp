@@ -43,6 +43,8 @@
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/GadgetSlider.h"
 #include "GameClient/ControlBar.h"
+#include "GameClient/Image.h"
+#include "GameClient/Mouse.h"
 #include "W3DDevice/GameClient/W3DAssetManager.h"
 #include "W3DDevice/GameClient/W3DGUICallbacks.h"
 #include "W3DDevice/GameClient/W3DInGameUI.h"
@@ -51,6 +53,7 @@
 #include "W3DDevice/Common/W3DConvert.h"
 #include "WW3D2/WW3D.h"
 #include "WW3D2/HAnim.h"
+#include "WW3D2/Texture.h"
 #include "WW3D2/DX8Wrapper.h"
 #include "WW3D2/dx8vertexbuffer.h"
 #include "WW3D2/dx8indexbuffer.h"
@@ -408,6 +411,13 @@ void W3DInGameUI::draw( void )
 	// draw the formation line if one is being dragged out
 	if( m_isFormationDragging )
 		drawFormationLine();
+
+	// and where everything selected is headed, drag or no drag
+	drawOrderHints();
+
+	// the attack circle, while the left button is still sweeping it out
+	if( isAttackCircling() )
+		drawAttackCircle();
 
 	// for each view draw hints
 	/// @todo should the UI be iterating through views like this?
@@ -773,66 +783,295 @@ void W3DInGameUI::drawSelectionRegion( void )
 }  // end drawSelectionRegion
 
 //-------------------------------------------------------------------------------------------------
-/** draw the line a right drag is spreading the selection along, with one tick per unit so the
-	* spacing you are about to get is visible before you let go */
+/** draw the line a right drag is spreading the selection along.  Where each unit will stand is
+	* said by the cursor sitting there, not by a mark on the line */
 //-------------------------------------------------------------------------------------------------
 void W3DInGameUI::drawFormationLine( void )
 {
 	const Real width = 2.0f;
-	const UnsignedInt color = 0xCC33FF33;  //0xAARRGGBB
-	const Real tickHalfLength = 6.0f;
-
+	// the line says which order it is about to be, in the colours the order hints already use
+	const UnsignedInt color = isInAttackMoveToMode() ? 0xCCFF66CC
+											: isForceAttackArmed() ? 0xCCFF5555
+											: 0xCC33FF33;  //0xAARRGGBB
 	const std::vector<ICoord2D>& curve = m_formationDragPoints;
 	const Int points = (Int)curve.size();
 	if( points < 2 )
 		return;
 
-	// arc length up to each point, so the ticks divide the whole curve rather than each segment
-	Real arc[ MAX_FORMATION_DRAG_POINTS ];
-	arc[ 0 ] = 0.0f;
 	for( Int i = 1; i < points; ++i )
-	{
-		const Real dx = (Real)(curve[ i ].x - curve[ i - 1 ].x);
-		const Real dy = (Real)(curve[ i ].y - curve[ i - 1 ].y);
-		arc[ i ] = arc[ i - 1 ] + sqrtf( dx * dx + dy * dy );
-
 		TheDisplay->drawLine( curve[ i - 1 ].x, curve[ i - 1 ].y, curve[ i ].x, curve[ i ].y,
 													width, color );
-	}
 
-	const Int count = getSelectCount();
-	const Real span = arc[ points - 1 ];
-	if( count < 2 || span < 1.0f )
-		return;
-
-	Int seg = 1;
-	for( Int i = 0; i < count; ++i )
-	{
-		const Real dist = span * (Real)i / (Real)(count - 1);
-		while( seg < points - 1 && arc[ seg ] < dist )
-			++seg;
-
-		const Real segLen = arc[ seg ] - arc[ seg - 1 ];
-		const Real t = (segLen > 0.0f) ? ((dist - arc[ seg - 1 ]) / segLen) : 0.0f;
-		const Real dx = (Real)(curve[ seg ].x - curve[ seg - 1 ].x);
-		const Real dy = (Real)(curve[ seg ].y - curve[ seg - 1 ].y);
-		const Real sx = (Real)curve[ seg - 1 ].x + dx * t;
-		const Real sy = (Real)curve[ seg - 1 ].y + dy * t;
-
-		// perpendicular to the segment the station sits on, so a tick reads as a slot rather than as
-		// part of the line
-		const Real segSpan = (segLen > 0.0f) ? segLen : 1.0f;
-		const Real px = -dy / segSpan;
-		const Real py = dx / segSpan;
-
-		TheDisplay->drawLine( REAL_TO_INT_FLOOR( sx - px * tickHalfLength ),
-													REAL_TO_INT_FLOOR( sy - py * tickHalfLength ),
-													REAL_TO_INT_FLOOR( sx + px * tickHalfLength ),
-													REAL_TO_INT_FLOOR( sy + py * tickHalfLength ),
-													width, color );
-	}
+	// no ticks along it any more.  Every station already carries the cursor of the order it is about
+	// to receive, drawn by drawOrderHints off the same hints, and a tick beside a cursor was the
+	// same fact said twice
 
 }  // end drawFormationLine
+
+//-------------------------------------------------------------------------------------------------
+/** draw the circle a left drag is sweeping targets out of.  It is a circle on the ground, not on
+	* the screen, so it follows the terrain the way the selection it is about to make does */
+//-------------------------------------------------------------------------------------------------
+void W3DInGameUI::drawAttackCircle( void )
+{
+	Coord3D center, rim;
+	TheTacticalView->screenToTerrain( &getAttackCircleAnchor(), &center );
+	TheTacticalView->screenToTerrain( &getAttackCircleCursor(), &rim );
+
+	const Real dx = rim.x - center.x;
+	const Real dy = rim.y - center.y;
+	const Real radius = (Real)sqrt( dx * dx + dy * dy );
+	if( radius < 1.0f )
+		return;
+
+	const Int segments = 48;
+	const UnsignedInt color = 0xCCFF5555;  //0xAARRGGBB, the attack red the hints use
+	const Real width = 2.0f;
+
+	ICoord2D previous;
+	Bool havePrevious = FALSE;
+	for( Int i = 0; i <= segments; ++i )
+	{
+		const Real angle = 2.0f * PI * (Real)i / (Real)segments;
+		Coord3D world;
+		world.x = center.x + radius * (Real)cos( angle );
+		world.y = center.y + radius * (Real)sin( angle );
+		world.z = TheTerrainLogic->getGroundHeight( world.x, world.y );
+
+		ICoord2D screen;
+		if( TheTacticalView->worldToScreenTriReturn( &world, &screen ) == View::WTS_INVALID )
+		{
+			havePrevious = FALSE;
+			continue;
+		}
+
+		if( havePrevious )
+			TheDisplay->drawLine( previous.x, previous.y, screen.x, screen.y, width, color );
+
+		previous = screen;
+		havePrevious = TRUE;
+	}
+
+	// and the radius itself, so the drag reads as a radius rather than a rubber band
+	ICoord2D middle;
+	center.z = TheTerrainLogic->getGroundHeight( center.x, center.y );
+	if( TheTacticalView->worldToScreenTriReturn( &center, &middle ) != View::WTS_INVALID )
+		TheDisplay->drawLine( middle.x, middle.y, getAttackCircleCursor().x,
+													getAttackCircleCursor().y, 1.0f, 0x66FF5555 );
+
+}  // end drawAttackCircle
+
+//-------------------------------------------------------------------------------------------------
+/** The marker on a destination is the cursor the player would be holding if they were pointing at
+	* it: the move cursor for a move, the attack-move one for an attack-move, the attack one for an
+	* attack.  Same art, out of Mouse.ini, so nothing here has to invent a second visual language. */
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+/** One cursor per order, out of the set the game already draws under the hand.  A unit told to
+	* garrison shows the garrison cursor where it is going, one sent to a repair bay shows that one,
+	* and a group given four different jobs reads as four different markers rather than four arrows. */
+//-------------------------------------------------------------------------------------------------
+/** The thread is coloured by what it is for: anything that ends in a shot is red, an attack move
+	* is pink, everything else is green.  The marker on the end of it is the plain pointer in the same
+	* colour - one shape for every order, so the colour is the whole message. */
+//-------------------------------------------------------------------------------------------------
+static UnsignedInt orderHintLineColor( InGameUI::OrderHintKind kind )
+{
+	switch( kind )
+	{
+		case InGameUI::ORDER_HINT_ATTACK_MOVE:
+			return 0x66FF66CC;
+		case InGameUI::ORDER_HINT_ATTACK:
+		case InGameUI::ORDER_HINT_FORCE_ATTACK:
+		case InGameUI::ORDER_HINT_ATTACK_GROUND:
+			return 0x66FF5555;
+		default:
+			return 0x6655FF55;
+	}
+}
+
+static UnsignedInt orderHintMarkerColor( InGameUI::OrderHintKind kind )
+{
+	return orderHintLineColor( kind ) | 0xFF000000;
+}
+
+struct OrderCursorArt
+{
+	const Image *image;
+	ICoord2D hotSpot;
+	Bool tried;
+};
+static OrderCursorArt s_orderCursorArt[ Mouse::NUM_MOUSE_CURSORS ];
+
+//-------------------------------------------------------------------------------------------------
+/** Turn one Windows cursor into something the 2D renderer can draw.  Mouse.ini's Image entries
+	* name mapped images that do not exist in the shipped data, and the Texture entries name .ANI
+	* files rather than textures - so the art the player is actually holding only exists as an HCURSOR.
+	* Pull the first frame's bits out of it and keep them as a texture. */
+//-------------------------------------------------------------------------------------------------
+static const Image *loadOrderCursorImage( Mouse::MouseCursor cursor, ICoord2D *hotSpot )
+{
+	const AsciiString& name = TheMouse->m_cursorInfo[ cursor ].textureName;
+	if( name.isEmpty() )
+		return NULL;
+
+	char path[ 256 ];
+	sprintf( path, "data\\cursors\\%s.ANI", name.str() );
+
+	HCURSOR hcursor = LoadCursorFromFile( path );
+	if( hcursor == NULL )
+		return NULL;
+
+	ICONINFO info;
+	if( GetIconInfo( hcursor, &info ) == FALSE )
+		return NULL;
+
+	const Image *result = NULL;
+
+	BITMAP bm;
+	if( info.hbmColor && GetObject( info.hbmColor, sizeof( BITMAP ), &bm ) )
+	{
+		const Int w = bm.bmWidth;
+		const Int h = bm.bmHeight;
+
+		BITMAPINFO bi;
+		memset( &bi, 0, sizeof( bi ) );
+		bi.bmiHeader.biSize = sizeof( BITMAPINFOHEADER );
+		bi.bmiHeader.biWidth = w;
+		bi.bmiHeader.biHeight = -h;			// negative means top down, which is the order a texture wants
+		bi.bmiHeader.biPlanes = 1;
+		bi.bmiHeader.biBitCount = 32;
+		bi.bmiHeader.biCompression = BI_RGB;
+
+		UnsignedInt *color = NEW UnsignedInt[ w * h ];
+		UnsignedInt *mask = NEW UnsignedInt[ w * h ];
+
+		HDC dc = GetDC( NULL );
+		GetDIBits( dc, info.hbmColor, 0, h, color, &bi, DIB_RGB_COLORS );
+		GetDIBits( dc, info.hbmMask, 0, h, mask, &bi, DIB_RGB_COLORS );
+		ReleaseDC( NULL, dc );
+
+		//
+		// a 32-bit cursor carries its own alpha; an older one leaves it zero and says what is
+		// transparent in the AND mask instead, where a white pixel is a hole
+		//
+		Bool hasAlpha = FALSE;
+		for( Int i = 0; i < w * h; ++i )
+			if( color[ i ] & 0xFF000000 )
+			{
+				hasAlpha = TRUE;
+				break;
+			}
+
+		if( hasAlpha == FALSE )
+			for( Int i = 0; i < w * h; ++i )
+				color[ i ] |= (mask[ i ] & 0x00FFFFFF) ? 0x00000000 : 0xFF000000;
+
+		TextureClass *texture = MSGNEW("TextureClass") TextureClass( w, h, WW3D_FORMAT_A8R8G8B8, MIP_LEVELS_1 );
+		SurfaceClass *surface = texture->Get_Surface_Level();
+		Int pitch;
+		UnsignedByte *bits = (UnsignedByte *)surface->Lock( &pitch );
+		for( Int row = 0; row < h; ++row )
+			memcpy( bits + row * pitch, color + row * w, w * sizeof( UnsignedInt ) );
+		surface->Unlock();
+		REF_PTR_RELEASE( surface );
+
+		delete [] color;
+		delete [] mask;
+
+		Image *image = newInstance(Image);
+		Region2D uv;
+		uv.lo.x = 0.0f;
+		uv.lo.y = 0.0f;
+		uv.hi.x = 1.0f;
+		uv.hi.y = 1.0f;
+		image->setStatus( IMAGE_STATUS_RAW_TEXTURE );
+		image->setRawTextureData( texture );
+		image->setUV( &uv );
+		image->setTextureWidth( w );
+		image->setTextureHeight( h );
+		ICoord2D size;
+		size.x = w;
+		size.y = h;
+		image->setImageSize( &size );
+
+		hotSpot->x = info.xHotspot;
+		hotSpot->y = info.yHotspot;
+		result = image;
+	}
+
+	if( info.hbmColor )
+		DeleteObject( info.hbmColor );
+	if( info.hbmMask )
+		DeleteObject( info.hbmMask );
+
+	return result;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The marker on a destination is the cursor the player would be holding if they were pointing at
+	* it: the move cursor for a move, the attack-move one for an attack-move, the attack one for an
+	* attack.  Same art, so nothing here has to invent a second visual language.  Built once. */
+//-------------------------------------------------------------------------------------------------
+static const Image *orderCursorImage( Mouse::MouseCursor cursor, ICoord2D *hotSpot )
+{
+	OrderCursorArt& art = s_orderCursorArt[ cursor ];
+	if( art.tried == FALSE )
+	{
+		art.image = loadOrderCursorImage( cursor, &art.hotSpot );
+		art.tried = TRUE;
+	}
+
+	*hotSpot = art.hotSpot;
+	return art.image;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** One faint line per selected unit, from where it stands to where it is going, with the order's
+	* own cursor sitting on the destination.  Green for a move, pink for an attack-move, red for an
+	* attack.  The goals are read off the units every frame, so the lines last as long as the orders
+	* do and go when the units arrive or the selection changes. */
+//-------------------------------------------------------------------------------------------------
+void W3DInGameUI::drawOrderHints( void )
+{
+	const std::vector<OrderHint>& hints = getOrderHints();
+	if( hints.empty() )
+		return;
+
+	const Real width = 1.0f;
+
+	for( std::vector<OrderHint>::const_iterator it = hints.begin(); it != hints.end(); ++it )
+	{
+		const UnsignedInt lineColor = orderHintLineColor( it->kind );
+
+		// a unit off the edge of the screen still has a destination worth seeing, and the line to it
+		// says which way it went.  WTS_OUTSIDE_FRUSTUM still gives usable pixels, so only points
+		// behind the camera are dropped
+		ICoord2D from, to;
+		if( TheTacticalView->worldToScreenTriReturn( &it->from, &from ) == View::WTS_INVALID )
+			continue;
+		if( TheTacticalView->worldToScreenTriReturn( &it->to, &to ) == View::WTS_INVALID )
+			continue;
+
+		TheDisplay->drawLine( from.x, from.y, to.x, to.y, width, lineColor );
+
+		// the marker is the plain pointer, tinted: its white body takes the order colour and the
+		// dark outline stays.  The hot spot is the pixel the player aims with, so that is the pixel
+		// that goes on the destination - a pointer hung by its top left corner points at the wrong
+		// ground
+		ICoord2D hotSpot;
+		const Image *image = orderCursorImage( Mouse::ARROW, &hotSpot );
+		if( image )
+		{
+			const Int w = image->getImageWidth();
+			const Int h = image->getImageHeight();
+			const Int x = to.x - hotSpot.x;
+			const Int y = to.y - hotSpot.y;
+			TheDisplay->drawImage( image, x, y, x + w, y + h, orderHintMarkerColor( it->kind ) );
+		}
+	}
+
+}  // end drawOrderHints
 
 //-------------------------------------------------------------------------------------------------
 /** Draw the visual feedback for clicking in the world and telling units
