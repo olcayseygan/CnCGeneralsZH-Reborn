@@ -1727,7 +1727,13 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 	// holding a shape. Explicit formations - the ones the player asked for by name - still keep
 	// theirs, and the AI still moves its teams the old way.
 	//
-	const Bool gatherOnPoint = ( cmdSource == CMD_FROM_PLAYER && !isFormation );
+	// A queued waypoint (alt-click) is the exception, and it has to be: the whole thing rests on the
+	// move state finding a free cell near the spot, and AIFollowPathState only adjusts the *last*
+	// point of the path - every point before it is driven at exactly as given
+	// (setAdjustsDestination(false), AIStates.cpp:3398). Handing a dozen tanks the same intermediate
+	// cell means eleven of them never arrive at it and the queue stops there, which is a group that
+	// walks to the first waypoint and stands. So a queued point keeps each member's own offset.
+	const Bool gatherOnPoint = ( cmdSource == CMD_FROM_PLAYER && !isFormation && !addWaypoint );
 
 	/* The group path and the orders that ride on it, timed: it is one search plus a move order for
 		 every member, all of it inside the one logic frame the order arrives on, and a skirmish AI
