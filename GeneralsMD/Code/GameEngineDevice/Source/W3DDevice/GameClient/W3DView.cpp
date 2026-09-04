@@ -1650,7 +1650,24 @@ void W3DView::calcDeltaScroll(Coord2D &screenDelta)
 
 
 //-------------------------------------------------------------------------------------------------
-/** Draw member for the W3D window, this will literally draw the window 
+/** One world-space segment, projected and clipped to the screen. The AI path overlay above spells
+	* this out by hand; the lane overlay below draws hundreds of segments a frame and wants it once. */
+//-------------------------------------------------------------------------------------------------
+static void drawWorldLine( View *view, IRegion2D *clipRegion, const Coord3D *a, const Coord3D *b,
+													 UnsignedInt color )
+{
+	ICoord2D start, end, clipStart, clipEnd;
+	Bool onScreenA = view->worldToScreen( a, &start );
+	Bool onScreenB = view->worldToScreen( b, &end );
+	if( !onScreenA && !onScreenB )
+		return;
+
+	if( ClipLine2D( &start, &end, &clipStart, &clipEnd, clipRegion ) )
+		TheDisplay->drawLine( clipStart.x, clipStart.y, clipEnd.x, clipEnd.y, 1.0f, color );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Draw member for the W3D window, this will literally draw the window
   * for this view */
 //-------------------------------------------------------------------------------------------------
 void W3DView::drawView( void )
@@ -1833,6 +1850,85 @@ void W3DView::draw( void )
 		}
 
 	}  // end if, show debug AI
+
+	/* -showlanes: the band, drawn on the ground.
+
+		 Three things per moving unit, and the point of separating them is that two different failures
+		 look identical from the camera - a unit that was never handed a lane, and a unit that was
+		 handed one and then had it refused.
+
+		 blue     its route, so twenty units sent to the same place show whether they were even given
+						  twenty different routes;
+		 yellow   from the unit, sideways across its route, the lane it holds - length is how far off
+						  centre that lane sits, and the side is which side. No yellow means no lane;
+		 green    from the centre line of the route to the point the unit is actually steering at,
+						  which is the offset that survived the passability check and the taper. Yellow
+						  with no green is a lane that was measured and thrown away.
+
+		 It draws every unit on the map, not the selected ones: a group's shape is the thing being
+		 looked at and half a group is not a shape. Client-side only, and it reads nothing the logic
+		 does not already have - closestPointAndDir does no query and no caching. */
+	if( TheGlobalData->m_showLanes )
+	{
+		IRegion2D clipRegion;
+		clipRegion.lo.x = 0;
+		clipRegion.lo.y = 0;
+		clipRegion.hi.x = getWidth();
+		clipRegion.hi.y = getHeight();
+
+		for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+		{
+			AIUpdateInterface *ai = obj->getAIUpdateInterface();
+			if( ai == NULL )
+				continue;
+
+			Path *path = ai->getPath();
+			if( path == NULL )
+				continue;
+
+			const Coord3D *unitPos = obj->getPosition();
+
+			// the route itself
+			PathNode *prevNode = path->getFirstNode();
+			for( PathNode *node = (prevNode ? prevNode->getNext() : NULL); node; node = node->getNext() )
+			{
+				drawWorldLine( this, &clipRegion, prevNode->getPosition(), node->getPosition(), 0xFF3060C0 );
+				prevNode = node;
+			}
+
+			Coord3D centre;
+			Coord2D dir;
+			if( !path->closestPointAndDir( *unitPos, &centre, &dir ) )
+				continue;
+
+			// the lane this unit holds, drawn sideways from the unit itself. 120 feet at the edge of
+			// the band, which is about a tank and a half - long enough to read at normal zoom.
+			if( ai->hasLaneFraction() )
+			{
+				Real off = (ai->getLaneFraction() - 0.5f) * 120.0f;
+				Coord3D tip = *unitPos;
+				tip.x += -dir.y * off;
+				tip.y +=  dir.x * off;
+				tip.z = TheTerrainLogic->getGroundHeight( tip.x, tip.y );
+				drawWorldLine( this, &clipRegion, unitPos, &tip, 0xFFFFFF00 );
+			}
+
+			// and the offset it actually kept
+			if( path->hasCachedPointOnPath() )
+			{
+				Coord3D steer;
+				path->peekCachedPointOnPath( steer );
+				drawWorldLine( this, &clipRegion, &centre, &steer, 0xFF00FF00 );
+
+				ICoord2D s;
+				if( worldToScreen( &steer, &s ) )
+				{
+					TheDisplay->drawLine( s.x-3, s.y, s.x+3, s.y, 1.0f, 0xFF00FF00 );
+					TheDisplay->drawLine( s.x, s.y-3, s.x, s.y+3, 1.0f, 0xFF00FF00 );
+				}
+			}
+		}
+	}  // end if, show lanes
 
 #if defined(_DEBUG) || defined(_INTERNAL)
 	if( TheGlobalData->m_debugCamera )

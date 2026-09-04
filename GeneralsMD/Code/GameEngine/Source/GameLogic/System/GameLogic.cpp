@@ -3823,6 +3823,74 @@ static const char *getModuleProfileReport( void )
 }
 #endif
 
+//-------------------------------------------------------------------------------------------------
+/** -groupdrill: play the part of a player giving group orders.
+
+		The self-play harness never exercised the crowd model, and it took a SHOWLANES log to notice.
+		The computer's armies do not move as groups: a skirmish AI team hands each of its units its own
+		aiMoveToPosition, and a unit that was never handed a lane is one crowdSteer returns out of on
+		its first line.  Every steering rule under -crowd was therefore reachable by a human with a
+		mouse and by nothing else, while ai-batch.ps1 reported on the flag's other half - the collision
+		rules in AIUpdate::blockedBy - and called it the crowd model.
+
+		This selects each player's ground army every n frames and gives it one order, through the same
+		AIGroup::groupMoveToPosition a right-click goes through.  The match it produces is nonsense:
+		two armies marching corner to corner past each other, nobody defending anything, and the win
+		rate means nothing at all.  The blocked unit-frames underneath it are the point, and they are
+		the first numbers this fork has ever had for the steering itself. */
+//-------------------------------------------------------------------------------------------------
+static void groupDrillTick( void )
+{
+	Region3D extent;
+	TheTerrainLogic->getExtent( &extent );
+	const Real inset = PATHFIND_CELL_SIZE_F * 8.0f;
+
+	// which corner this tick sends them to; alternating it marches the army back and forth over the
+	// same ground rather than parking it once and measuring an empty map
+	const Int tick = (Int)(TheGameLogic->getFrame() / (UnsignedInt)TheGlobalData->m_groupDrill);
+
+	for( Int p = 0; p < ThePlayerList->getPlayerCount(); p++ )
+	{
+		Player *player = ThePlayerList->getNthPlayer( p );
+		if (player == NULL)
+			continue;
+
+		AIGroup *group = TheAI->createGroup();
+		Int taken = 0;
+		for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+		{
+			if (obj->getControllingPlayer() != player || obj->isEffectivelyDead())
+				continue;
+			if (obj->getAIUpdateInterface() == NULL)
+				continue;
+			// the army, and only the army: a base that stops building has no traffic to measure
+			if (obj->isKindOf( KINDOF_STRUCTURE ) || obj->isKindOf( KINDOF_IMMOBILE )
+					|| obj->isKindOf( KINDOF_AIRCRAFT ) || obj->isKindOf( KINDOF_DOZER )
+					|| obj->isKindOf( KINDOF_HARVESTER ))
+				continue;
+
+			group->add( obj );
+			if (++taken >= 40)
+				break;
+		}
+
+		if (taken < 2)
+		{
+			TheAI->destroyGroup( group );
+			continue;
+		}
+
+		Coord3D dest;
+		const Bool farCorner = ((tick + p) & 1) != 0;
+		dest.x = farCorner ? extent.hi.x - inset : extent.lo.x + inset;
+		dest.y = farCorner ? extent.hi.y - inset : extent.lo.y + inset;
+		dest.z = TheTerrainLogic->getGroundHeight( dest.x, dest.y );
+
+		group->groupMoveToPosition( &dest, false, CMD_FROM_AI );
+		TheAI->destroyGroup( group );
+	}
+}
+
 void GameLogic::update( void )
 {
 	USE_PERF_TIMER(GameLogic_update)
@@ -3895,6 +3963,11 @@ void GameLogic::update( void )
 	{
 		TheScriptEngine->UPDATE();
 	}
+
+	// the measurement harness for group movement; the first tick waits for there to be an army
+	if (TheGlobalData->m_groupDrill > 0 && now > (UnsignedInt)(LOGICFRAMES_PER_SECOND * 60)
+			&& (now % (UnsignedInt)TheGlobalData->m_groupDrill) == 0)
+		groupDrillTick();
 
 	QueryPerformanceCounter( (LARGE_INTEGER *)&tScripts );
 
