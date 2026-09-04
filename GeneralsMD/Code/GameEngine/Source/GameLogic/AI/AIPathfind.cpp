@@ -924,6 +924,52 @@ static Coord3D steerCheckTarget( const Coord3D& from, const Coord3D& to )
 	return clamped;
 }
 
+Bool Path::closestPointAndDir( const Coord3D& pos, Coord3D *ptOut, Coord2D *dirOut ) const
+{
+	if (m_path == NULL) return false;
+
+	Real closeDistSqr = 99999999.9f;
+	Bool found = false;
+
+	const PathNode *prevNode = m_path;
+	Coord2D segmentDirNorm;
+	Real segmentLength;
+	for ( const PathNode *node = prevNode->getNextOptimized(&segmentDirNorm, &segmentLength);
+				node != NULL;
+				node = node->getNextOptimized(&segmentDirNorm, &segmentLength) )
+	{
+		const Coord3D *prevNodePos = prevNode->getPosition();
+
+		Coord2D toPos;
+		toPos.x = pos.x - prevNodePos->x;
+		toPos.y = pos.y - prevNodePos->y;
+
+		Real along = segmentDirNorm.x * toPos.x + segmentDirNorm.y * toPos.y;
+		if (along < 0.0f) along = 0.0f;
+		if (along > segmentLength) along = segmentLength;
+
+		Coord3D pointOnPath;
+		pointOnPath.x = prevNodePos->x + along * segmentDirNorm.x;
+		pointOnPath.y = prevNodePos->y + along * segmentDirNorm.y;
+		pointOnPath.z = prevNodePos->z;
+
+		Real dx = pos.x - pointOnPath.x;
+		Real dy = pos.y - pointOnPath.y;
+		Real distSqr = dx*dx + dy*dy;
+		if (distSqr < closeDistSqr)
+		{
+			closeDistSqr = distSqr;
+			*ptOut = pointOnPath;
+			*dirOut = segmentDirNorm;
+			found = true;
+		}
+
+		prevNode = node;
+	}
+
+	return found;
+}
+
 void Path::computePointOnPath(
 	const Object* obj,
 	const LocomotorSet& locomotorSet,
@@ -1182,6 +1228,103 @@ void Path::computePointOnPath(
 				Real dy = fabs(pos.y - out.posOnPath.y);
 				if (dx<1 && dy<1 && closeNode->getNextOptimized() && closeNode->getNextOptimized()->getNextOptimized()) {
 					out.posOnPath = *closeNode->getNextOptimized()->getNextOptimized()->getPosition();
+				}
+			}
+		}
+	}
+
+	/* The route is a band, not a line.
+		 Everything above picked a point on the centre line, which is why twenty tanks handed twenty
+		 routes down the same open ground drive nose to tail: they are all steering at the same
+		 metre of it.  This slides the steering point sideways to the unit's own lane across
+		 whatever width the ground allows where it is standing, so a wide field is used as a wide
+		 field and a doorway squeezes the same units back into a line without anybody deciding to
+		 queue.  Two things it must not break: the unit still has to reach the cell reserved for it
+		 at the end, so the band closes onto the centre over the last few cells, and it still has
+		 to be able to drive at whatever it is aimed at, so a lane point with something in the way
+		 is dropped and the centre kept. */
+	if (!TheGlobalData->m_noLanePath && closeNode != NULL && closeNode->getNextOptimized() != NULL)
+	{
+		const AIUpdateInterface *ai = obj ? obj->getAIUpdateInterface() : NULL;
+		if (ai && ai->hasLaneFraction())
+		{
+			const PathNode *nextNode = closeNode->getNextOptimized();
+			const Coord3D *segA = closeNode->getPosition();
+			const Coord3D *segB = nextNode->getPosition();
+			Coord2D dirIn;
+			dirIn.x = segB->x - segA->x;
+			dirIn.y = segB->y - segA->y;
+			Real segLen = dirIn.length();
+			if (segLen > 0.001f)
+			{
+				dirIn.x /= segLen;
+				dirIn.y /= segLen;
+
+				/* Which way the route is heading where the steering point actually is, which is not
+					 always the segment the unit is standing beside: everything above will happily hand
+					 back the corner node itself, or the middle of the segment after it.  Measuring the
+					 lane sideways to the old heading then puts the point beside the corner instead of
+					 past it - on a sharp turn, behind the unit - and that is the tank that stops at the
+					 bend and turns on the spot. */
+				Coord2D dirOut = dirIn;
+				const PathNode *afterNext = nextNode->getNextOptimized();
+				if (afterNext)
+				{
+					Coord2D d;
+					d.x = afterNext->getPosition()->x - segB->x;
+					d.y = afterNext->getPosition()->y - segB->y;
+					if (d.length() > 0.001f)
+					{
+						d.normalize();
+						dirOut = d;
+					}
+				}
+
+				Real atPoint = (out.posOnPath.x - segA->x) * dirIn.x + (out.posOnPath.y - segA->y) * dirIn.y;
+				Coord2D dir = (atPoint >= segLen - 0.1f) ? dirOut : dirIn;
+
+				Coord2D left, right;
+				left.x = -dir.y;	left.y = dir.x;
+				right.x = dir.y;	right.y = -dir.x;
+
+				Pathfinder *pf = TheAI->pathfinder();
+				Real leftRoom = pf->laneExtent( obj, locomotorSet, out.layer, &out.posOnPath, &left );
+				Real rightRoom = pf->laneExtent( obj, locomotorSet, out.layer, &out.posOnPath, &right );
+				Real lateral = Pathfinder_laneOffset( ai->getLaneFraction(), leftRoom, rightRoom );
+
+				// and it is shut some way before the goal, not at it
+				Real remaining = totalPathLength - lengthAlongPathToPos;
+				lateral *= Pathfinder_laneTaper( remaining );
+
+				Bool applied = FALSE;
+				if (fabs(lateral) > 0.5f)
+				{
+					Coord3D lanePos = out.posOnPath;
+					lanePos.x += left.x * lateral;
+					lanePos.y += left.y * lateral;
+
+					/* Never hand back a point on the other side of the unit from the one the route
+						 asked for.  Sliding sideways can cross the unit's own position, and a unit told
+						 to drive at something behind it turns round to face it instead of driving on. */
+					Real ahead = (out.posOnPath.x - pos.x) * (lanePos.x - pos.x)
+										 + (out.posOnPath.y - pos.y) * (lanePos.y - pos.y);
+
+					if (ahead > 0.0f && pf->isLinePassable( obj, locomotorSet.getValidSurfaces(), out.layer, pos,
+								steerCheckTarget( pos, lanePos ), false, true ))
+					{
+						out.posOnPath = lanePos;
+						applied = TRUE;
+					}
+				}
+
+				/* The last place a lane can die: the band measured as one cell wide, the taper closed
+					 it, or the line to the lane point is not drivable. Logged once a second per unit -
+					 every frame is a megabyte a minute and says nothing more. */
+				if (TheGlobalData->m_showLanes && (TheGameLogic->getFrame() % 30) == 0)
+				{
+					DEBUG_LOG(("SHOWLANES cpop: unit %d lane=%.2f room=%.0f/%.0f left=%.0f lateral=%.1f applied=%d\n",
+						obj->getID(), ai->getLaneFraction(), leftRoom, rightRoom, remaining, lateral,
+						applied ? 1 : 0));
 				}
 			}
 		}
@@ -4296,6 +4439,85 @@ Int Pathfinder_crossingCost( Int baseCost, Int claimHalves )
 	return (baseCost * PF_CROSSING_NUM * units) / PF_CROSSING_DEN;
 }
 
+/* Lanes across the band.  Both of these are the whole of the lane arithmetic and neither of them
+	 touches the map, so the tests can check the edges - a band with no width, a body already outside
+	 it, a lane hard against a wall - without standing a Pathfinder up. */
+
+/// The 5% at either end is kept clear: a lane exactly on the edge is a lane in the terrain.
+static const Real LANE_MIN = 0.05f;
+static const Real LANE_MAX = 0.95f;
+
+/* Half is the route's centre line, not the middle of whatever room was found.
+
+	 Stretching one straight line from the left wall to the right wall makes half of a lopsided band
+	 mean "the middle of the free ground", which walks a unit with no opinion sideways every time the
+	 terrain is uneven on one side.  With the probe reaching sixteen cells that is up to seventy-five
+	 feet off its own route for a unit that was never given a lane at all, and it cost 10% more time
+	 spent blocked over twelve matches - measured, and the reason the two sides are now scaled
+	 separately.  Each half of the band is its own scale and they meet at the centre. */
+Real Pathfinder_laneFraction( Real lateral, Real leftExtent, Real rightExtent )
+{
+	Real u = 0.5f;
+	if (lateral > 0.0f && leftExtent > 0.001f)
+		u = 0.5f + 0.5f * (lateral / leftExtent);
+	else if (lateral < 0.0f && rightExtent > 0.001f)
+		u = 0.5f + 0.5f * (lateral / rightExtent);
+
+	if (u < LANE_MIN) u = LANE_MIN;
+	if (u > LANE_MAX) u = LANE_MAX;
+	return u;
+}
+
+Real Pathfinder_laneOffset( Real u, Real leftExtent, Real rightExtent )
+{
+	return (u >= 0.5f) ? (u - 0.5f) * 2.0f * leftExtent
+										 : (u - 0.5f) * 2.0f * rightExtent;
+}
+
+/**
+ * The widest half-band laneExtent can ever report: it probes PF_LANE_PROBE_CELLS cells sideways and
+ * stops there whatever the ground does.  A lane handed down from outside is measured against this,
+ * so it can be stated in feet without knowing which piece of road the unit will be standing on.
+ */
+Real Pathfinder_laneReference( void )
+{
+	return PATHFIND_CELL_SIZE_F * (Real)PF_LANE_PROBE_CELLS;
+}
+
+/**
+ * Where a member of a group sits across the band, given how far left of the centre line it wants to
+ * ride in world units.
+ *
+ * The previous version divided by the group's own width, which made the answer say nothing about
+ * distance: twenty-five tanks parked in a tight blob have a half width of thirty feet, so the whole
+ * selection mapped into thirty feet of band and every one of them was on top of every other.  A
+ * fixed reference means the caller can space members by their own size and have it survive.
+ */
+Real Pathfinder_groupLane( Real lateral )
+{
+	Real u = 0.5f + 0.5f * (lateral / Pathfinder_laneReference());
+	if (u < LANE_MIN) u = LANE_MIN;
+	if (u > LANE_MAX) u = LANE_MAX;
+	return u;
+}
+
+/**
+ * How much of the lane survives this far from the end of the route.
+ *
+ * The band has to be shut before the goal rather than at it.  A ramp reaching zero exactly at the
+ * end leaves a unit riding seventy feet out still twenty feet out when it stops, so a group sent
+ * to one point arrives as a line across it instead of a huddle on it.
+ */
+Real Pathfinder_laneTaper( Real remaining )
+{
+	const Real taper = PATHFIND_CELL_SIZE_F * (Real)PF_LANE_TAPER_CELLS;
+	const Real close = PATHFIND_CELL_SIZE_F * (Real)PF_LANE_CLOSE_CELLS;
+
+	if (remaining <= close) return 0.0f;
+	if (remaining >= taper) return 1.0f;
+	return (remaining - close) / (taper - close);
+}
+
 /// Is this cell one no ground unit can stand in?  Rubble counts as ground: crushers drive over it.
 static Bool clearanceBlocks( const PathfindCell *cell )
 {
@@ -4690,6 +4912,37 @@ void Pathfinder::beginFlowSearch( const Object *obj )
 	// and the estimate is raised to match what the charge adds, or the search stops steering
 	thePathHeuristicNum = m_flowCosts ? PF_HEURISTIC_FLOW_NUM : 3;
 	thePathHeuristicDen = m_flowCosts ? PF_HEURISTIC_FLOW_DEN : 2;
+}
+
+/* How wide the ground is beside a point, on one side.  Half-cell steps, stopping at the first
+	 position the body could not stand in.  Deliberately not the clearance map: that is a chamfer
+	 distance to the nearest obstacle in any direction, so a route running along a wall reads as
+	 narrow even when the whole field is open on the other side, and it is exactly that asymmetry
+	 the band has to see.  Sixteen cell lookups, on a path recompute rather than every frame. */
+Real Pathfinder::laneExtent( const Object *obj, const LocomotorSet& locomotorSet, PathfindLayerEnum layer,
+														 const Coord3D *from, const Coord2D *dir )
+{
+	const Bool isCrusher = obj ? obj->getCrusherLevel() > 0 : false;
+	const Real step = PATHFIND_CELL_SIZE_F * 0.5f;
+	const Real maxDist = PATHFIND_CELL_SIZE_F * (Real)PF_LANE_PROBE_CELLS;
+
+	Real room = 0.0f;
+	for (Real s = step; s <= maxDist; s += step)
+	{
+		Coord3D probe;
+		probe.x = from->x + dir->x * s;
+		probe.y = from->y + dir->y * s;
+		probe.z = from->z;
+		if (!validMovementPosition(isCrusher, layer, locomotorSet, &probe))
+			break;
+		room = s;
+	}
+
+	// the body has to fit in whatever room was found, so it only owns the part past its own radius
+	if (obj)
+		room -= obj->getGeometryInfo().getBoundingCircleRadius();
+
+	return room > 0.0f ? room : 0.0f;
 }
 
 

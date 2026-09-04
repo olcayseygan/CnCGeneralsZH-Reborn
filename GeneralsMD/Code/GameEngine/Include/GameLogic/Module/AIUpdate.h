@@ -40,6 +40,7 @@
 class AIGroup;
 class AIStateMachine;
 class AttackPriorityInfo;
+class CrowdCorridor;
 class DamageInfo;
 class DozerAIInterface;
 class Object;
@@ -478,6 +479,35 @@ public:
 	Bool isQuickPathAvailable( const Coord3D *destination ) const;  ///< does a path (using quick pathfind) exist between us and the destination
 	Int getNumFramesBlocked(void) const {return m_blockedFrames;}
 	Bool isBlockedAndStuck(void) const {return m_isBlockedAndStuck;}
+
+	/* Lanes.  The route says where to go; the lane fraction says where across its width this unit
+		 rides while it goes there - 0 hard right, 1 hard left, 0.5 the centre line, which is where
+		 retail always drove.  It is seeded from where the unit actually was when the route was
+		 built, so a spread-out group starts spread out, and it is the only per-unit state the band
+		 needs: the width itself is measured off the map where the unit is, never stored. */
+	Bool hasLaneFraction(void) const {return m_laneFractionValid;}
+	Real getLaneFraction(void) const {return m_laneFraction;}
+
+	/** Told by the group that issued the order where this member sat across the group, as a
+			fraction of the group's own width.  It has to come from outside: every member is handed
+			its own route starting under its own tracks, so measured against that route each of them
+			is dead centre and none of them has any reason to prefer a side.  The offset from the
+			group's centre is the only shape there is, and it is the shape the player drew a box
+			round. Held until the path actually arrives, which can be several frames later. */
+	void setPendingLane( Real u ) { m_pendingLane = u; m_hasPendingLane = TRUE; }
+
+	/** The crowd model's version of the same thing, and the reason it is a second field rather than
+			a rescaling of the one above: this one is a distance in world units, positive to the left of
+			the route, and it means the same thing wherever the unit is standing. A fraction of the
+			local width does not - it drags a unit into every wide bay its route happens to pass and
+			swings it round the outside of corners. Only read under -crowd. */
+	void setPendingCrowdLat( Real lat ) { m_pendingCrowdLat = lat; m_hasPendingCrowdLat = TRUE; }
+	Real getCrowdLat( void ) const { return m_crowdLat; }
+	const CrowdCorridor *getCrowdCorridor( void ) const { return m_corridor; }
+	/** Which sample of its own band the unit was beside last frame.  Priority between two units is
+			decided from both of their bends, and a unit that worked one of them out for itself and the
+			other one by guesswork would rank the pair differently from how they rank themselves. */
+	Int getCrowdSample( void ) const { return m_crowdSample; }
 	Bool canComputeQuickPath(void); ///< Returns true if we can quickly comput a path.  Usually missiles & the like that just move straight to the destination.
 	Bool computeQuickPath(const Coord3D *destination); ///< Computes a quick path to the destination.
 
@@ -689,6 +719,28 @@ private:
 	// it does no sanity checking; it just jams it in.
 	Bool chooseLocomotorSetExplicit(LocomotorSetType wst);
 
+	/// Pick this unit's lane off its own sideways distance from the route it was just handed.
+	void seedLaneFraction( void );
+
+	/** Slide across the band to get past somebody who is not moving out of the way.
+			Called from the collision path, which already has the blocker in hand: no query is made
+			here on purpose, because the order a query returns objects in is part of the logic CRC
+			and a movement rule that depends on it desyncs every replay and every network game. */
+	void tryLaneChangeAround( Object *other );
+
+	/** The crowd model, one frame, one unit: measure the band if it has not been measured, look at
+			the neighbours once, and come back with where to steer and how fast. Everything the sandbox
+			does per frame - separation, right of way, priority, passing, fanning out, easing through a
+			bend - happens in here and expresses itself as those two numbers, because that is the whole
+			interface the locomotor gives us. */
+	void crowdSteer( Coord3D& goalPos, Real& speed );
+
+	/// throw the measured band away; the next frame that needs one measures the new route
+	void crowdReleaseCorridor( void );
+
+	/// TRUE when `other` gets the line and we are the one who has to do something about it
+	Bool crowdOutranksMe( Object *other ) const;
+
 private:
 	UnsignedInt					m_priorWaypointID;						///< ID of the path we follwed to before the most recent one
 	UnsignedInt					m_currentWaypointID;					///< ID of the most recent one...
@@ -731,6 +783,31 @@ private:
 	ICoord2D		m_pathfindCurCell;					///< Cell we are currently occupying.
 	Int					m_blockedFrames;						///< Number of frames we've been blocked.
 	Real				m_curMaxBlockedSpeed;				///< Max speed we can have and not run into blocking things.
+	Real				m_laneFraction;							///< Where across the route's width we ride: 0 right edge, 1 left edge.
+	Bool				m_laneFractionValid;				///< False until the fraction has been seeded off the current path.
+	UnsignedInt	m_laneHoldFrame;						///< A lane taken to get round somebody is kept until this frame.
+	Real				m_pendingLane;							///< Lane the ordering group picked for us, waiting for the path to arrive.
+	Bool				m_hasPendingLane;						///< False when nobody handed us one and we have to measure our own.
+	CrowdCorridor* m_corridor;						///< -crowd: the current route with the width of the ground beside it. Owned; dies with the path.
+	Real				m_crowdLat;									///< -crowd: how far left of the route we ride, in world units.
+	Real				m_pendingCrowdLat;					///< -crowd: the same, as the ordering group wanted it, waiting for the path.
+	Bool				m_hasPendingCrowdLat;				///< -crowd: FALSE for a unit ordered on its own, which rides where it already is.
+	Bool				m_crowdLatValid;						///< -crowd: FALSE until the lane has been taken up against the current route.
+	UnsignedInt	m_crowdHoldFrame;						///< -crowd: a lane taken to pass somebody is kept until this frame.
+	Int					m_crowdSample;							///< -crowd: which sample of the band we were beside last frame (search hint; -1 = no band).
+	Int					m_crowdQueued;							///< -crowd: consecutive frames spent braking or stuck behind somebody.
+	Int					m_crowdSide;								///< -crowd: which side we prefer to pass on, +1 left, -1 right.
+	/* The rest of the crowd state is transient and deliberately not saved, for the same reason the
+		 band itself is not: a filter, a stuck count and a half-finished backing-out manoeuvre are all
+		 rebuilt within a second of the load, and a saved one restarts a jam that is over. */
+	Real				m_crowdSepSmooth;						///< -crowd: low-passed sideways push from the neighbours.
+	Real				m_crowdAim;									///< -crowd: low-passed direction the steering point is taken in, radians.
+	Bool				m_crowdAimValid;						///< -crowd: FALSE until the filter has something to start from.
+	Int					m_crowdStuck;								///< -crowd: consecutive frames spent wanting to move and not moving.
+	Coord3D			m_crowdLastPos;							///< -crowd: where we were last frame, which is how the above is counted.
+	Coord3D			m_crowdEscape;							///< -crowd: the free ground a wedged unit is backing out to.
+	UnsignedInt	m_crowdEscapeUntil;					///< -crowd: frame that manoeuvre gives up (0 = not backing out).
+	UnsignedInt	m_crowdEscapeCool;					///< -crowd: no second one before this frame.
 	Real				m_bumpSpeedLimit;						///< Max speed after bumping a unit.
 	UnsignedInt	m_ignoreCollisionsUntil;		///< Timer to cheat if we get stuck.
 	/**

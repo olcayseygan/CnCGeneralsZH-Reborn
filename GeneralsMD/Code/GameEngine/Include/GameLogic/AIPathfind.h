@@ -222,6 +222,27 @@ public:
 	/// Given a location, return nearest location on path, and along-path dist to end as function result
 	void peekCachedPointOnPath( Coord3D& pos ) const {pos = m_cpopOut.posOnPath;}
 
+	/** How far along the route was still left, last time anybody asked.  Priority in the crowd model
+			is decided on this, and recomputing it for every neighbour of every unit would be the same
+			walk over the same node list a hundred times a frame. Only meaningful once
+			hasCachedPointOnPath() is true. */
+	Real peekCachedDistToGoal( void ) const { return m_cpopOut.distAlongPath; }
+
+	/** True once computePointOnPath has run at least once on this path, which is the only state in
+			which the cached point above means anything. Read by the -showlanes overlay. */
+	Bool hasCachedPointOnPath( void ) const { return m_cpopValid; }
+
+	/** Throw away the cached steering point.  computePointOnPath reuses its answer for up to
+			MAX_CPOP frames while the unit barely moves, which is right for a unit following the same
+			line and wrong the frame it decides to take a different one. */
+	void invalidateCachedPointOnPath( void ) { m_cpopValid = false; }
+
+	/** The point on the optimized route closest to `pos`, and the unit direction of the segment it
+			sits on.  This is the geometry the lane code works in and nothing else: it does no steering,
+			no passability check and no caching, so it is safe to call from outside a locomotor pass.
+			False if the path is empty or has a single node, in which case there is no direction. */
+	Bool closestPointAndDir( const Coord3D& pos, Coord3D *ptOut, Coord2D *dirOut ) const;
+
 	/// Given a flight path, compute the distance to goal (0 if we are past it) & return the goal pos.
 	Real computeFlightDistToGoal( const Coord3D *pos, Coord3D& goalPos );
 
@@ -685,7 +706,7 @@ enum
 	PF_TRAFFIC_DECAY_DEN			= 64,
 	PF_TRAFFIC_DECAY_FRAMES		= 3,
 	PF_TRAFFIC_FULL						= 192,		///< traffic at or above this is as expensive as it gets
-	PF_TRAFFIC_NUM						= 2,			///< peak traffic penalty is NUM/DEN of a step
+	PF_TRAFFIC_NUM						= 4,			///< peak traffic penalty is NUM/DEN of a step - the sandbox's traffic weight
 	PF_TRAFFIC_DEN						= 1,
 	PF_TRAFFIC_CELLS					= 4096,		///< live traffic cells tracked; past this, deposits are dropped
 
@@ -704,7 +725,28 @@ enum
 		 charge is invisible to the estimate, so leaving the estimate alone leaves the search with
 		 no reason to walk towards the goal rather than round it. */
 	PF_HEURISTIC_FLOW_NUM			= 9,
-	PF_HEURISTIC_FLOW_DEN			= 4
+	PF_HEURISTIC_FLOW_DEN			= 4,
+
+	/* Lanes.  The three maps above decide where a route goes; these decide where across it a unit
+		 drives.  PROBE is how far sideways the ground is measured before the band is called wide
+		 enough, in cells; TAPER is how close to the goal the band closes back onto the centre so
+		 every unit can still reach the cell reserved for it; HOLD is how long a lane taken to get
+		 round somebody is kept before the unit drifts back toward the middle.
+
+		 PROBE was 8 and that was too small to see: measured over a four-player match the band came
+		 out 77 world units wide, and a tank is 24 of those, so the whole band was three tanks and a
+		 selection of twenty-five had nowhere to go. 16 cells is 160 a side before the body's own
+		 radius comes off it, which is about ten tanks abreast where the ground allows it and exactly
+		 what it was before where it does not. TAPER moved with it: the band now opens wider, so it
+		 needs longer to close again before the goal. */
+	PF_LANE_PROBE_CELLS				= 16,
+	PF_LANE_TAPER_CELLS				= 12,
+	/* The band is shut, not merely narrowing, over the last few cells.  A taper that only reaches
+		 zero at the goal itself leaves a unit seventy feet off its own route still twenty feet off
+		 it when it arrives, and a group ordered onto one point spreads out instead of gathering on
+		 it - which is what the ramp looked like in game. */
+	PF_LANE_CLOSE_CELLS				= 3,
+	PF_LANE_HOLD_FRAMES				= 45		///< a second and a half at 30 logic frames
 };
 
 /** How much extra a step into a cell with this clearance costs a body needing `needClearance`.
@@ -716,6 +758,41 @@ extern Int Pathfinder_trafficCost( Int baseCost, Int traffic );
 
 /// How much extra a step into a cell somebody else wants at the same moment costs.
 extern Int Pathfinder_crossingCost( Int baseCost, Int claimHalves );
+
+/** Where across a band a body sitting `lateral` world units left of the centre line rides.
+	  0 is hard against the right edge, 1 hard against the left, 0.5 the centre; clamped just
+	  inside both edges so a lane is never the wall itself.  Half-widths of zero give 0.5. */
+extern Real Pathfinder_laneFraction( Real lateral, Real leftExtent, Real rightExtent );
+
+/// The sideways offset, in world units left of the centre line, that lane fraction `u` means.
+extern Real Pathfinder_laneOffset( Real u, Real leftExtent, Real rightExtent );
+/** Where across the band a group member riding `lateral` world units left of its route's centre
+		line belongs, against the widest band the probe can ever find rather than against the width
+		this particular piece of ground turns out to have.
+
+		Measuring it against the group's own width was the previous answer and it was wrong twice
+		over: a tightly packed selection has almost no width, so every member came out near the
+		centre, and a wide one has more width than any road, so every member came out against an
+		edge.  Neither has anything to do with how much room a tank needs.  Against a fixed
+		reference the offset means feet, the caller can space members a body apart, and a narrow
+		road still squeezes them - laneOffset scales the fraction by the room actually found, so
+		half the band is half the offset. */
+extern Real Pathfinder_groupLane( Real lateral );
+
+/// The widest half-band the probe can report, which is what Pathfinder_groupLane measures against.
+extern Real Pathfinder_laneReference( void );
+
+/** How much of a lane is left this many world units short of the end of the route: all of it
+		beyond PF_LANE_TAPER_CELLS, none of it inside PF_LANE_CLOSE_CELLS, straight line between. */
+extern Real Pathfinder_laneTaper( Real remaining );
+
+/* There is no lane-bend factor here on purpose.  Pinching the band shut through a turn - scaling
+	 the offset by the cosine between the two headings - sounds right and measures terrible: twelve
+	 four-player matches went from 32 blocked unit-frames per 1000 to 102, because a route bends
+	 constantly and closing the band at every bend puts the whole group back into single file for
+	 the length of each one.  The corner problem is that the offset was being measured against the
+	 wrong heading, and computePointOnPath fixes that by taking the heading at the steering point
+	 and refusing a lane point that lands behind the unit. */
 
 /// The A* estimate's scale factor over plain octile distance, set per search by beginFlowSearch.
 extern Int thePathHeuristicNum;
@@ -907,6 +984,14 @@ public:
 	Bool validMovementPosition( Bool isCrusher, PathfindLayerEnum layer, const LocomotorSet& locomotorSet, Int x, Int y );					///< Return true if given position is a valid movement location
 	Bool validMovementPosition( Bool isCrusher, PathfindLayerEnum layer, const LocomotorSet& locomotorSet, const Coord3D *pos );		///< Return true if given position is a valid movement location
 	Bool validMovementTerrain( PathfindLayerEnum layer, const Locomotor* locomotor, const Coord3D *pos );		///< Return true if given position is a valid movement location
+
+	/** How far sideways, in world units, a body could slide from `from` along `dir` before the
+			ground stops taking it.  Half-cell steps out to PF_LANE_PROBE_CELLS, then the body's own
+			radius taken off the answer so a wide tank is not offered the last passable cell as a lane.
+			This is the width of the band the route runs down, measured where the unit is now rather
+			than stored with the path: the terrain under a route changes while units are on it. */
+	Real laneExtent( const Object *obj, const LocomotorSet& locomotorSet, PathfindLayerEnum layer,
+		const Coord3D *from, const Coord2D *dir );
 
 	Locomotor* chooseBestLocomotorForPosition(PathfindLayerEnum layer,  LocomotorSet* locomotorSet, const Coord3D* pos );
 

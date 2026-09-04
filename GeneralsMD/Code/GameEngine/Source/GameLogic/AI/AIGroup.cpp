@@ -31,6 +31,7 @@
 #include "Common/ActionManager.h"
 #include "Common/BuildAssistant.h"
 #include "Common/CRCDebug.h"
+#include "Common/GlobalData.h"
 #include "Common/Player.h"
 #include "Common/SpecialPower.h"
 #include "Common/ThingTemplate.h"
@@ -1567,6 +1568,85 @@ void clampWaypointPosition( Coord3D &position, Int margin )
 }
 
 
+/** One member of a group being handed a lane, and where it stands across the direction the group is
+		about to travel in.  Only groupMoveToPosition builds these, and only for as long as it takes to
+		sort them. */
+struct LaneSeed
+{
+	Object*	obj;
+	Real		lat;
+};
+
+/** Sort members left to right across the group.  Object id breaks a tie, so two units standing on
+		exactly the same line still get the same two lanes on every machine in a network game - the
+		positions are identical everywhere but the order they arrive in is not. */
+static Bool laneSeedIsLeftOf( const LaneSeed& a, const LaneSeed& b )
+{
+	if (a.lat != b.lat)
+		return a.lat < b.lat;
+	return a.obj->getID() < b.obj->getID();
+}
+
+/** Hand every member of a group the distance it should sit off the centre of the road, for the
+		crowd model only.
+
+		The same arithmetic groupMoveToPosition does inline, extracted because the computer's armies
+		never go through that function: an AI team moves with groupTightenToPosition
+		(AIPlayer.cpp:3505), which handed nobody a lane, and a unit with no lane is a unit crowdSteer
+		returns out of on its first line.  So every steering rule under -crowd was reachable by the
+		player and by nothing else, and the self-play harness was measuring the flag's other half - the
+		collision rules in AIUpdate::blockedBy - while reporting on the crowd model. */
+static void crowdSeedLanes( std::list<Object *>& members, const Coord3D& center, const Coord3D *pos )
+{
+	Coord2D dir;
+	dir.x = pos->x - center.x;
+	dir.y = pos->y - center.y;
+	if (dir.length() <= 1.0f)
+		return;					// a group already standing on its destination has no direction to spread across
+	dir.normalize();
+
+	std::vector<LaneSeed> across;
+	Real spacing = 0.0f;
+	for (std::list<Object *>::iterator it = members.begin(); it != members.end(); ++it)
+	{
+		Object *o = *it;
+		if (o->getAIUpdateInterface() == NULL || o->isKindOf( KINDOF_IMMOBILE ))
+			continue;
+
+		LaneSeed seed;
+		seed.obj = o;
+		seed.lat = (o->getPosition()->x - center.x) * -dir.y
+						 + (o->getPosition()->y - center.y) * dir.x;
+		across.push_back( seed );
+
+		const Real body = 2.0f * o->getGeometryInfo().getBoundingCircleRadius();
+		if (body > spacing)
+			spacing = body;
+	}
+
+	spacing *= 1.15f;
+
+	const Int count = (Int)across.size();
+	if (count < 2 || spacing < 0.001f)
+		return;
+
+	std::sort( across.begin(), across.end(), laneSeedIsLeftOf );
+
+	Int lanes = (Int)(2.0f * Pathfinder_laneReference() / spacing);
+	if (lanes < 1) lanes = 1;
+	if (lanes > count) lanes = count;
+
+	for (Int i = 0; i < count; i++)
+	{
+		const Int lane = (i * lanes) / count;
+		const Real offset = ((Real)lane - (Real)(lanes - 1) * 0.5f) * spacing;
+		across[i].obj->getAIUpdateInterface()->setPendingCrowdLat( offset );
+	}
+
+	if (TheGlobalData->m_showLanes)
+		DEBUG_LOG(("SHOWLANES crowdSeedLanes: members=%d lanes=%d spacing=%.1f\n", count, lanes, spacing));
+}
+
 /**
  * Move to given position(s)
  */
@@ -1745,6 +1825,102 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 
 	Coord3D goalPos = *pos;
 	iter->sort(ITER_SORTED_NEAR_TO_FAR);
+
+	/* Where each member rides across its route.  Every unit is handed its own route starting under
+		 its own tracks, so measured against that route each of them is dead centre and none of them
+		 has any reason to prefer a side - which is how a selection ends up in single file.  The order
+		 the members sit in across the group is the only shape there is at this point, and it is the
+		 shape the player just drew a box round.
+
+		 The lane is a distance, not a share of the group.  The first version divided each member's
+		 offset by the group's own half width, and a selection standing in a tight blob has almost no
+		 half width, so twenty-five tanks were spread across thirty feet - less than two of them.  Now
+		 members are sorted across the direction of travel and spaced by the size of the largest body
+		 in the group, which is the only spacing that means anything to a tank.
+
+		 The band cannot hold an arbitrary number of them, so the count of lanes is capped at what the
+		 widest possible band fits and the rest of the group queues behind: members are cut into that
+		 many blocks in order, so whoever was on the left is still on the left and the ones sharing a
+		 lane simply follow each other.  A narrow road squeezes all of it - laneOffset scales by the
+		 room actually measured, so half a band is half the offset, and a doorway is single file
+		 again without anybody deciding to queue. */
+	Coord2D groupDir;
+	groupDir.x = pos->x - center.x;
+	groupDir.y = pos->y - center.y;
+	const Coord3D groupCenter = center;
+	Bool spreadLanes = !TheGlobalData->m_noLanePath && groupDir.length() > 1.0f;
+	if (spreadLanes)
+	{
+		groupDir.normalize();
+
+		std::vector<LaneSeed> across;
+		Real spacing = 0.0f;
+		for (Object *o = iter->first(); o; o = iter->next())
+		{
+			if (o->getAIUpdateInterface() == NULL)
+				continue;
+
+			LaneSeed seed;
+			seed.obj = o;
+			seed.lat = (o->getPosition()->x - groupCenter.x) * -groupDir.y
+							 + (o->getPosition()->y - groupCenter.y) * groupDir.x;
+			across.push_back( seed );
+
+			Real body = 2.0f * o->getGeometryInfo().getBoundingCircleRadius();
+			if (body > spacing)
+				spacing = body;
+		}
+
+		// a little air between bodies, or the lanes are exactly touching and the collision push
+		// undoes the spread the frame it is applied
+		spacing *= 1.15f;
+
+		Int count = across.size();
+		if (count > 1 && spacing > 0.001f)
+		{
+			std::sort( across.begin(), across.end(), laneSeedIsLeftOf );
+
+			Int lanes = (Int)(2.0f * Pathfinder_laneReference() / spacing);
+			if (lanes < 1) lanes = 1;
+			if (lanes > count) lanes = count;
+
+			for (Int i = 0; i < count; i++)
+			{
+				// blocks, not round-robin: whoever was left of somebody stays left of them, and a
+				// group with more members than lanes puts the extra ones behind rather than beside
+				Int lane = (i * lanes) / count;
+				Real offset = ((Real)lane - (Real)(lanes - 1) * 0.5f) * spacing;
+				Real u = Pathfinder_groupLane( offset );
+				across[i].obj->getAIUpdateInterface()->setPendingLane( u );
+
+				/* -crowd takes the offset as it stands.  The old model had to turn it into a share of
+					 a width guessed here and re-measured somewhere else, and the two never agreed: the
+					 conversion is where the spacing this loop just worked out was thrown away. */
+				if (TheGlobalData->m_crowdModel)
+					across[i].obj->getAIUpdateInterface()->setPendingCrowdLat( offset );
+
+				if (TheGlobalData->m_showLanes)
+				{
+					DEBUG_LOG(("SHOWLANES   unit %d lat=%.1f lane %d/%d offset=%.1f u=%.2f\n",
+						across[i].obj->getID(), across[i].lat, lane, lanes, offset, u));
+				}
+			}
+		}
+		else
+		{
+			spreadLanes = FALSE;
+		}
+
+		/* The overlay draws what happened on the ground; this says whether this function is where it
+			 happened at all.  A player order that never reaches here hands nobody a lane, and from the
+			 camera that looks exactly like an order that reached here and was refused. */
+		if (TheGlobalData->m_showLanes)
+		{
+			DEBUG_LOG(("SHOWLANES groupMoveToPosition: spread=%d members=%d spacing=%.1f\n",
+				spreadLanes ? 1 : 0, count, spacing));
+		}
+	}
+
 	// Works better if you let the near units get the first paths... jba.
 	// Move the ones nearest the goal first.  Reduces collision problems later.
 	Object *theUnit;
@@ -1753,6 +1929,7 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 	{
 		theUnit->setFormationID(NO_FORMATION_ID);
 		AIUpdateInterface *ai = theUnit->getAIUpdateInterface();
+
 		if (firstUnit) {
 			if (isFormation) {
 				Coord2D v;
@@ -1937,6 +2114,17 @@ void AIGroup::groupTightenToPosition( const Coord3D *pos, Bool addWaypoint, Comm
 		//	outsideOfBounds = FALSE;
 		//}
 	}
+	/* The computer's armies come through here rather than groupMoveToPosition, so this is where they
+		 are handed their lanes.  Under -crowd only: without the flag a tighten is retail's, and the
+		 lane is read by nothing. */
+	if (TheGlobalData->m_crowdModel && !addWaypoint)
+	{
+		Coord2D tMin, tMax;
+		Coord3D tCenter;
+		getMinMaxAndCenter( &tMin, &tMax, &tCenter );
+		crowdSeedLanes( m_memberList, tCenter, pos );
+	}
+
 	// Tighten.
 	MemoryPoolObjectHolder iterHolder;
 	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);

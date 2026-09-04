@@ -86,6 +86,7 @@
 #include "GameLogic/IncomingDamage.h"
 #include "GameLogic/AIPlayer.h"
 #include "GameLogic/AIPathfind.h"
+#include "GameLogic/CrowdModel.h"
 #include "GameLogic/ScriptEngine.h"
 #include "GameLogic/Scripts.h"
 #include "GameLogic/SidesList.h"
@@ -8468,6 +8469,320 @@ TEST(the_whole_flow_charge_for_one_step_is_bounded)
 	const Int worst = Pathfinder_wallHugCost( base, 0, 5 ) +
 										Pathfinder_trafficCost( base, PF_TRAFFIC_MAX ) +
 										Pathfinder_crossingCost( base, 0xFFFF );
-	CHECK( worst <= 6 * base );
+	CHECK( worst <= 8 * base );		// 7.6 of a step: 1.6 wall-hug, 4 traffic, 2 crossing
 	CHECK( worst >= 3 * base );		// and it is not so small that none of it does anything
+}
+
+/* Lanes.  The route is a band and each unit rides somewhere across it; these two functions are the
+	 whole of that arithmetic, and every degenerate case below is one the map really produces - a
+	 doorway with no width at all, a unit that has already been shoved outside its own band, a body
+	 wider than the room measured for it. */
+
+TEST(half_is_the_route_itself_however_lopsided_the_room_beside_it_is)
+{
+	/* The two sides of the band are scaled separately and meet at the centre line.  The first
+		 version ran one scale from wall to wall, so half of a lopsided band was the middle of the
+		 free ground and a unit holding no particular lane slid sideways whenever the terrain was
+		 uneven - a mistake that grew with the probe and was worth 10% of the time spent blocked. */
+	CHECK_NEAR( Pathfinder_laneFraction( 0.0f, 20.0f, 20.0f ), 0.5f, 0.0001f );
+	CHECK_NEAR( Pathfinder_laneOffset( 0.5f, 20.0f, 20.0f ), 0.0f, 0.0001f );
+	CHECK_NEAR( Pathfinder_laneOffset( 0.5f, 30.0f, 10.0f ), 0.0f, 0.0001f );
+	// five feet left of the route, in a band with thirty feet of room on that side
+	CHECK_NEAR( Pathfinder_laneFraction( 5.0f, 30.0f, 10.0f ), 0.5833f, 0.0001f );
+	// the same five feet on the narrow side is a much bigger share of it
+	CHECK_NEAR( Pathfinder_laneFraction( -5.0f, 30.0f, 10.0f ), 0.25f, 0.0001f );
+}
+
+TEST(a_lane_is_never_the_wall_itself)
+{
+	// a unit standing well outside its own band still gets a lane inside it
+	CHECK_NEAR( Pathfinder_laneFraction( 500.0f, 20.0f, 20.0f ), 0.95f, 0.0001f );
+	CHECK_NEAR( Pathfinder_laneFraction( -500.0f, 20.0f, 20.0f ), 0.05f, 0.0001f );
+	// and the offset that lane means keeps it off both edges
+	CHECK( Pathfinder_laneOffset( 0.95f, 20.0f, 20.0f ) < 20.0f );
+	CHECK( Pathfinder_laneOffset( 0.05f, 20.0f, 20.0f ) > -20.0f );
+}
+
+TEST(a_band_with_no_width_puts_everybody_on_the_centre_line)
+{
+	// a doorway, or a body as wide as the room beside it: laneExtent returns zero on both sides
+	CHECK_NEAR( Pathfinder_laneFraction( 0.0f, 0.0f, 0.0f ), 0.5f, 0.0001f );
+	CHECK_NEAR( Pathfinder_laneFraction( 40.0f, 0.0f, 0.0f ), 0.5f, 0.0001f );
+	CHECK_NEAR( Pathfinder_laneOffset( 0.5f, 0.0f, 0.0f ), 0.0f, 0.0001f );
+	CHECK_NEAR( Pathfinder_laneOffset( 0.95f, 0.0f, 0.0f ), 0.0f, 0.0001f );
+}
+
+TEST(a_lane_fraction_and_its_offset_are_the_same_measurement_backwards)
+{
+	// what seedLaneFraction reads off the map, computePointOnPath has to be able to steer back to.
+	// Only over the interior: the outer 5% at each edge is clamped away on purpose and does not
+	// survive the round trip, which is the point of clamping it.
+	const Real left = 25.0f, right = 15.0f;
+	for (Real lateral = -13.0f; lateral <= 22.0f; lateral += 1.0f)
+	{
+		Real u = Pathfinder_laneFraction( lateral, left, right );
+		CHECK_NEAR( Pathfinder_laneOffset( u, left, right ), lateral, 0.0001f );
+	}
+}
+
+TEST(only_the_side_with_room_on_it_widens_the_band)
+{
+	// a route running along a wall: no room right, plenty left.  The lane has to end up left of
+	// centre, which is the asymmetry the clearance map cannot see and the reason it is not used here.
+	CHECK( Pathfinder_laneOffset( 0.9f, 40.0f, 0.0f ) > 0.0f );
+	CHECK_NEAR( Pathfinder_laneOffset( 0.0f, 40.0f, 0.0f ), 0.0f, 0.0001f );		// hard right is the wall, which is the centre line
+	// twenty feet into forty feet of room is halfway across that side of the band
+	CHECK_NEAR( Pathfinder_laneFraction( 20.0f, 40.0f, 0.0f ), 0.75f, 0.0001f );
+	// and a body pushed onto the wall side of a route with no room there stays on the route
+	CHECK_NEAR( Pathfinder_laneOffset( Pathfinder_laneFraction( -20.0f, 40.0f, 0.0f ), 40.0f, 0.0f ),
+		0.0f, 0.0001f );
+}
+
+TEST(a_lane_handed_to_a_group_member_is_a_distance_not_a_share_of_the_group)
+{
+	// A group's lanes are spaced by the size of its bodies, so what gets handed down has to mean
+	// feet.  The reference is the widest band the probe can find, and the same offset therefore
+	// means the same distance whether it came from a tight blob or a wide box.
+	const Real ref = Pathfinder_laneReference();
+	CHECK( ref > 100.0f );		// 16 cells of 10; a tank is about 24 wide, so this is several of them
+
+	CHECK_NEAR( Pathfinder_groupLane( 0.0f ), 0.5f, 0.0001f );
+	CHECK_NEAR( Pathfinder_groupLane( ref * 0.5f ), 0.75f, 0.0001f );
+	CHECK_NEAR( Pathfinder_groupLane( ref * -0.5f ), 0.25f, 0.0001f );
+
+	// the edges are the clamp, not the wall itself
+	CHECK( Pathfinder_groupLane( ref * 4.0f ) < 1.0f );
+	CHECK( Pathfinder_groupLane( ref * -4.0f ) > 0.0f );
+
+	// order is preserved: whoever was left of somebody stays left of them
+	CHECK( Pathfinder_groupLane( -30.0f ) < Pathfinder_groupLane( 10.0f ) );
+
+	/* Two tanks a body apart have to come out at least a body apart on a full-width band, or the
+		 spacing the group did the arithmetic for is thrown away here.  Taken back out through
+		 laneOffset at the widest band the probe reports, which is what the group measured against. */
+	Real uLeft = Pathfinder_groupLane( 14.0f );
+	Real uRight = Pathfinder_groupLane( -14.0f );
+	Real apart = Pathfinder_laneOffset( uLeft, ref, ref ) - Pathfinder_laneOffset( uRight, ref, ref );
+	CHECK_NEAR( apart, 28.0f, 0.01f );
+
+	// and a narrow road squeezes all of it rather than dropping anybody: quarter band, quarter gap
+	Real narrow = Pathfinder_laneOffset( uLeft, ref * 0.25f, ref * 0.25f )
+							- Pathfinder_laneOffset( uRight, ref * 0.25f, ref * 0.25f );
+	CHECK_NEAR( narrow, 7.0f, 0.01f );
+}
+
+TEST(the_band_is_shut_before_the_goal_not_at_it)
+{
+	const Real cell = PATHFIND_CELL_SIZE_F;
+	const Real taper = cell * (Real)PF_LANE_TAPER_CELLS;
+	const Real close = cell * (Real)PF_LANE_CLOSE_CELLS;
+	CHECK( close < taper );
+
+	// out on the route, nothing is given up
+	CHECK_NEAR( Pathfinder_laneTaper( taper * 4.0f ), 1.0f, 0.0001f );
+	CHECK_NEAR( Pathfinder_laneTaper( taper ), 1.0f, 0.0001f );
+
+	/* The whole point of the close distance: at the goal, and for the last few cells before it,
+		 the lane is gone completely.  A ramp that only reached zero at the goal left a unit riding
+		 the edge of a wide band still yards off its own route when it stopped, and a group ordered
+		 onto one point arrived spread across it. */
+	CHECK_NEAR( Pathfinder_laneTaper( close ), 0.0f, 0.0001f );
+	CHECK_NEAR( Pathfinder_laneTaper( 0.0f ), 0.0f, 0.0001f );
+	CHECK_NEAR( Pathfinder_laneTaper( -5.0f ), 0.0f, 0.0001f );
+
+	// straight line between the two, and never a step backwards
+	CHECK_NEAR( Pathfinder_laneTaper( (taper + close) * 0.5f ), 0.5f, 0.0001f );
+	Real last = 0.0f;
+	for (Real r = 0.0f; r < taper * 1.5f; r += 2.0f)
+	{
+		Real f = Pathfinder_laneTaper( r );
+		CHECK( f >= last - 0.0001f );
+		CHECK( f >= 0.0f && f <= 1.0f );
+		last = f;
+	}
+}
+
+TEST(the_taper_is_long_enough_for_the_band_it_has_to_close)
+{
+	/* A unit riding the edge of the widest band the probe can find has to be able to get back to
+		 the centre line before the lane is switched off, or it arrives beside its own goal.  The
+		 taper is that distance, so it has to be at least as long as the offset it is undoing -
+		 anything shorter is a unit told to move sideways faster than it drives forwards. */
+	const Real taper = PATHFIND_CELL_SIZE_F * (Real)PF_LANE_TAPER_CELLS;
+	CHECK( taper >= Pathfinder_laneReference() * 0.5f );
+}
+
+TEST(crowd_corridor_measures_distance_along_the_route_not_samples)
+{
+	/* The sample's own `along` is quantised to the sample step, so a steering point taken from it
+		 hops a whole cell forward every time the unit crosses a boundary.  alongOf is the unquantised
+		 answer: it has to grow smoothly as the unit advances, and it has to ignore sideways offset. */
+	Coord3D pts[ 5 ];
+	for (Int k = 0; k < 5; k++)
+	{
+		pts[ k ].x = (Real)k * 10.0f;
+		pts[ k ].y = 0.0f;
+		pts[ k ].z = 0.0f;
+	}
+
+	CrowdCorridor corr;
+	corr.buildForTest( pts, 5, 20.0f );
+	CHECK_EQ( corr.count(), 5 );
+	CHECK_NEAR( corr.length(), 40.0f, 0.001f );
+
+	Coord3D p;
+	p.y = 0.0f;
+	p.z = 0.0f;
+
+	Real last = -1.0f;
+	for (Real x = 0.0f; x <= 40.0f; x += 1.0f)
+	{
+		p.x = x;
+		const Real a = corr.alongOf( corr.nearest( p, 0 ), p );
+		CHECK_NEAR( a, x, 0.001f );
+		CHECK( a > last );				// no plateau, which is what a sample-quantised answer would give
+		last = a;
+	}
+
+	// standing off the line does not move a unit forwards or backwards along it
+	p.x = 15.0f;
+	p.y = 12.0f;
+	CHECK_NEAR( corr.alongOf( corr.nearest( p, 0 ), p ), 15.0f, 0.001f );
+}
+
+TEST(crowd_corridor_steering_point_slides_instead_of_hopping)
+{
+	/* The wobble on light chassis was this: point() lands on a sample, so the aim point jumped ten
+		 feet at a time and on a bend the direction handed to the locomotor stepped with it.  pointAt
+		 has to be continuous - consecutive queries a foot apart give answers a foot apart - and it has
+		 to agree with point() exactly where a sample sits. */
+	Coord3D pts[ 6 ];
+	pts[ 0 ].x =  0.0f; pts[ 0 ].y =  0.0f;
+	pts[ 1 ].x = 10.0f; pts[ 1 ].y =  0.0f;
+	pts[ 2 ].x = 20.0f; pts[ 2 ].y =  0.0f;
+	pts[ 3 ].x = 28.0f; pts[ 3 ].y =  6.0f;
+	pts[ 4 ].x = 34.0f; pts[ 4 ].y = 14.0f;
+	pts[ 5 ].x = 36.0f; pts[ 5 ].y = 24.0f;
+	for (Int k = 0; k < 6; k++)
+		pts[ k ].z = 0.0f;
+
+	CrowdCorridor corr;
+	corr.buildForTest( pts, 6, 15.0f );
+
+	// on a sample, the two agree
+	for (Int k = 0; k < corr.count(); k++)
+	{
+		Coord3D a, b;
+		corr.point( k, 4.0f, &a );
+		corr.pointAt( corr.at( k ).along, 4.0f, &b );
+		CHECK_NEAR( a.x, b.x, 0.001f );
+		CHECK_NEAR( a.y, b.y, 0.001f );
+	}
+
+	// and between them it slides: a tenth of a foot of route never moves the point a foot
+	Coord3D prev;
+	corr.pointAt( 0.0f, 4.0f, &prev );
+	for (Real s = 0.1f; s <= corr.length(); s += 0.1f)
+	{
+		Coord3D now;
+		corr.pointAt( s, 4.0f, &now );
+		const Real dx = now.x - prev.x;
+		const Real dy = now.y - prev.y;
+		CHECK( dx * dx + dy * dy < 1.0f );
+		prev = now;
+	}
+
+	// the width follows too, and a lane wider than the band is still cut to the band
+	CHECK_NEAR( corr.clampLatAt( 12.5f, 4.0f ), 4.0f, 0.001f );
+	CHECK_NEAR( corr.clampLatAt( 12.5f, 90.0f ), 15.0f, 0.001f );
+	CHECK_NEAR( corr.clampLatAt( 12.5f, -90.0f ), -15.0f, 0.001f );
+
+	// off the ends is clamped, not indexed out of the vector
+	Coord3D ends;
+	corr.pointAt( -50.0f, 0.0f, &ends );
+	CHECK_NEAR( ends.x, pts[ 0 ].x, 0.001f );
+	corr.pointAt( corr.length() + 50.0f, 0.0f, &ends );
+	CHECK_NEAR( ends.x, pts[ 5 ].x, 0.001f );
+}
+
+TEST(crowd_corridor_has_no_band_on_a_bridge_or_at_its_approaches)
+{
+	/* A bridge deck is not road with room either side of it, and the ground beside a bridge is a
+		 riverbank.  A lane held across either one drives the unit off the side, and a lane held on the
+		 approach arrives beside the abutment instead of at the entrance - which is a unit that never
+		 gets onto the bridge and a queue behind it that never gets anywhere.  The band closes over the
+		 deck and for four samples each side of it. */
+	Coord3D pts[ 20 ];
+	PathfindLayerEnum layers[ 20 ];
+	for (Int k = 0; k < 20; k++)
+	{
+		pts[ k ].x = (Real)k * 10.0f;
+		pts[ k ].y = 0.0f;
+		pts[ k ].z = 0.0f;
+		layers[ k ] = LAYER_GROUND;
+	}
+	layers[ 10 ] = (PathfindLayerEnum)2;		// the deck: three samples of it, out over the water
+	layers[ 11 ] = (PathfindLayerEnum)2;
+	layers[ 12 ] = (PathfindLayerEnum)2;
+
+	CrowdCorridor corr;
+	corr.buildForTest( pts, 20, 15.0f, layers );
+	CHECK_EQ( corr.count(), 20 );
+
+	// open road, far from the bridge either side: the band is what it was built with
+	CHECK_NEAR( corr.at( 0 ).left, 15.0f, 0.001f );
+	CHECK_NEAR( corr.at( 5 ).right, 15.0f, 0.001f );
+	CHECK_NEAR( corr.at( 19 ).left, 15.0f, 0.001f );
+
+	corr.sealBridges();
+
+	// the deck itself, and the four samples each side of it
+	for (Int k = 6; k <= 16; k++)
+	{
+		CHECK_NEAR( corr.at( k ).left, 0.0f, 0.001f );
+		CHECK_NEAR( corr.at( k ).right, 0.0f, 0.001f );
+		CHECK_NEAR( corr.clampLat( k, 12.0f ), 0.0f, 0.001f );
+		CHECK_NEAR( corr.clampLatAt( corr.at( k ).along, -12.0f ), 0.0f, 0.001f );
+	}
+
+	// and the road on either side of that stretch keeps its band
+	CHECK_NEAR( corr.at( 5 ).left, 15.0f, 0.001f );
+	CHECK_NEAR( corr.at( 17 ).right, 15.0f, 0.001f );
+	CHECK_NEAR( corr.clampLat( 5, 12.0f ), 12.0f, 0.001f );
+
+	// a route with no bridge on it is untouched
+	CrowdCorridor plain;
+	plain.buildForTest( pts, 20, 15.0f );
+	plain.sealBridges();
+	for (Int k = 0; k < plain.count(); k++)
+		CHECK_NEAR( plain.at( k ).left, 15.0f, 0.001f );
+}
+
+TEST(crowd_brake_only_reads_closing_time)
+{
+	const Int frames = 8;
+	const Real full = 2.0f;
+
+	// nobody in front of us is gaining on us: no brake at any gap
+	CHECK_NEAR( Crowd_brakeSpeed( full, full, 1.0f, frames ), full, 0.0001f );
+	CHECK_NEAR( Crowd_brakeSpeed( full, full + 1.0f, 0.0f, frames ), full, 0.0001f );
+
+	// closing, but the gap is more than eight frames of closing: still no brake.  This is the
+	// distance-braking bug the measurement caught - a unit ten units back was being slowed to a
+	// third of its speed for traffic it was never going to reach
+	CHECK_NEAR( Crowd_brakeSpeed( full, 1.0f, 20.0f, frames ), full, 0.0001f );
+
+	// inside that, the answer closes the gap over the eight frames rather than this one
+	CHECK_NEAR( Crowd_brakeSpeed( full, 1.0f, 4.0f, frames ), 1.5f, 0.0001f );
+
+	// touching a stopped unit is a stop, and nothing ever comes back negative
+	CHECK_NEAR( Crowd_brakeSpeed( full, 0.0f, 0.0f, frames ), 0.0f, 0.0001f );
+	CHECK_NEAR( Crowd_brakeSpeed( full, 0.0f, -3.0f, frames ), 0.0f, 0.0001f );
+
+	// and the cap is never a speed-up
+	for (Real g = -2.0f; g < 30.0f; g += 0.5f)
+		CHECK( Crowd_brakeSpeed( full, 0.5f, g, frames ) <= full + 0.0001f );
+
+	// a zero window is the rule switched off, not a division by zero
+	CHECK_NEAR( Crowd_brakeSpeed( full, 0.0f, 0.0f, 0 ), full, 0.0001f );
 }

@@ -379,6 +379,10 @@ public:
 	Real m_slowFrameMS;							///< -slowframe <ms>: a logic frame over this long logs its own breakdown (default 20)
 	Int m_aiSliceFrames;						///< -aislice <n>: a unit's AI decides once every n logic frames, staggered by id (1 = every frame, the default)
 	Bool m_noFlowPath;							///< -noflowpath: price terrain only, the way retail does - no clearance, traffic or crossing cost
+	Bool m_noLanePath;							///< -nolanes: follow the centre of the route, the way retail does - no band, no lane, no passing
+	Bool m_showLanes;							///< -showlanes: draw every moving unit's route, the lane it was handed and the offset it kept
+	Bool m_crowdModel;						///< -crowd: the sandbox crowd model - corridor, absolute lanes, right of way, give way, fan out
+	Int m_groupDrill;							///< -groupdrill <n>: every n frames, order each player's army corner to corner as one group (0 = off)
 	AsciiString m_netGameHosts;				///< -netgame <ip>[,<ip>...]: the slot list of a LAN game started from the command line (empty = off)
 	Int m_netGameLocalSlot;						///< -netslot <n>: which of those addresses this copy of the game is
 

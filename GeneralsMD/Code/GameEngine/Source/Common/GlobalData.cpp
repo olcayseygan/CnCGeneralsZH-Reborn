@@ -684,6 +684,10 @@ GlobalData::GlobalData()
 	m_slowFrameMS = 20.0f; // a frame worth a line in the log; -slowframe lowers it for a hunt
 	m_aiSliceFrames = 1; // every unit thinks every frame, which is what the game has always done
 	m_noFlowPath = FALSE; // the flow model is on; -noflowpath is the retail baseline to measure against
+	m_noLanePath = FALSE; // lanes are on; -nolanes is the retail baseline to measure against
+	m_showLanes = FALSE; // the lane overlay is a diagnostic, off unless -showlanes asks for it
+	m_crowdModel = FALSE; // the crowd model is the change under test; without -crowd this is the old build
+	m_groupDrill = 0; // no group orders are faked; -groupdrill is a measuring tool and ruins the match it runs in
 	m_netGameHosts.clear(); // no network game from the command line
 	m_netGameLocalSlot = 0;
 	m_horizontalScrollSpeedFactor = 1.0;

@@ -1398,6 +1398,78 @@ Int parseNoFlowPath(char *args[], int num)
 	return 1;
 }
 
+/* -nolanes puts every unit back on the centre line of its route.
+
+	 The flow model decides where a route goes; lanes decide where across it a unit drives, which
+	 is a separate question and needs its own baseline. With this on, computePointOnPath steers at
+	 the centre the way retail always did, nothing measures the width of the ground beside the
+	 route, and a unit stuck behind a slower one waits instead of sliding past. Same reasoning as
+	 -noflowpath: one binary, run twice. */
+Int parseNoLanePath(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_noLanePath = TRUE;
+	return 1;
+}
+
+/* -showlanes draws the band model on top of the world.
+
+	 A movement change that measures well in a batch and cannot be seen in a game is a change nobody
+	 has any reason to believe, and two different failures - a lane that was never handed out, and a
+	 lane that was handed out and then refused - look exactly alike from the camera. So the overlay
+	 draws both halves separately: what the ordering group asked for, and what the unit ended up
+	 steering at. Release, because the machine that has the complaint is the one running Release. */
+Int parseShowLanes(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_showLanes = TRUE;
+	return 1;
+}
+
+/* -crowd turns on the crowd model, in one switch, so that it can be argued with.
+
+	 It is not one rule but a stack of them - the corridor with its measured width, the lane handed
+	 out as a distance rather than a share, right of way by body size, giving way to something bigger
+	 closing on you, passing a unit that is actually slower rather than one whose engine is, fanning
+	 out only while held up, and easing off through a bend. Every one of those changes what a group
+	 looks like crossing a map, and shipping them one at a time means eight batches and eight
+	 opinions about which of them did the damage. So they land together behind one flag, off by
+	 default: the same exe run twice is the before and the after, and the argument is about the whole
+	 model rather than about any single constant inside it. */
+Int parseCrowdModel(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_crowdModel = TRUE;
+	return 1;
+}
+
+/* -groupdrill <n> gives every player's army a group order every n frames.
+
+	 A skirmish AI moves its teams one unit at a time, so a self-play batch contains no group orders
+	 at all and measures nothing the crowd model does. This puts them in: the same call a right-click
+	 makes, over the whole army, corner to corner. The match becomes meaningless - the win rate under
+	 this switch says nothing about anything - and the blocked unit-frames become the first honest
+	 measurement of group movement this fork has. 600 frames, twenty seconds, is long enough for an
+	 army to cross a generated map. */
+Int parseGroupDrill(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		Int frames = 600;
+		Int eaten = 1;
+		if (num > 1 && args[1] && args[1][0] != '-')
+		{
+			frames = atoi(args[1]);
+			eaten = 2;
+		}
+		if (frames < LOGICFRAMES_PER_SECOND)
+			frames = LOGICFRAMES_PER_SECOND;		// an order a frame is not a drill, it is a stutter
+		TheWritableGlobalData->m_groupDrill = frames;
+		return eaten;
+	}
+	return 1;
+}
+
 /* -teams <n> splits an -autoskirmish lobby into n allied teams instead of a free-for-all.
 
 	 Free-for-all and 4v4 are not the same load and not the same game. Eight players each fighting
@@ -1687,6 +1759,10 @@ static CommandLineParam params[] =
 	{ "-teams", parseTeams },
 	{ "-aislice", parseAISlice },
 	{ "-noflowpath", parseNoFlowPath },
+	{ "-nolanes", parseNoLanePath },
+	{ "-showlanes", parseShowLanes },
+	{ "-crowd", parseCrowdModel },
+	{ "-groupdrill", parseGroupDrill },
 	{ "-replay", parseReplay },
 	{ "-netgame", parseNetGame },
 	{ "-netslot", parseNetSlot },
