@@ -1559,8 +1559,6 @@ static const Int  CROWD_STUCK_GIVEUP	= 60;		///< two seconds of it: back out of 
 static const Int  CROWD_ESCAPE_FRAMES	= 66;		///< and spend this long doing it before giving the route another go
 static const Int  CROWD_ESCAPE_COOL	= 90;			///< no second attempt before this, or a wedged pair rock forever
 static const Int  CROWD_MERGE_FRAMES	= 45;		///< a second and a half: how far ahead a merge is worth noticing
-static const Real CROWD_LOOK_FRAMES	= 16.0f;	///< half a second: the travel the aim filter is damped against
-static const Real CROWD_AIM_SLOWEST	= 0.08f;	///< however fast the chassis, the aim still follows this much of the error
 
 //-------------------------------------------------------------------------------------------------
 /* Returns TRUE if the physics collide should apply the force.  Normally not.
@@ -2946,25 +2944,13 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 												|| (blocker != NULL && blockerGap < myR)
 												|| fabs( err ) > 1.0f;
 
-		/* One gain is the wrong gain for two chassis.  The steering point sits a fixed distance in
-			 front - two cells and a body, about thirty feet - which a heavy tank at 25 covers in forty
-			 frames and a scout at 90 in ten.  Pure pursuit goes unstable when the unit eats its own
-			 lookahead faster than the wheel settles: the light thing overshoots, the error changes sign,
-			 it oversteers back, and that is the head shaking players see on fast vehicles and never on
-			 heavy ones.  So the cruising gain is damped by how much of the aim distance the chassis
-			 covers in half a second.  It is a lag, not a different point to drive at: nothing aims
-			 anywhere it was not already aiming, which is what the horizon experiment got wrong. */
-		Real gain = urgent ? CROWD_AIM_URGENT : CROWD_AIM_CRUISE;
-		if (!urgent)
-		{
-			const Real travel = speed * CROWD_LOOK_FRAMES;
-			if (travel > aimDist)
-			{
-				gain *= aimDist / travel;
-				if (gain < CROWD_AIM_SLOWEST) gain = CROWD_AIM_SLOWEST;
-			}
-		}
-		m_crowdAim = normalizeAngle( m_crowdAim + err * gain );
+		/* One gain for every chassis, which is not obviously right and is what measured best.  Damping
+			 the cruising gain for fast vehicles - the same fraction of the aim distance they eat in half
+			 a second - was tried against the sliding steering point below and cost 5172 blocked
+			 unit-frames a match and 7.5 units left stuck, against 4918 and 2.0 without it.  Lag on the
+			 wheel and a point further up the road fail the same way in the end: both answer where the
+			 unit was a moment ago.  The sliding point cured the shake on its own. */
+		m_crowdAim = normalizeAngle( m_crowdAim + err * (urgent ? CROWD_AIM_URGENT : CROWD_AIM_CRUISE) );
 
 		if (!urgent && fabs( normalizeAngle( m_crowdAim - self->getOrientation() ) ) < CROWD_AIM_DEAD)
 			m_crowdAim = self->getOrientation();		// two degrees is not worth a steering input
