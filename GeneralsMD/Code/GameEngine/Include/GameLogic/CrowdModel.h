@@ -58,8 +58,11 @@ enum
 	/// a lane taken to get round somebody is held this long, so it cannot flap side to side
 	CROWD_HOLD_FRAMES			= 45,
 
-	/// how many samples either side of a bridge lose their band as well, so the approach funnels in
-	CROWD_BRIDGE_SEAL			= 4,
+	/* How many samples either side of a bridge lose their band as well, so the approach funnels in.
+		 Six cells and not four: a unit that is still a lane wide of the centre when the band shuts is
+		 a unit arriving at the abutment sideways, and the sideways step is rate-limited to a quarter
+		 of its speed.  The funnel has to be longer than the time that step takes. */
+	CROWD_BRIDGE_SEAL			= 6,
 
 	/// how far ahead of itself a unit steers, in cells, before its own body length is added
 	CROWD_LOOKAHEAD_CELLS	= 2

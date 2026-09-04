@@ -1546,9 +1546,11 @@ Bool AIUpdateInterface::needToRotate(void)
 static const Real CROWD_AIR					= 4.0f;		///< air a body wants round it, on top of both radii
 static const Real CROWD_SEP_STEP		= 1.5f;		///< most one frame of separation may move a lane
 static const Real CROWD_PASS_CLEAR	= 6.0f;		///< room a passing lane leaves beside the blocker
+static const Real CROWD_PASS_TIGHT	= 1.5f;		///< and the room it settles for rather than queue
+static const Int  CROWD_PASS_RETRY	= 10;			///< queued this long: ask to pass again, hold or no hold
 static const Real CROWD_TAPER_DIST	= PATHFIND_CELL_SIZE_F * 8.0f;	///< the band closes over the last of the route
 static const Int  CROWD_BRAKE_FRAMES	= 8;		///< frames of closing time a brake is allowed to read
-static const Int  CROWD_FAN_FRAMES	= 30;			///< held up this long before spreading out
+static const Int  CROWD_FAN_FRAMES	= 12;			///< held up this long before spreading out
 static const Real CROWD_FAN_RATE		= 0.8f;		///< and then sideways at this much a frame
 static const Real CROWD_SEP_FILTER	= 0.13f;	///< how much of a frame's sideways push is believed (~4/sec)
 static const Real CROWD_AIM_CRUISE	= 0.23f;	///< how fast the aim follows the route while driving (~7/sec)
@@ -2407,10 +2409,18 @@ Bool AIUpdateInterface::crowdOutranksMe( Object *other ) const
 //-------------------------------------------------------------------------------------------------
 /** Somewhere a wedged unit can back out to, or FALSE if it is walled in on every side.
 		Sideways first and backwards second: the ground ahead is what it is already failing to drive
-		through, and a unit that has been stationary for two seconds is in a hole its own route made. */
+		through, and a unit that has been stationary for two seconds is in a hole its own route made.
+
+		`backFirst` reverses that order, and the caller sets it wherever the road has no width - a
+		bridge and the ground either side of it.  The riverbank next to an abutment is perfectly valid
+		ground to stand on, so the sideways probe finds it, and a unit that backs out onto it has left
+		the only queue that leads onto the bridge and has to fight its way back into the funnel.  That
+		is the jam at the mouth of a bridge, and it is this function causing it.  Taking the sideways
+		candidates away entirely rather than demoting them was measured and is worse: a unit that
+		cannot back up either has nowhere left to go and stays wedged for the rest of the battle. */
 //-------------------------------------------------------------------------------------------------
 static Bool crowdFindEscape( Object *self, const LocomotorSet& locoSet, const Coord2D& tan,
-														 Int firstSide, Coord3D *out )
+														 Int firstSide, Bool backFirst, Coord3D *out )
 {
 	const Coord3D *pos = self->getPosition();
 	const Real myR = self->getGeometryInfo().getBoundingCircleRadius();
@@ -2420,9 +2430,11 @@ static Bool crowdFindEscape( Object *self, const LocomotorSet& locoSet, const Co
 	const PathfindLayerEnum layer = self->getLayer();
 
 	const Real sx = -tan.y, sy = tan.x;			// left of the route
-	for (Int t = 0; t < 4; t++)
+	for (Int k = 0; k < 4; k++)
 	{
-		// out and back to the roomier side, out and back the other way, straight out, straight back
+		// out and back to the roomier side, out and back the other way, straight out, straight back;
+		// on a bridge the last of those is tried first and the sideways three only if it fails
+		const Int t = backFirst ? ((k == 0) ? 3 : k - 1) : k;
 		const Real side = (t == 1) ? -(Real)firstSide : (Real)firstSide;
 		const Real lat = (t < 3) ? across : 0.0f;
 		const Real back = (t < 2) ? behind : ((t == 2) ? 0.0f : across);
@@ -2455,6 +2467,21 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 		 and a single vehicle repositioning inside a firefight is not traffic. */
 	if (!m_hasPendingCrowdLat && !m_crowdLatValid)
 		return;
+
+	/* Foot soldiers get no band and no traffic rules, on either side of the question.  Infantry walks
+		 through infantry - the bodies interpenetrate, retail lets them, and a squad sent across a map
+		 is meant to arrive as a squad on one line rather than as a rank spread over sixty feet of
+		 road.  Every rule below is written for bodies that cannot share ground: give way, queue,
+		 brake, fan out.  Applied to a platoon they are a machine for pulling it apart, which is what a
+		 group of riflemen ordered across open ground was visibly doing.  A vehicle does not get the
+		 rules for them either (the scan below skips them): it drives over them, and braking for a man
+		 it is about to walk through is a stop for nothing.
+
+		 What a foot soldier keeps is the wedge rescue.  Returning out of this function for infantry
+		 was measured and it is not free: it takes the rescue away with everything else, and stuck
+		 units went from 1.3 a match to 16.0.  So the ladder below still runs for him and only the
+		 lane is held at nothing. */
+	const Bool foot = self->isKindOf( KINDOF_INFANTRY );
 
 	/* The band is measured once per route.  m_crowdSample = -1 is the latch for a route too short
 		 to have one, without which a unit driving the last two cells of its path re-probes two
@@ -2555,7 +2582,8 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 	else if (m_crowdStuck > CROWD_STUCK_GIVEUP && now >= m_crowdEscapeCool)
 	{
 		const Int firstSide = (here.left >= here.right) ? 1 : -1;
-		if (crowdFindEscape( self, m_locomotorSet, here.tan, firstSide, &m_crowdEscape ))
+		const Bool sealed = (here.left <= 0.01f && here.right <= 0.01f);		// a bridge, or its approach
+		if (crowdFindEscape( self, m_locomotorSet, here.tan, firstSide, sealed, &m_crowdEscape ))
 		{
 			m_crowdEscapeUntil = now + CROWD_ESCAPE_FRAMES;
 			m_crowdStuck = 0;
@@ -2573,7 +2601,9 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 	PartitionFilterAlive					fAlive;
 	PartitionFilterSameMapStatus	fMap( self );
 	PartitionFilter *filters[] = { &fRel, &fAlive, &fMap, NULL };
-	SimpleObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( self, scanRange, FROM_CENTER_2D, filters );
+	// a foot soldier reads nobody: he has no lane to hold and nothing on the road is his traffic
+	SimpleObjectIterator *iter = foot ? NULL
+		: ThePartitionManager->iterateObjectsInRange( self, scanRange, FROM_CENTER_2D, filters );
 	MemoryPoolObjectHolder hold( iter );
 
 	Real sep = 0.0f;					// how far sideways the crowd is pushing us
@@ -2597,7 +2627,7 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 	if (myPhys != NULL)
 		myVel = *myPhys->getVelocity();
 
-	for (Object *o = iter->first(); o; o = iter->next())
+	for (Object *o = (iter != NULL) ? iter->first() : NULL; o; o = iter->next())
 	{
 		if (o == self)
 			continue;
@@ -2605,19 +2635,9 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 		if (ai == NULL || !ai->isDoingGroundMovement())
 			continue;
 
-		/* Infantry walks through infantry, and the band is not allowed to take that back.  Retail's
-			 own rule is in blockedBy: two foot soldiers block each other only while they are going the
-			 same way, and two squads crossing pass straight through one another.  Left in the scan
-			 below, a crossing squad reads as a wall of blockers - every man of it brakes, gives way and
-			 shuffles sideways for a crowd he is supposed to walk into.  Same dot product as blockedBy's
-			 so the two agree; a column following a column is still traffic and still gets the rules. */
-		if (self->isKindOf( KINDOF_INFANTRY ) && o->isKindOf( KINDOF_INFANTRY ))
-		{
-			const Coord3D *myDir = self->getUnitDirectionVector2D();
-			const Coord3D *hisDir = o->getUnitDirectionVector2D();
-			if (myDir->x * hisDir->x + myDir->y * hisDir->y <= 0.25f)
-				continue;
-		}
+		// infantry is nobody's traffic: see the gate at the top of this function
+		if (o->isKindOf( KINDOF_INFANTRY ))
+			continue;
 
 		const Coord3D *hp = o->getPosition();
 		const Real dx = hp->x - myPos->x;
@@ -2731,7 +2751,9 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 	}
 
 	//--- the rules, in order -----------------------------------------------------------------------
-	Real lat = m_crowdLat;
+	// nothing was scanned for a foot soldier, so every rule below stands down on its own; the lane is
+	// the one thing that has to be said out loud, and it is the middle of the road
+	Real lat = foot ? 0.0f : m_crowdLat;
 	Real cap = speed;
 	Bool queued = FALSE;
 	Bool merged = FALSE;
@@ -2769,7 +2791,6 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 		{
 			const Real hisR = blocker->getGeometryInfo().getBoundingCircleRadius();
 			const Real hisLat = m_corridor->latOf( i, *blocker->getPosition() );
-			const Real shift = myR + hisR + CROWD_PASS_CLEAR;
 
 			/* Pass on the outside of a bend.  The inside is where the road runs out, and a unit that
 				 dives up the inside of a turn to get past somebody arrives at the apex with a wall on
@@ -2777,18 +2798,36 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 			const Real curv = m_corridor->curvature( i );
 			Int first = (fabs( curv ) > 0.08f) ? ((curv > 0.0f) ? -1 : 1) : m_crowdSide;
 
+			/* Go round rather than sit behind, and mean it.  Two gates used to send a unit to the back
+				 of a queue that a foot of road either side would have let it out of.
+
+				 The first was the lane hold.  It is there so a lane cannot flap, and a unit that gave way
+				 to somebody a second ago is exactly the unit now stuck behind the next one along - the
+				 hold was answering "do not change your mind" to a question nobody asked twice.  Once a
+				 unit has been queueing for a third of a second, the hold does not get a vote.
+
+				 The second was the clearance.  Six units of air beside the blocker is what a comfortable
+				 pass wants, and a road that has five is not a road you queue on: the tight figure is a
+				 body and a half of air, which is still a pass and is still wider than the collision push
+				 that would otherwise decide it.  Full clearance is tried on both sides before the tight
+				 one is tried on either, so the comfortable pass still wins wherever there is room. */
 			Bool took = FALSE;
-			if (now >= m_crowdHoldFrame)
+			const Bool retry = m_crowdQueued > CROWD_PASS_RETRY;
+			if (now >= m_crowdHoldFrame || retry)
 			{
-				for (Int t = 0; t < 2 && !took; t++)
+				for (Int c = 0; c < 2 && !took; c++)
 				{
-					const Real want = hisLat + (Real)((t == 0) ? first : -first) * shift;
-					if (fabs( m_corridor->clampLat( i, want ) - want ) < 0.5f)
+					const Real shift = myR + hisR + ((c == 0) ? CROWD_PASS_CLEAR : CROWD_PASS_TIGHT);
+					for (Int t = 0; t < 2 && !took; t++)
 					{
-						lat = want;
-						m_crowdSide = (want >= hisLat) ? 1 : -1;
-						m_crowdHoldFrame = now + CROWD_HOLD_FRAMES;
-						took = TRUE;
+						const Real want = hisLat + (Real)((t == 0) ? first : -first) * shift;
+						if (fabs( m_corridor->clampLat( i, want ) - want ) < 0.5f)
+						{
+							lat = want;
+							m_crowdSide = (want >= hisLat) ? 1 : -1;
+							m_crowdHoldFrame = now + CROWD_HOLD_FRAMES;
+							took = TRUE;
+						}
 					}
 				}
 			}

@@ -1587,6 +1587,43 @@ static Bool laneSeedIsLeftOf( const LaneSeed& a, const LaneSeed& b )
 	return a.obj->getID() < b.obj->getID();
 }
 
+/** How many lanes the road under a group actually carries, and where the middle of them sits.
+
+		The count used to come from a fixed reference width - the widest answer the probe can give,
+		regardless of the ground - and it was wrong in both directions.  On a lane road it handed a
+		dozen tanks a dozen lanes, every one of them wider than the road, and the band then cut every
+		one of them back to the same two edges: a group pressed into two files against the verges with
+		nothing down the middle.  On open country it stopped at whatever the reference happened to be
+		while the field went on.  Two probes at the group's own feet, one each side, cost sixteen cell
+		lookups apiece and are taken once per order.
+
+		`bias` comes back as the offset of the middle of the drivable span from the centre line, which
+		is what keeps a route running along a wall from spreading into the wall: the room is measured
+		separately on the two sides and the lanes are laid out in the room that exists. */
+static Int crowdRoadLanes( Object *probe, const Coord3D& center, const Coord2D& dir, Real spacing,
+													 Real *bias )
+{
+	Coord3D from = center;
+	from.z = TheTerrainLogic->getGroundHeight( from.x, from.y );
+
+	Coord2D left, right;
+	left.x = -dir.y;	left.y = dir.x;
+	right.x = dir.y;	right.y = -dir.x;
+
+	Pathfinder *pf = TheAI->pathfinder();
+	const LocomotorSet& locoSet = probe->getAIUpdateInterface()->getLocomotorSet();
+	const PathfindLayerEnum layer = probe->getLayer();
+	const Real leftRoom = pf->laneExtent( probe, locoSet, layer, &from, &left );
+	const Real rightRoom = pf->laneExtent( probe, locoSet, layer, &from, &right );
+
+	*bias = (leftRoom - rightRoom) * 0.5f;
+
+	// centres, so a span exactly one spacing wide is two lanes and a span of nothing is still one
+	Int lanes = (Int)((leftRoom + rightRoom) / spacing) + 1;
+	if (lanes < 1) lanes = 1;
+	return lanes;
+}
+
 /** Hand every member of a group the distance it should sit off the centre of the road, for the
 		crowd model only.
 
@@ -1607,6 +1644,7 @@ static void crowdSeedLanes( std::list<Object *>& members, const Coord3D& center,
 
 	std::vector<LaneSeed> across;
 	Real spacing = 0.0f;
+	Object *widest = NULL;
 	for (std::list<Object *>::iterator it = members.begin(); it != members.end(); ++it)
 	{
 		Object *o = *it;
@@ -1621,7 +1659,10 @@ static void crowdSeedLanes( std::list<Object *>& members, const Coord3D& center,
 
 		const Real body = 2.0f * o->getGeometryInfo().getBoundingCircleRadius();
 		if (body > spacing)
+		{
 			spacing = body;
+			widest = o;			// the road is measured for the biggest body in the group, not an average one
+		}
 	}
 
 	spacing *= 1.15f;
@@ -1632,19 +1673,20 @@ static void crowdSeedLanes( std::list<Object *>& members, const Coord3D& center,
 
 	std::sort( across.begin(), across.end(), laneSeedIsLeftOf );
 
-	Int lanes = (Int)(2.0f * Pathfinder_laneReference() / spacing);
-	if (lanes < 1) lanes = 1;
-	if (lanes > count) lanes = count;
+	Real bias = 0.0f;
+	Int lanes = crowdRoadLanes( widest, center, dir, spacing, &bias );
+	if (lanes > count) lanes = count;		// never more lanes than bodies to put in them
 
 	for (Int i = 0; i < count; i++)
 	{
 		const Int lane = (i * lanes) / count;
-		const Real offset = ((Real)lane - (Real)(lanes - 1) * 0.5f) * spacing;
+		const Real offset = bias + ((Real)lane - (Real)(lanes - 1) * 0.5f) * spacing;
 		across[i].obj->getAIUpdateInterface()->setPendingCrowdLat( offset );
 	}
 
 	if (TheGlobalData->m_showLanes)
-		DEBUG_LOG(("SHOWLANES crowdSeedLanes: members=%d lanes=%d spacing=%.1f\n", count, lanes, spacing));
+		DEBUG_LOG(("SHOWLANES crowdSeedLanes: members=%d lanes=%d spacing=%.1f bias=%.1f\n",
+			count, lanes, spacing, bias));
 }
 
 /**
@@ -1855,6 +1897,7 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 
 		std::vector<LaneSeed> across;
 		Real spacing = 0.0f;
+		Object *widest = NULL;
 		for (Object *o = iter->first(); o; o = iter->next())
 		{
 			if (o->getAIUpdateInterface() == NULL)
@@ -1868,7 +1911,10 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 
 			Real body = 2.0f * o->getGeometryInfo().getBoundingCircleRadius();
 			if (body > spacing)
+			{
 				spacing = body;
+				widest = o;
+			}
 		}
 
 		// a little air between bodies, or the lanes are exactly touching and the collision push
@@ -1880,8 +1926,20 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 		{
 			std::sort( across.begin(), across.end(), laneSeedIsLeftOf );
 
-			Int lanes = (Int)(2.0f * Pathfinder_laneReference() / spacing);
-			if (lanes < 1) lanes = 1;
+			/* Under -crowd the lane count is the road's, measured here; the old model keeps the fixed
+				 reference it was written against, because its own offsets are scaled again downstream by
+				 the room found at the unit's feet and measuring the same width twice would square it. */
+			Real bias = 0.0f;
+			Int lanes;
+			if (TheGlobalData->m_crowdModel)
+			{
+				lanes = crowdRoadLanes( widest, groupCenter, groupDir, spacing, &bias );
+			}
+			else
+			{
+				lanes = (Int)(2.0f * Pathfinder_laneReference() / spacing);
+				if (lanes < 1) lanes = 1;
+			}
 			if (lanes > count) lanes = count;
 
 			for (Int i = 0; i < count; i++)
@@ -1889,7 +1947,7 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 				// blocks, not round-robin: whoever was left of somebody stays left of them, and a
 				// group with more members than lanes puts the extra ones behind rather than beside
 				Int lane = (i * lanes) / count;
-				Real offset = ((Real)lane - (Real)(lanes - 1) * 0.5f) * spacing;
+				Real offset = bias + ((Real)lane - (Real)(lanes - 1) * 0.5f) * spacing;
 				Real u = Pathfinder_groupLane( offset );
 				across[i].obj->getAIUpdateInterface()->setPendingLane( u );
 

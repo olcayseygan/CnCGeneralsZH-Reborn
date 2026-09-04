@@ -8711,7 +8711,7 @@ TEST(crowd_corridor_has_no_band_on_a_bridge_or_at_its_approaches)
 		 riverbank.  A lane held across either one drives the unit off the side, and a lane held on the
 		 approach arrives beside the abutment instead of at the entrance - which is a unit that never
 		 gets onto the bridge and a queue behind it that never gets anywhere.  The band closes over the
-		 deck and for four samples each side of it. */
+		 deck and for CROWD_BRIDGE_SEAL samples each side of it. */
 	Coord3D pts[ 20 ];
 	PathfindLayerEnum layers[ 20 ];
 	for (Int k = 0; k < 20; k++)
@@ -8736,8 +8736,11 @@ TEST(crowd_corridor_has_no_band_on_a_bridge_or_at_its_approaches)
 
 	corr.sealBridges();
 
-	// the deck itself, and the four samples each side of it
-	for (Int k = 6; k <= 16; k++)
+	const Int sealLo = 10 - (Int)CROWD_BRIDGE_SEAL;
+	const Int sealHi = 12 + (Int)CROWD_BRIDGE_SEAL;
+
+	// the deck itself, and the sealed samples each side of it
+	for (Int k = sealLo; k <= sealHi; k++)
 	{
 		CHECK_NEAR( corr.at( k ).left, 0.0f, 0.001f );
 		CHECK_NEAR( corr.at( k ).right, 0.0f, 0.001f );
@@ -8746,9 +8749,9 @@ TEST(crowd_corridor_has_no_band_on_a_bridge_or_at_its_approaches)
 	}
 
 	// and the road on either side of that stretch keeps its band
-	CHECK_NEAR( corr.at( 5 ).left, 15.0f, 0.001f );
-	CHECK_NEAR( corr.at( 17 ).right, 15.0f, 0.001f );
-	CHECK_NEAR( corr.clampLat( 5, 12.0f ), 12.0f, 0.001f );
+	CHECK_NEAR( corr.at( sealLo - 1 ).left, 15.0f, 0.001f );
+	CHECK_NEAR( corr.at( sealHi + 1 ).right, 15.0f, 0.001f );
+	CHECK_NEAR( corr.clampLat( sealLo - 1, 12.0f ), 12.0f, 0.001f );
 
 	// a route with no bridge on it is untouched
 	CrowdCorridor plain;
