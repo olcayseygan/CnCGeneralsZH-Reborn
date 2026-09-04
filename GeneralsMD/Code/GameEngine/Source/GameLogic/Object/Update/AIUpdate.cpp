@@ -2621,6 +2621,18 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 	Real joinerR = 0.0f;
 	Real joinerWhen = 1.0e9f;
 
+	/* Where the traffic in front of us sits across the road, which is the question a pass has to ask
+		 and used to not.  A pass aimed a body and a half clear of the unit directly ahead is aimed at
+		 whatever is standing beside that unit, and in a pack six wide every such slot is taken: the
+		 unit picks one, gets shoved back out of it by the collision push, and queues in the middle of
+		 its own group instead of going round the outside of it. */
+	enum { CROWD_NEAR_MAX = 16 };
+	Real nearLat[CROWD_NEAR_MAX];		// each neighbour's line across the road
+	Real nearR[CROWD_NEAR_MAX];
+	Int nearCount = 0;
+	Real packLo = 0.0f, packHi = 0.0f;		// the outside edges of the whole pack ahead
+	Bool packAny = FALSE;
+
 	PhysicsBehavior *myPhys = self->getPhysics();
 	Coord3D myVel;
 	myVel.zero();
@@ -2725,6 +2737,25 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 			giveWay = TRUE;
 		}
 
+		/* Anything abreast or in front, wherever it sits across the road.  This is the set the pass
+			 below is aimed clear of, so it is deliberately wider than the "in our way" test under it:
+			 the unit two lanes over is not blocking us and is exactly the one we must not aim at. */
+		if (fwd > -myR && fwd < lookAhead + hisR)
+		{
+			const Real hisLatHere = m_corridor->latOf( i, *hp );
+			if (nearCount < CROWD_NEAR_MAX)
+			{
+				nearLat[nearCount] = hisLatHere;
+				nearR[nearCount] = hisR;
+				++nearCount;
+			}
+			const Real lo = hisLatHere - hisR;
+			const Real hi = hisLatHere + hisR;
+			if (!packAny || lo < packLo) packLo = lo;
+			if (!packAny || hi > packHi) packHi = hi;
+			packAny = TRUE;
+		}
+
 		// directly ahead, near enough to matter
 		if (fwd > 0.0f && fwd < lookAhead + hisR && fabs( side ) < myR + hisR + 1.0f)
 		{
@@ -2810,25 +2841,53 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 				 pass wants, and a road that has five is not a road you queue on: the tight figure is a
 				 body and a half of air, which is still a pass and is still wider than the collision push
 				 that would otherwise decide it.  Full clearance is tried on both sides before the tight
-				 one is tried on either, so the comfortable pass still wins wherever there is room. */
+				 one is tried on either, so the comfortable pass still wins wherever there is room.
+
+				 Between those two comes going round the outside of the whole pack, and a candidate is
+				 only taken if no neighbour is already sitting on it.  Without that test the road is the
+				 only thing consulted, so in a group six abreast the clear slot beside the blocker is
+				 another tank and the pass is a swap of positions inside the same knot.  With one unit in
+				 front the outside of the pack and the tight pass beside him are the same line, so nothing
+				 changes for the ordinary overtake; it is the pack that goes wide. */
 			Bool took = FALSE;
 			const Bool retry = m_crowdQueued > CROWD_PASS_RETRY;
 			if (now >= m_crowdHoldFrame || retry)
 			{
-				for (Int c = 0; c < 2 && !took; c++)
+				const Real clearShift = myR + hisR + CROWD_PASS_CLEAR;
+				const Real tightShift = myR + hisR + CROWD_PASS_TIGHT;
+				const Real outside = myR + CROWD_PASS_TIGHT;
+
+				Real cands[6];
+				Int nCand = 0;
+				cands[nCand++] = hisLat + (Real)first * clearShift;
+				cands[nCand++] = hisLat - (Real)first * clearShift;
+				if (packAny)
 				{
-					const Real shift = myR + hisR + ((c == 0) ? CROWD_PASS_CLEAR : CROWD_PASS_TIGHT);
-					for (Int t = 0; t < 2 && !took; t++)
+					cands[nCand++] = (first > 0) ? (packHi + outside) : (packLo - outside);
+					cands[nCand++] = (first > 0) ? (packLo - outside) : (packHi + outside);
+				}
+				cands[nCand++] = hisLat + (Real)first * tightShift;
+				cands[nCand++] = hisLat - (Real)first * tightShift;
+
+				for (Int c = 0; c < nCand && !took; c++)
+				{
+					const Real want = cands[c];
+					if (fabs( m_corridor->clampLat( i, want ) - want ) >= 0.5f)
+						continue;						// the road does not go there
+
+					Bool taken = FALSE;
+					for (Int n = 0; n < nearCount && !taken; n++)
 					{
-						const Real want = hisLat + (Real)((t == 0) ? first : -first) * shift;
-						if (fabs( m_corridor->clampLat( i, want ) - want ) < 0.5f)
-						{
-							lat = want;
-							m_crowdSide = (want >= hisLat) ? 1 : -1;
-							m_crowdHoldFrame = now + CROWD_HOLD_FRAMES;
-							took = TRUE;
-						}
+						if ((Real)fabs( nearLat[n] - want ) < myR + nearR[n])
+							taken = TRUE;			// somebody is already in it
 					}
+					if (taken)
+						continue;
+
+					lat = want;
+					m_crowdSide = (want >= hisLat) ? 1 : -1;
+					m_crowdHoldFrame = now + CROWD_HOLD_FRAMES;
+					took = TRUE;
 				}
 			}
 
