@@ -38,7 +38,11 @@ param(
 	[int] $MapCells = 128,
 	# where the game is
 	[string] $RunDir = "$PSScriptRoot\GeneralsMD\Run",
-	[string] $Exe = "generals.exe"
+	[string] $Exe = "generals.exe",
+	# switches to add to both halves of every seed. A movement flag has to be on for the recording
+	# and the playback alike: turning it on for one of them is a divergence the script would report
+	# as a broken build. -ExtraArgs -crowd is the crowd model's determinism check
+	[string[]] $ExtraArgs = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,7 +58,7 @@ $lastReplay = Join-Path $replayDir "00000000.rep"
 function Invoke-Run([string[]] $extra, [string] $prefix)
 {
 	$args = @("-headless", "-quickstart", "-noshellmap", "-multiInstance",
-						"-maxframes", $MaxFrames, "-logPrefix", $prefix) + $extra
+						"-maxframes", $MaxFrames, "-logPrefix", $prefix) + $extra + $ExtraArgs
 	$proc = Start-Process -FilePath $exePath -ArgumentList $args -WorkingDirectory $RunDir -PassThru
 	$proc.WaitForExit()
 	$log = Join-Path $RunDir "$($prefix)DebugLogFile.txt"
