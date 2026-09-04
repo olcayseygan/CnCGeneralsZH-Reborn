@@ -47,10 +47,16 @@ class Path;
 
 enum
 {
-	/* How far sideways the corridor looks for ground, in cells.  The sandbox uses ten and so does
-		 this; a wider probe is not a wider road, it just costs more and finds the far side of open
-		 country, which no lane is ever going to use. */
-	CROWD_PROBE_CELLS			= 10,
+	/* How far sideways the corridor looks for ground, in cells.  Sixteen, which is what
+		 PF_LANE_PROBE_CELLS uses and therefore the widest half-band anything else in the engine can
+		 report; the two have to agree or the group is handed lanes the band will not hold.
+
+		 It used to be the sandbox's ten, on the argument that a wider probe is not a wider road and
+		 finds the far side of open country that no lane is ever going to use.  That was true while the
+		 number of lanes was decided once, at the group's feet: nothing could grow into the extra room.
+		 Now the lane count is re-fitted to this band every frame, so the room is exactly what the group
+		 spreads into, and stopping at a hundred feet was a cap on how wide a group could ever get. */
+	CROWD_PROBE_CELLS			= 16,
 
 	/// samples are one cell apart until the route is longer than this, then they stretch
 	CROWD_MAX_SAMPLES			= 160,

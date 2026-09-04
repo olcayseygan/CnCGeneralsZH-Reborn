@@ -502,6 +502,19 @@ public:
 			local width does not - it drags a unit into every wide bay its route happens to pass and
 			swings it round the outside of corners. Only read under -crowd. */
 	void setPendingCrowdLat( Real lat ) { m_pendingCrowdLat = lat; m_hasPendingCrowdLat = TRUE; }
+
+	/** Where this member sat across the group, as a place in a queue rather than a distance: `idx`
+			out of `of`, sorted left to right, laid out `spacing` apart.
+
+			The distance above is measured once, at the group's feet, and is therefore the width of the
+			ground the group is standing on - which is not the width of the road it is about to drive
+			down. A group leaving a base through a gate was handed one lane and stayed one lane wide for
+			the rest of the trip, because nothing ever asked the question again. The slot is asked every
+			frame against the band at the unit's own sample, so the group is as wide as the ground under
+			it right now: single file in the gate, six abreast on the far side, and back to single file
+			at the next one. Only read under -crowd. */
+	void setPendingCrowdLane( Int idx, Int of, Real spacing )
+		{ m_crowdLaneIdx = idx; m_crowdLaneOf = of; m_crowdLaneSpace = spacing; }
 	Real getCrowdLat( void ) const { return m_crowdLat; }
 	const CrowdCorridor *getCrowdCorridor( void ) const { return m_corridor; }
 	/** Which sample of its own band the unit was beside last frame.  Priority between two units is
@@ -792,6 +805,10 @@ private:
 	Real				m_crowdLat;									///< -crowd: how far left of the route we ride, in world units.
 	Real				m_pendingCrowdLat;					///< -crowd: the same, as the ordering group wanted it, waiting for the path.
 	Bool				m_hasPendingCrowdLat;				///< -crowd: FALSE for a unit ordered on its own, which rides where it already is.
+	Int					m_crowdLaneIdx;							///< -crowd: our place across the group, 0 = leftmost.
+	Int					m_crowdLaneOf;							///< -crowd: how many of us there were; 0 = nobody handed us a slot.
+	Real				m_crowdLaneSpace;						///< -crowd: how far apart the group wanted its lanes, one widest body plus air.
+	Int					m_crowdFit;									///< -crowd: how many lanes the band is currently held to carry; 0 = not worked out yet.
 	Bool				m_crowdLatValid;						///< -crowd: FALSE until the lane has been taken up against the current route.
 	UnsignedInt	m_crowdHoldFrame;						///< -crowd: a lane taken to pass somebody is kept until this frame.
 	Int					m_crowdSample;							///< -crowd: which sample of the band we were beside last frame (search hint; -1 = no band).

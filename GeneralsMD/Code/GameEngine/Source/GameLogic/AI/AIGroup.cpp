@@ -1682,6 +1682,7 @@ static void crowdSeedLanes( std::list<Object *>& members, const Coord3D& center,
 		const Int lane = (i * lanes) / count;
 		const Real offset = bias + ((Real)lane - (Real)(lanes - 1) * 0.5f) * spacing;
 		across[i].obj->getAIUpdateInterface()->setPendingCrowdLat( offset );
+		across[i].obj->getAIUpdateInterface()->setPendingCrowdLane( i, count, spacing );
 	}
 
 	if (TheGlobalData->m_showLanes)
@@ -1961,7 +1962,14 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 					 a width guessed here and re-measured somewhere else, and the two never agreed: the
 					 conversion is where the spacing this loop just worked out was thrown away. */
 				if (TheGlobalData->m_crowdModel)
+				{
 					across[i].obj->getAIUpdateInterface()->setPendingCrowdLat( offset );
+					/* And the slot the offset came from, which is the part that survives.  The offset is
+						 measured here, once, on the ground the group happens to be standing on; the slot is
+						 re-fitted to the band every frame, so the group is as many abreast as the road under
+						 it carries rather than as many as its car park did. */
+					across[i].obj->getAIUpdateInterface()->setPendingCrowdLane( i, count, spacing );
+				}
 
 				if (TheGlobalData->m_showLanes)
 				{

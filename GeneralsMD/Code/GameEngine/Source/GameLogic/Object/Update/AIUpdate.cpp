@@ -313,6 +313,10 @@ AIUpdateInterface::AIUpdateInterface( Thing *thing, const ModuleData* moduleData
 	m_crowdLat = 0.0f;
 	m_pendingCrowdLat = 0.0f;
 	m_hasPendingCrowdLat = FALSE;
+	m_crowdLaneIdx = 0;
+	m_crowdLaneOf = 0;
+	m_crowdLaneSpace = 0.0f;
+	m_crowdFit = 0;
 	m_crowdLatValid = FALSE;
 	m_crowdHoldFrame = 0;
 	m_crowdSample = 0;
@@ -2232,6 +2236,7 @@ void AIUpdateInterface::crowdReleaseCorridor( void )
 	}
 	m_crowdLatValid = FALSE;
 	m_crowdSample = 0;
+	m_crowdFit = 0;
 	m_crowdQueued = 0;
 	m_crowdHoldFrame = 0;
 	m_crowdSepSmooth = 0.0f;
@@ -2523,6 +2528,8 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 			 starts under its own tracks is the centre line - retail's answer, and the right one.  A
 			 unit ordered as part of a group was told where to sit before the path existed. */
 		m_crowdLat = m_hasPendingCrowdLat ? m_pendingCrowdLat : m_corridor->latOf( i, *myPos );
+		if (!m_hasPendingCrowdLat)
+			m_crowdLaneOf = 0;			// and it belongs to no rank, so nothing re-fits it to the road
 		m_hasPendingCrowdLat = FALSE;
 		m_crowdLatValid = TRUE;
 		m_crowdSide = (here.left >= here.right) ? 1 : -1;
@@ -2785,6 +2792,49 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 	// nothing was scanned for a foot soldier, so every rule below stands down on its own; the lane is
 	// the one thing that has to be said out loud, and it is the middle of the road
 	Real lat = foot ? 0.0f : m_crowdLat;
+
+	/* How wide the group is, decided here and not once at the group's feet.  The old answer came from
+		 two probes taken where the group was standing when the order was given, and it was then the
+		 group's width for the whole trip: a dozen tanks leaving a base through a gate were handed one
+		 lane and drove the next thousand feet in single file across open ground, because nothing asked
+		 the question a second time.  So what the group hands out is a place in a queue - idx out of of,
+		 sorted across - and the number of lanes is worked out every frame from the band at this unit's
+		 own sample.  The road decides, sample by sample: the ranks close up going into a doorway and
+		 open out again on the far side, and neither of those is a decision anybody makes.
+
+		 The blocking is the group's, unchanged: whoever was left of somebody stays left of them, and
+		 the ones sharing a lane follow each other.  It has to be, or the ranks would renumber every
+		 time the road changed width and the group would shuffle sideways for the whole drive.
+
+		 A lane taken to pass somebody or to give way outranks the slot while its hold lasts, or the
+		 unit would slide back into the blocker it just pulled out around: the hold is the one thing
+		 that says "I am not where I belong on purpose". */
+	Int laneFit = 0, laneMine = 0;
+	if (!foot && now >= m_crowdHoldFrame && m_crowdLaneOf > 1 && m_crowdLaneSpace > 0.001f)
+	{
+		/* With a deadband, because the raw count is a floor of a measurement that moves sample to
+			 sample.  A band a hair over five lanes wide reads five, four, five, four along a perfectly
+			 ordinary stretch of road, and every flip renumbers the whole group: half the units are told
+			 to move half a lane sideways, then back, for the length of the road.  Widening therefore
+			 wants half a lane of room over the rank it is claiming; narrowing takes effect at once,
+			 because when the ground is gone it is gone. */
+		const Real span = here.left + here.right;
+		Int want = (Int)(span / m_crowdLaneSpace) + 1;
+		if (want < 1) want = 1;
+		if (want > m_crowdLaneOf) want = m_crowdLaneOf;
+
+		if (m_crowdFit <= 0)
+			m_crowdFit = want;
+		else if (want < m_crowdFit)
+			m_crowdFit = want;
+		else if (want > m_crowdFit && span >= ((Real)(want - 1) + 0.5f) * m_crowdLaneSpace)
+			m_crowdFit = want;
+
+		laneFit = m_crowdFit;
+		laneMine = (m_crowdLaneIdx * laneFit) / m_crowdLaneOf;
+		const Real bias = (here.left - here.right) * 0.5f;		// the middle of the ground, not of the route
+		lat = bias + ((Real)laneMine - (Real)(laneFit - 1) * 0.5f) * m_crowdLaneSpace;
+	}
 	Real cap = speed;
 	Bool queued = FALSE;
 	Bool merged = FALSE;
@@ -2843,12 +2893,23 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 				 that would otherwise decide it.  Full clearance is tried on both sides before the tight
 				 one is tried on either, so the comfortable pass still wins wherever there is room.
 
-				 Between those two comes going round the outside of the whole pack, and a candidate is
-				 only taken if no neighbour is already sitting on it.  Without that test the road is the
-				 only thing consulted, so in a group six abreast the clear slot beside the blocker is
-				 another tank and the pass is a swap of positions inside the same knot.  With one unit in
-				 front the outside of the pack and the tight pass beside him are the same line, so nothing
-				 changes for the ordinary overtake; it is the pack that goes wide. */
+				 Between those two comes going round the outside of the whole pack, and the first pass
+				 over the candidates takes one only if no neighbour is already sitting on it.  Without
+				 that test the road is the only thing consulted, so in a group six abreast the clear slot
+				 beside the blocker is another tank and the pass is a swap of positions inside the same
+				 knot.  With one unit in front the outside of the pack and the tight pass beside him are
+				 the same line, so nothing changes for the ordinary overtake; it is the pack that goes
+				 wide.
+
+				 Then the same candidates again with the occupancy test off: refusing every occupied line
+				 sounds right and means a unit with nowhere clean to go queues instead of moving into a
+				 gap that is about to open.
+
+				 The whole of it - the pack candidates and the occupancy test together - was worth
+				 nothing at all while the group was one lane wide, and measured on its own then it cost
+				 stuck units.  It pays once the group is as wide as the road: taking it back out again
+				 costs 5065.6 blocked unit-frames a match against 4963.8 with it in, over 38 seeds, and
+				 twenty-three of those seeds do not notice either way.  It is the pack that goes wide. */
 			Bool took = FALSE;
 			const Bool retry = m_crowdQueued > CROWD_PASS_RETRY;
 			if (now >= m_crowdHoldFrame || retry)
@@ -2869,25 +2930,31 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 				cands[nCand++] = hisLat + (Real)first * tightShift;
 				cands[nCand++] = hisLat - (Real)first * tightShift;
 
-				for (Int c = 0; c < nCand && !took; c++)
+				for (Int pass = 0; pass < 2 && !took; pass++)
 				{
-					const Real want = cands[c];
-					if (fabs( m_corridor->clampLat( i, want ) - want ) >= 0.5f)
-						continue;						// the road does not go there
-
-					Bool taken = FALSE;
-					for (Int n = 0; n < nearCount && !taken; n++)
+					for (Int c = 0; c < nCand && !took; c++)
 					{
-						if ((Real)fabs( nearLat[n] - want ) < myR + nearR[n])
-							taken = TRUE;			// somebody is already in it
-					}
-					if (taken)
-						continue;
+						const Real want = cands[c];
+						if (fabs( m_corridor->clampLat( i, want ) - want ) >= 0.5f)
+							continue;					// the road does not go there
 
-					lat = want;
-					m_crowdSide = (want >= hisLat) ? 1 : -1;
-					m_crowdHoldFrame = now + CROWD_HOLD_FRAMES;
-					took = TRUE;
+						if (pass == 0)
+						{
+							Bool taken = FALSE;
+							for (Int n = 0; n < nearCount && !taken; n++)
+							{
+								if ((Real)fabs( nearLat[n] - want ) < myR + nearR[n])
+									taken = TRUE;	// somebody is already in it
+							}
+							if (taken)
+								continue;
+						}
+
+						lat = want;
+						m_crowdSide = (want >= hisLat) ? 1 : -1;
+						m_crowdHoldFrame = now + CROWD_HOLD_FRAMES;
+						took = TRUE;
+					}
 				}
 			}
 
@@ -3066,8 +3133,9 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 	{
 		const char *mode = pressing ? "press" : (giveWay ? "yield" : (merged ? "merge"
 											 : (queued ? "brake" : (blocker != NULL ? "pass" : "free"))));
-		DEBUG_LOG(("SHOWLANES crowd: unit %d %s sample %d lat %.1f band %.1f/%.1f queued %d stuck %d rank %d speed %.2f\n",
-			self->getID(), mode, i, m_crowdLat, here.left, here.right, m_crowdQueued, m_crowdStuck, rank, speed));
+		DEBUG_LOG(("SHOWLANES crowd: unit %d %s sample %d lat %.1f band %.1f/%.1f lane %d/%d of %d queued %d stuck %d rank %d speed %.2f\n",
+			self->getID(), mode, i, m_crowdLat, here.left, here.right, laneMine, laneFit, m_crowdLaneOf,
+			m_crowdQueued, m_crowdStuck, rank, speed));
 	}
 }
 
@@ -6205,7 +6273,7 @@ void AIUpdateInterface::crc( Xfer *x )
 void AIUpdateInterface::xfer( Xfer *xfer )
 {
   // version
-  const XferVersion currentVersion = 9;
+  const XferVersion currentVersion = 10;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
  
@@ -6466,6 +6534,15 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 		xfer->xferUnsignedInt(&m_crowdHoldFrame);
 		xfer->xferInt(&m_crowdQueued);
 		xfer->xferInt(&m_crowdSide);
+	}
+
+	if (version >= 10)
+	{
+		// the slot across the group, which outlives the band and cannot be worked out again from
+		// anything the unit can see on its own
+		xfer->xferInt(&m_crowdLaneIdx);
+		xfer->xferInt(&m_crowdLaneOf);
+		xfer->xferReal(&m_crowdLaneSpace);
 	}
 
 
