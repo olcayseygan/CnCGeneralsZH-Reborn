@@ -3535,7 +3535,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			{
 				if (TheGameLogic->isInGame())
 				{
-					Int idx;
+					Int idx = -1;
 					for (Int i = 0; i < ThePlayerList->getPlayerCount(); i++)
 					{
 						if (ThePlayerList->getNthPlayer(i) == ThePlayerList->getLocalPlayer())
@@ -3544,6 +3544,14 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 							break;
 						}
 					}
+					//
+					// The local player is not always one of the players: watching a replay from the
+					// observer seat is the ordinary way to get here that way.  idx then kept whatever
+					// was on the stack and went straight into getNthPlayer as an index.  Start at the
+					// first player instead, which is where the cycle would have wrapped to anyway.
+					//
+					if (idx < 0)
+						idx = 0;
 					Int idxOrig = idx;
 					do 
 					{

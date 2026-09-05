@@ -149,9 +149,10 @@ UpdateSleepTime AssistedTargetingUpdate::update( void )
 
 	m_laserFromAssisted = TheThingFactory->findTemplate( d->m_laserFromAssistedName );
 
-
-	m_laserToTarget =TheThingFactory->findTemplate( d->m_laserFromAssistedName );
-
+	// ...and the other laser gets the other name.  Both of these read m_laserFromAssistedName, so
+	// the LaserToTarget line in the INI was parsed, stored and never looked at, and the beam to the
+	// victim was drawn with the template meant for the beam from the spotter.
+	m_laserToTarget = TheThingFactory->findTemplate( d->m_laserToTargetName );
 
 	return UPDATE_SLEEP_FOREVER;
 }
@@ -193,7 +194,7 @@ void AssistedTargetingUpdate::loadPostProcess( void )
   const AssistedTargetingUpdateModuleData *d = getAssistedTargetingUpdateModuleData();
 
 	m_laserFromAssisted = TheThingFactory->findTemplate( d->m_laserFromAssistedName );
-	m_laserToTarget =TheThingFactory->findTemplate( d->m_laserFromAssistedName );
+	m_laserToTarget = TheThingFactory->findTemplate( d->m_laserToTargetName );		// see update()
 
 	// extend base class
 	UpdateModule::loadPostProcess();
