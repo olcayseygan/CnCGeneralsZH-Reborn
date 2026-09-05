@@ -1871,7 +1871,9 @@ void DX8Wrapper::Clear(bool clear_color, bool clear_z_stencil, const Vector3 &co
 								_PresentParameters.AutoDepthStencilFormat == D3DFMT_D24S8 ||
 								_PresentParameters.AutoDepthStencilFormat == D3DFMT_D24X4S4);*/
 	bool has_stencil=false;
-	IDirect3DSurface8* depthbuffer;
+	// GetDepthStencilSurface leaves this alone when it fails - a lost device is how - and the test
+	// below then reads whatever was on the stack and calls GetDesc through it.
+	IDirect3DSurface8* depthbuffer = NULL;
 
 	_Get_D3D_Device8()->GetDepthStencilSurface(&depthbuffer);
 	number_of_DX8_calls++;
@@ -3223,7 +3225,7 @@ SurfaceClass * DX8Wrapper::_Get_DX8_Back_Buffer(unsigned int num)
 {
 	DX8_THREAD_ASSERT();
 
-	IDirect3DSurface8 * bb;
+	IDirect3DSurface8 * bb = NULL;		// left untouched when the call fails; the test below is not
 	SurfaceClass *surf=NULL;
 	DX8CALL(GetBackBuffer(num,D3DBACKBUFFER_TYPE_MONO,&bb));
 	if (bb)

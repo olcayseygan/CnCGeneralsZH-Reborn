@@ -74,6 +74,34 @@ static unsigned unused_texture_id;
 static unsigned TexturesAppliedPerFrame;
 const unsigned MAX_TEXTURES_APPLIED_PER_FRAME=2;
 
+/**
+ * Describe a texture's top mip level.  Returns false, with the descriptor zeroed, when there is
+ * nothing to describe.
+ *
+ * Five places wanted this and all five wrote it out by hand with the same two faults.
+ * GetSurfaceLevel leaves the out pointer untouched when it fails - a device that has gone away
+ * makes that routine here, and it is the same hole that let a failed texture creation reach
+ * TextureLoadTaskClass::Begin_Load as a success - and every one of them called GetDesc through an
+ * uninitialized pointer.  Three of them then never released the reference GetSurfaceLevel had
+ * taken, so a procedural texture pinned its own surface for the life of the process.
+ */
+static bool Describe_Texture_Level_0(IDirect3DTexture8 *texture, D3DSURFACE_DESC &desc)
+{
+	::ZeroMemory(&desc, sizeof(D3DSURFACE_DESC));
+
+	if (texture == NULL)
+		return false;
+
+	IDirect3DSurface8 *surface = NULL;
+	DX8_ErrorCode(texture->GetSurfaceLevel(0, &surface));
+	if (surface == NULL)
+		return false;
+
+	DX8_ErrorCode(surface->GetDesc(&desc));
+	surface->Release();
+	return true;
+}
+
 
 /*!
  * KM General base constructor for texture classes
@@ -818,15 +846,14 @@ TextureClass::TextureClass(IDirect3DBaseTexture8* d3d_texture)
 	IsReducible=false;
 	
 	Set_D3D_Base_Texture(d3d_texture);
-	IDirect3DSurface8* surface;
-	DX8_ErrorCode(Peek_D3D_Texture()->GetSurfaceLevel(0,&surface));
 	D3DSURFACE_DESC d3d_desc;
-	::ZeroMemory(&d3d_desc, sizeof(D3DSURFACE_DESC));
-	DX8_ErrorCode(surface->GetDesc(&d3d_desc));
-	Width=d3d_desc.Width;
-	Height=d3d_desc.Height;
-	TextureFormat=D3DFormat_To_WW3DFormat(d3d_desc.Format);
-	switch (TextureFormat) 
+	if (Describe_Texture_Level_0(Peek_D3D_Texture(), d3d_desc))
+	{
+		Width=d3d_desc.Width;
+		Height=d3d_desc.Height;
+		TextureFormat=D3DFormat_To_WW3DFormat(d3d_desc.Format);
+	}
+	switch (TextureFormat)
 	{
 	case WW3D_FORMAT_DXT1:
 	case WW3D_FORMAT_DXT2:
@@ -909,18 +936,13 @@ void TextureClass::Apply_New_Surface
 	if (disable_auto_invalidation) InactivationTime = 0;
 
 	WWASSERT(d3d_texture);
-	IDirect3DSurface8* surface;
-	DX8_ErrorCode(Peek_D3D_Texture()->GetSurfaceLevel(0,&surface));
 	D3DSURFACE_DESC d3d_desc;
-	::ZeroMemory(&d3d_desc, sizeof(D3DSURFACE_DESC));
-	DX8_ErrorCode(surface->GetDesc(&d3d_desc));
-	if (initialized) 
+	if (initialized && Describe_Texture_Level_0(Peek_D3D_Texture(), d3d_desc))
 	{
 		TextureFormat=D3DFormat_To_WW3DFormat(d3d_desc.Format);
 		Width=d3d_desc.Width;
 		Height=d3d_desc.Height;
 	}
-	surface->Release();
 
 }
 
@@ -1290,18 +1312,13 @@ void ZTextureClass::Apply_New_Surface
 	if (disable_auto_invalidation) InactivationTime = 0;
 
 	WWASSERT(Peek_D3D_Texture());
-	IDirect3DSurface8* surface;
-	DX8_ErrorCode(Peek_D3D_Texture()->GetSurfaceLevel(0,&surface));
 	D3DSURFACE_DESC d3d_desc;
-	::ZeroMemory(&d3d_desc, sizeof(D3DSURFACE_DESC));
-	DX8_ErrorCode(surface->GetDesc(&d3d_desc));
-	if (initialized) 
+	if (initialized && Describe_Texture_Level_0(Peek_D3D_Texture(), d3d_desc))
 	{
 		DepthStencilTextureFormat=D3DFormat_To_WW3DZFormat(d3d_desc.Format);
 		Width=d3d_desc.Width;
 		Height=d3d_desc.Height;
 	}
-	surface->Release();
 }
 
 //**********************************************************************************************
@@ -1563,15 +1580,14 @@ CubeTextureClass::CubeTextureClass(IDirect3DBaseTexture8* d3d_texture)
 	IsReducible=false;
 
 	Peek_Texture()->AddRef();
-	IDirect3DSurface8* surface;
-	DX8_ErrorCode(Peek_D3D_Texture()->GetSurfaceLevel(0,&surface));
 	D3DSURFACE_DESC d3d_desc;
-	::ZeroMemory(&d3d_desc, sizeof(D3DSURFACE_DESC));
-	DX8_ErrorCode(surface->GetDesc(&d3d_desc));
-	Width=d3d_desc.Width;
-	Height=d3d_desc.Height;
-	TextureFormat=D3DFormat_To_WW3DFormat(d3d_desc.Format);
-	switch (TextureFormat) 
+	if (Describe_Texture_Level_0(Peek_D3D_Texture(), d3d_desc))
+	{
+		Width=d3d_desc.Width;
+		Height=d3d_desc.Height;
+		TextureFormat=D3DFormat_To_WW3DFormat(d3d_desc.Format);
+	}
+	switch (TextureFormat)
 	{
 	case WW3D_FORMAT_DXT1:
 	case WW3D_FORMAT_DXT2:
@@ -1848,15 +1864,14 @@ CubeTextureClass::CubeTextureClass(IDirect3DBaseTexture8* d3d_texture)
 	IsReducible=false;
 
 	Peek_Texture()->AddRef();
-	IDirect3DSurface8* surface;
-	DX8_ErrorCode(Peek_D3D_Texture()->GetSurfaceLevel(0,&surface));
 	D3DSURFACE_DESC d3d_desc;
-	::ZeroMemory(&d3d_desc, sizeof(D3DSURFACE_DESC));
-	DX8_ErrorCode(surface->GetDesc(&d3d_desc));
-	Width=d3d_desc.Width;
-	Height=d3d_desc.Height;
-	TextureFormat=D3DFormat_To_WW3DFormat(d3d_desc.Format);
-	switch (TextureFormat) 
+	if (Describe_Texture_Level_0(Peek_D3D_Texture(), d3d_desc))
+	{
+		Width=d3d_desc.Width;
+		Height=d3d_desc.Height;
+		TextureFormat=D3DFormat_To_WW3DFormat(d3d_desc.Format);
+	}
+	switch (TextureFormat)
 	{
 	case WW3D_FORMAT_DXT1:
 	case WW3D_FORMAT_DXT2:

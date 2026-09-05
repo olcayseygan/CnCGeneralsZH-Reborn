@@ -606,7 +606,11 @@ void TerrainTracksRenderObjClassSystem::ReAcquireResources(void)
 		DX8IndexBufferClass::WriteLockClass lockIdxBuffer(m_indexBuffer);
 		UnsignedShort *ib=lockIdxBuffer.Get_Index_Array();
 
-		for (i=0; i<(m_maxTankTrackEdges-1); i++)
+		// same failure as the vertex lock in flush(): write nothing rather than write through null
+		if (ib == NULL)
+			DEBUG_LOG(("TerrainTracks: could not lock the index buffer - tracks will not draw until the detail setting changes\n"));
+
+		for (i=0; ib != NULL && i<(m_maxTankTrackEdges-1); i++)
 		{
 			ib[3]=ib[0]=i*2;
 			ib[1]=i*2+1;
@@ -830,6 +834,19 @@ Try improving the fit to vertical surfaces like cliffs.
 	{
 		DX8VertexBufferClass::WriteLockClass lockVtxBuffer(m_vertexBuffer);
 		VertexFormatXYZDUV1 *verts = (VertexFormatXYZDUV1*)lockVtxBuffer.Get_Vertex_Array();
+
+		//
+		// The lock can fail - a device that has gone out from under us is how it happens - and
+		// everything below writes through this pointer without ever looking at it.  Nothing has been
+		// written when it fails, so there is nothing to draw either: drop this flush whole and let
+		// the next frame lay the tracks down again.
+		//
+		if (verts == NULL)
+		{
+			m_edgesToFlush = 0;
+			return;
+		}
+
 		trackStartIndex=0;
 
 		mod=m_usedModules;

@@ -1350,8 +1350,11 @@ void WW3D::Make_Screen_Shot( const char * filename_base , const float gamma, con
 
 	// Lock front buffer and copy
 
-	IDirect3DSurface8 *fb;
-	fb=DX8Wrapper::_Get_DX8_Front_Buffer();
+	// _Get_DX8_Front_Buffer hands back NULL when the surface it needs cannot be created, which is
+	// what a device that has gone away does; there is no picture to take then.
+	IDirect3DSurface8 *fb=DX8Wrapper::_Get_DX8_Front_Buffer();
+	if (fb == NULL)
+		return;
 	D3DSURFACE_DESC desc;
 	fb->GetDesc(&desc);
 
@@ -1685,8 +1688,11 @@ void WW3D::Update_Movie_Capture( void )
 
 		// Lock front buffer and copy
 
-	IDirect3DSurface8 *fb;
-	fb=DX8Wrapper::_Get_DX8_Front_Buffer();
+	// _Get_DX8_Front_Buffer hands back NULL when the surface it needs cannot be created, which is
+	// what a device that has gone away does; there is no picture to take then.
+	IDirect3DSurface8 *fb=DX8Wrapper::_Get_DX8_Front_Buffer();
+	if (fb == NULL)
+		return;
 	D3DSURFACE_DESC desc;
 	fb->GetDesc(&desc);
 
