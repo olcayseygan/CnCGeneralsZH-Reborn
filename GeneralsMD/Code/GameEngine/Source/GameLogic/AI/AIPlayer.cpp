@@ -4948,6 +4948,17 @@ void AIPlayer::queueCapturer( void )
  */
 void AIPlayer::doScouting( void )
 {
+	//
+	// Only a side that is actually playing goes looking.  A map's civilians are a computer player
+	// too - that is how they are owned - and their cars and trucks sit on that player's default
+	// team, which is exactly where findScout() looks.  So the civilian player was picking a parked
+	// car out of the scenery and driving it to a start position: a stranger rolling into your base
+	// in the first minute of every game, every game.  It has no faction, no build list and nothing
+	// to learn from the map, so it does not scout.
+	//
+	if( m_player == NULL || !m_player->isPlayableSide() )
+		return;
+
 	// cheap, on its own one-second clock, and it has to run whether or not the scouts need an order:
 	// this is where an arrival turns into an answer, and where the answers turn into a deduction
 	updateStartIntel();
