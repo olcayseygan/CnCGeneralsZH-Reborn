@@ -481,10 +481,12 @@ Bool ActionManager::canResumeConstructionOf( const Object *obj,
 	if( obj->isKindOf( KINDOF_DOZER ) == FALSE )
 		return FALSE;
 
-	Relationship r = obj->getRelationship(objectBeingConstructed);
-
-	// only available to our allies
-	if( r != ALLIES )
+	//
+	// only the owner can resume it. The old test was `getRelationship() == ALLIES`, which is true
+	// for your own objects *and* an ally's, so hovering a dozer over an ally's half-built structure
+	// showed the "resume construction" cursor for an order the construction code then refused.
+	//
+	if( obj->getControllingPlayer() != objectBeingConstructed->getControllingPlayer() )
 		return FALSE;
 
 	// if the objectBeingConstructed is not actually under construction we can't resume that!
