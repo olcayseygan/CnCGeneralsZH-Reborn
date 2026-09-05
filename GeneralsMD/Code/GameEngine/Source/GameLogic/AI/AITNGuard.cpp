@@ -495,6 +495,15 @@ StateReturnType AITNGuardOuterState::onEnter( void )
 //--------------------------------------------------------------------------------------
 StateReturnType AITNGuardOuterState::update( void )
 {
+	/* onEnter has two ways out that never build the attack state - patrol mode, and a nemesis that
+		 has stopped existing between being picked and being chased - and onExit leaves it NULL as
+		 well.  AIGuardOuterState::update, which is the same function for units that are not in a
+		 tunnel network, has carried this line since EA wrote it; this copy did not, and the tunnel
+		 version therefore reads through a null pointer and takes the whole game with it.  Caught by
+		 a headless batch: "Uncaught Exception in GameEngine::update", access address 0x20. */
+	if (m_attackState == NULL)
+		return STATE_SUCCESS;
+
 	Object *owner = getMachineOwner();
 	Object* goalObj = m_attackState->getMachineGoalObject();
 	if (goalObj) 
