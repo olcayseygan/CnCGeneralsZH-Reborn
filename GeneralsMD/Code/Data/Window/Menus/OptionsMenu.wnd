@@ -536,11 +536,11 @@ WINDOW
       CHILD
       WINDOW
         WINDOWTYPE = PUSHBUTTON;
-        SCREENRECT = UPPERLEFT: 747 127,
-                     BOTTOMRIGHT: 923 167,
+        SCREENRECT = UPPERLEFT: 151 226,
+                     BOTTOMRIGHT: 351 258,
                      CREATIONRESOLUTION: 800 600;
         NAME = "OptionsMenu.wnd:ButtonKeyboardOptions";
-        STATUS = ENABLED+HIDDEN+IMAGE;
+        STATUS = ENABLED+IMAGE;
         STYLE = PUSHBUTTON+MOUSETRACK;
         SYSTEMCALLBACK = "[None]";
         INPUTCALLBACK = "[None]";

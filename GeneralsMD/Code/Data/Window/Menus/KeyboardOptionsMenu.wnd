@@ -1,0 +1,366 @@
+FILE_VERSION = 2;
+STARTLAYOUTBLOCK
+  LAYOUTINIT = KeyboardOptionsMenuInit;
+  LAYOUTUPDATE = KeyboardOptionsMenuUpdate;
+  LAYOUTSHUTDOWN = KeyboardOptionsMenuShutdown;
+ENDLAYOUTBLOCK
+WINDOW
+  WINDOWTYPE = USER;
+  SCREENRECT = UPPERLEFT: 120 40,
+               BOTTOMRIGHT: 680 560,
+               CREATIONRESOLUTION: 800 600;
+  NAME = "KeyboardOptionsMenu.wnd:ParentKeyboardOptionsMenu";
+  STATUS = ENABLED+BORDER;
+  STYLE = USER;
+  SYSTEMCALLBACK = "KeyboardOptionsMenuSystem";
+  INPUTCALLBACK = "KeyboardOptionsMenuInput";
+  TOOLTIPCALLBACK = "[None]";
+  DRAWCALLBACK = "[None]";
+  FONT = NAME: "Arial", SIZE: 14, BOLD: 0;
+  HEADERTEMPLATE = "[NONE]";
+  TOOLTIPDELAY = -1;
+  TEXTCOLOR = ENABLED:  255 255 255 255, ENABLEDBORDER:  0 0 0 255,
+              DISABLED: 192 192 192 255, DISABLEDBORDER: 64 64 64 255,
+              HILITE:   255 255 255 255, HILITEBORDER:   0 0 0 255;
+  ENABLEDDRAWDATA = IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                    IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                    IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                    IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                    IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                    IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                    IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                    IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                    IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255;
+  DISABLEDDRAWDATA = IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                     IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                     IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                     IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                     IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                     IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                     IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                     IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                     IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255;
+  HILITEDRAWDATA = IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                   IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                   IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                   IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                   IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                   IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                   IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                   IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255,
+                   IMAGE: NoImage, COLOR: 0 0 0 200, BORDERCOLOR: 49 55 168 255;
+  CHILD
+  WINDOW
+    WINDOWTYPE = STATICTEXT;
+    SCREENRECT = UPPERLEFT: 136 52,
+                 BOTTOMRIGHT: 400 76,
+                 CREATIONRESOLUTION: 800 600;
+    NAME = "KeyboardOptionsMenu.wnd:StaticTextTitle";
+    STATUS = ENABLED;
+    STYLE = STATICTEXT;
+    SYSTEMCALLBACK = "[None]";
+    INPUTCALLBACK = "[None]";
+    TOOLTIPCALLBACK = "[None]";
+    DRAWCALLBACK = "[None]";
+    FONT = NAME: "Arial", SIZE: 14, BOLD: 1;
+    HEADERTEMPLATE = "MinorTitle";
+    TOOLTIPDELAY = -1;
+    TEXT = "GUI:KeyboardOptions";
+    TEXTCOLOR = ENABLED:  255 255 255 255, ENABLEDBORDER:  0 0 0 255,
+                DISABLED: 192 192 192 255, DISABLEDBORDER: 64 64 64 255,
+                HILITE:   255 255 255 255, HILITEBORDER:   0 0 0 255;
+  END
+  CHILD
+  WINDOW
+    WINDOWTYPE = SCROLLLISTBOX;
+    SCREENRECT = UPPERLEFT: 136 84,
+                 BOTTOMRIGHT: 664 380,
+                 CREATIONRESOLUTION: 800 600;
+    NAME = "KeyboardOptionsMenu.wnd:ListBoxCommandList";
+    STATUS = ENABLED+BORDER;
+    STYLE = SCROLLLISTBOX+MOUSETRACK;
+    SYSTEMCALLBACK = "[None]";
+    INPUTCALLBACK = "[None]";
+    TOOLTIPCALLBACK = "[None]";
+    DRAWCALLBACK = "[None]";
+    FONT = NAME: "Arial", SIZE: 10, BOLD: 0;
+    HEADERTEMPLATE = "[NONE]";
+    TOOLTIPDELAY = -1;
+    TEXTCOLOR = ENABLED:  254 254 254 255, ENABLEDBORDER:  0 0 0 255,
+                DISABLED: 192 192 192 255, DISABLEDBORDER: 64 64 64 255,
+                HILITE:   255 255 128 255, HILITEBORDER:   0 0 0 255;
+    ENABLEDDRAWDATA = IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 47 55 168 255, BORDERCOLOR: 254 254 254 255,
+                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0;
+    HILITEDRAWDATA = IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255,
+                     IMAGE: NoImage, COLOR: 90 100 210 255, BORDERCOLOR: 254 254 254 255,
+                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0;
+    LISTBOXDATA = LENGTH: 512,
+                  AUTOSCROLL: 0,
+                  SCROLLIFATEND: 0,
+                  AUTOPURGE: 0,
+                  SCROLLBAR: 1,
+                  MULTISELECT: 0,
+                  COLUMNS: 1,
+                  FORCESELECT: 1;
+    LISTBOXENABLEDUPBUTTONDRAWDATA = IMAGE: VSliderUpButtonEnabled, COLOR: 255 0 0 255, BORDERCOLOR: 255 128 128 255,
+                                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                     IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0;
+    LISTBOXHILITEUPBUTTONDRAWDATA = IMAGE: VSliderUpButtonHilite, COLOR: 0 255 0 255, BORDERCOLOR: 0 128 0 255,
+                                    IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                    IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                    IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                    IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                    IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                    IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                    IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                    IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0;
+    LISTBOXENABLEDDOWNBUTTONDRAWDATA = IMAGE: VSliderDownButtonEnabled, COLOR: 255 0 0 255, BORDERCOLOR: 255 128 128 255,
+                                       IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                       IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                       IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                       IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                       IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                       IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                       IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                       IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0;
+    LISTBOXHILITEDOWNBUTTONDRAWDATA = IMAGE: VSliderDownButtonHilite, COLOR: 0 255 0 255, BORDERCOLOR: 0 128 0 255,
+                                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                      IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0;
+    LISTBOXENABLEDSLIDERDRAWDATA = IMAGE: NoImage, COLOR: 0 0 0 160, BORDERCOLOR: 47 55 168 255,
+                                   IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                   IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                   IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                   IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                   IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                   IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                   IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                                   IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0;
+  END
+  CHILD
+  WINDOW
+    WINDOWTYPE = STATICTEXT;
+    SCREENRECT = UPPERLEFT: 136 388,
+                 BOTTOMRIGHT: 664 428,
+                 CREATIONRESOLUTION: 800 600;
+    NAME = "KeyboardOptionsMenu.wnd:StaticTextDescription";
+    STATUS = ENABLED+WRAP_CENTERED;
+    STYLE = STATICTEXT;
+    SYSTEMCALLBACK = "[None]";
+    INPUTCALLBACK = "[None]";
+    TOOLTIPCALLBACK = "[None]";
+    DRAWCALLBACK = "[None]";
+    FONT = NAME: "Arial", SIZE: 10, BOLD: 0;
+    HEADERTEMPLATE = "[NONE]";
+    TOOLTIPDELAY = -1;
+    TEXTCOLOR = ENABLED:  220 220 220 255, ENABLEDBORDER:  0 0 0 255,
+                DISABLED: 192 192 192 255, DISABLEDBORDER: 64 64 64 255,
+                HILITE:   220 220 220 255, HILITEBORDER:   0 0 0 255;
+  END
+  CHILD
+  WINDOW
+    WINDOWTYPE = STATICTEXT;
+    SCREENRECT = UPPERLEFT: 136 436,
+                 BOTTOMRIGHT: 320 460,
+                 CREATIONRESOLUTION: 800 600;
+    NAME = "KeyboardOptionsMenu.wnd:StaticTextCurrentHotkey";
+    STATUS = ENABLED;
+    STYLE = STATICTEXT;
+    SYSTEMCALLBACK = "[None]";
+    INPUTCALLBACK = "[None]";
+    TOOLTIPCALLBACK = "[None]";
+    DRAWCALLBACK = "[None]";
+    FONT = NAME: "Arial", SIZE: 12, BOLD: 1;
+    HEADERTEMPLATE = "[NONE]";
+    TOOLTIPDELAY = -1;
+    TEXTCOLOR = ENABLED:  255 255 128 255, ENABLEDBORDER:  0 0 0 255,
+                DISABLED: 192 192 192 255, DISABLEDBORDER: 64 64 64 255,
+                HILITE:   255 255 128 255, HILITEBORDER:   0 0 0 255;
+  END
+  CHILD
+  WINDOW
+    WINDOWTYPE = ENTRYFIELD;
+    SCREENRECT = UPPERLEFT: 336 436,
+                 BOTTOMRIGHT: 520 460,
+                 CREATIONRESOLUTION: 800 600;
+    NAME = "KeyboardOptionsMenu.wnd:TextEntryAssignHotkey";
+    STATUS = ENABLED+BORDER;
+    STYLE = ENTRYFIELD+MOUSETRACK;
+    SYSTEMCALLBACK = "[None]";
+    INPUTCALLBACK = "[None]";
+    TOOLTIPCALLBACK = "[None]";
+    DRAWCALLBACK = "[None]";
+    FONT = NAME: "Arial", SIZE: 10, BOLD: 0;
+    HEADERTEMPLATE = "[NONE]";
+    TOOLTIPDELAY = -1;
+    TEXT = "Entry";
+    TEXTCOLOR = ENABLED:  254 254 254 255, ENABLEDBORDER:  0 0 0 255,
+                DISABLED: 128 128 128 255, DISABLEDBORDER: 64 64 64 255,
+                HILITE:   255 255 128 255, HILITEBORDER:   0 0 0 255;
+    ENABLEDDRAWDATA = IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 0 0 0 220, BORDERCOLOR: 49 55 168 255;
+    DISABLEDDRAWDATA = IMAGE: NoImage, COLOR: 0 0 0 120, BORDERCOLOR: 60 60 60 255,
+                       IMAGE: NoImage, COLOR: 0 0 0 120, BORDERCOLOR: 60 60 60 255,
+                       IMAGE: NoImage, COLOR: 0 0 0 120, BORDERCOLOR: 60 60 60 255,
+                       IMAGE: NoImage, COLOR: 0 0 0 120, BORDERCOLOR: 60 60 60 255,
+                       IMAGE: NoImage, COLOR: 0 0 0 120, BORDERCOLOR: 60 60 60 255,
+                       IMAGE: NoImage, COLOR: 0 0 0 120, BORDERCOLOR: 60 60 60 255,
+                       IMAGE: NoImage, COLOR: 0 0 0 120, BORDERCOLOR: 60 60 60 255,
+                       IMAGE: NoImage, COLOR: 0 0 0 120, BORDERCOLOR: 60 60 60 255,
+                       IMAGE: NoImage, COLOR: 0 0 0 120, BORDERCOLOR: 60 60 60 255;
+    TEXTENTRYDATA = MAXLEN: 24,
+                    SECRETTEXT: 0,
+                    NUMERICALONLY: 0,
+                    ALPHANUMERICALONLY: 0,
+                    ASCIIONLY: 0;
+  END
+  CHILD
+  WINDOW
+    WINDOWTYPE = PUSHBUTTON;
+    SCREENRECT = UPPERLEFT: 536 436,
+                 BOTTOMRIGHT: 664 460,
+                 CREATIONRESOLUTION: 800 600;
+    NAME = "KeyboardOptionsMenu.wnd:ButtonAssign";
+    STATUS = ENABLED+BORDER;
+    STYLE = PUSHBUTTON+MOUSETRACK;
+    SYSTEMCALLBACK = "[None]";
+    INPUTCALLBACK = "[None]";
+    TOOLTIPCALLBACK = "[None]";
+    DRAWCALLBACK = "[None]";
+    FONT = NAME: "Arial", SIZE: 10, BOLD: 0;
+    HEADERTEMPLATE = "[NONE]";
+    TOOLTIPDELAY = -1;
+    TEXT = "GUI:Assign";
+    TEXTCOLOR = ENABLED:  255 255 255 255, ENABLEDBORDER:  0 0 0 255,
+                DISABLED: 128 128 128 255, DISABLEDBORDER: 64 64 64 255,
+                HILITE:   255 255 128 255, HILITEBORDER:   0 0 0 255;
+    ENABLEDDRAWDATA = IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255;
+    HILITEDRAWDATA = IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255;
+  END
+  CHILD
+  WINDOW
+    WINDOWTYPE = PUSHBUTTON;
+    SCREENRECT = UPPERLEFT: 136 500,
+                 BOTTOMRIGHT: 300 532,
+                 CREATIONRESOLUTION: 800 600;
+    NAME = "KeyboardOptionsMenu.wnd:ButtonResetAll";
+    STATUS = ENABLED+BORDER;
+    STYLE = PUSHBUTTON+MOUSETRACK;
+    SYSTEMCALLBACK = "[None]";
+    INPUTCALLBACK = "[None]";
+    TOOLTIPCALLBACK = "[None]";
+    DRAWCALLBACK = "[None]";
+    FONT = NAME: "Arial", SIZE: 12, BOLD: 0;
+    HEADERTEMPLATE = "[NONE]";
+    TOOLTIPDELAY = -1;
+    TEXT = "GUI:ResetAll";
+    TEXTCOLOR = ENABLED:  255 255 255 255, ENABLEDBORDER:  0 0 0 255,
+                DISABLED: 128 128 128 255, DISABLEDBORDER: 64 64 64 255,
+                HILITE:   255 255 128 255, HILITEBORDER:   0 0 0 255;
+    ENABLEDDRAWDATA = IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255;
+    HILITEDRAWDATA = IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255;
+  END
+  CHILD
+  WINDOW
+    WINDOWTYPE = PUSHBUTTON;
+    SCREENRECT = UPPERLEFT: 500 500,
+                 BOTTOMRIGHT: 664 532,
+                 CREATIONRESOLUTION: 800 600;
+    NAME = "KeyboardOptionsMenu.wnd:ButtonBack";
+    STATUS = ENABLED+BORDER;
+    STYLE = PUSHBUTTON+MOUSETRACK;
+    SYSTEMCALLBACK = "[None]";
+    INPUTCALLBACK = "[None]";
+    TOOLTIPCALLBACK = "[None]";
+    DRAWCALLBACK = "[None]";
+    FONT = NAME: "Arial", SIZE: 12, BOLD: 0;
+    HEADERTEMPLATE = "[NONE]";
+    TOOLTIPDELAY = -1;
+    TEXT = "GUI:Cancel";
+    TEXTCOLOR = ENABLED:  255 255 255 255, ENABLEDBORDER:  0 0 0 255,
+                DISABLED: 128 128 128 255, DISABLEDBORDER: 64 64 64 255,
+                HILITE:   255 255 128 255, HILITEBORDER:   0 0 0 255;
+    ENABLEDDRAWDATA = IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255,
+                      IMAGE: NoImage, COLOR: 30 36 110 255, BORDERCOLOR: 49 55 168 255;
+    HILITEDRAWDATA = IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255,
+                     IMAGE: NoImage, COLOR: 60 70 190 255, BORDERCOLOR: 209 253 4 255;
+  END
+  ENDALLCHILDREN
+END

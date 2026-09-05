@@ -36,6 +36,7 @@
 #include "Common/PlayerList.h"
 #include "Common/Team.h"
 #include "Common/ThingTemplate.h"
+#include "Common/UserPreferences.h"
 
 #include "GameClient/ControlBar.h"
 #include "GameClient/Drawable.h"
@@ -815,6 +816,177 @@ MetaMapRec *MetaMap::getMetaMapRec(GameMessage::Type t)
 		throw INI_INVALID_DATA;
 
 	ini->initFromINI(map, TheMetaMapFieldParseTable);
+
+	// what the data says, kept so Reset can put it back after a player has moved the key
+	map->m_defaultKey = map->m_key;
+	map->m_defaultModState = map->m_modState;
+}
+
+//-------------------------------------------------------------------------------------------------
+// Rebinding ///////////////////////////////////////////////////////////////////////////////////////
+//
+// CommandMap.ini is the default set and is in the INI checksum every machine in a network game has
+// to agree on, so a player who moves a key does not edit it.  The change goes in Keybinds.ini next
+// to Options.ini, holds only the commands that are not on their default key, and is applied over
+// the defaults on the way in.  Nothing about the game's rules changes, so nothing here reaches the
+// checksum: two players can hold entirely different keyboards and play the same match.
+//-------------------------------------------------------------------------------------------------
+
+/// the file, kept open for the life of the game so a rebind is a write and not a reload
+static UserPreferences *theKeybindPrefs = NULL;
+
+//-------------------------------------------------------------------------------------------------
+const char *MetaMap::getName( const MetaMapRec *rec ) const
+{
+	return rec ? findGameMessageNameByType( rec->m_meta ) : NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+MetaMapRec *MetaMap::findByName( const char *name )
+{
+	if( name == NULL )
+		return NULL;
+
+	for( MetaMapRec *map = m_metaMaps; map; map = map->m_next )
+		if( stricmp( findGameMessageNameByType( map->m_meta ), name ) == 0 )
+			return map;
+
+	return NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+MetaMapRec *MetaMap::rebind( MetaMapRec *rec, MappableKeyType key, MappableKeyModState mods )
+{
+	if( rec == NULL )
+		return NULL;
+
+	//
+	// One key, one meaning.  Whoever else was on it in the same place loses it - answering with that
+	// record is how the screen can say which command just went quiet, rather than leaving the player
+	// to discover it in a game.
+	//
+	MetaMapRec *displaced = NULL;
+	if( key != MK_NONE )
+	{
+		for( MetaMapRec *other = m_metaMaps; other; other = other->m_next )
+		{
+			if( other == rec || other->m_key != key || other->m_modState != mods )
+				continue;
+			if( other->m_usableIn != rec->m_usableIn && !( other->m_usableIn & rec->m_usableIn ) )
+				continue;			// one is a menu key and the other is a game key: they never meet
+
+			other->m_key = MK_NONE;
+			displaced = other;
+			break;
+		}
+	}
+
+	rec->m_key = key;
+	rec->m_modState = mods;
+
+	saveUserBindings();
+	return displaced;
+}
+
+//-------------------------------------------------------------------------------------------------
+void MetaMap::resetBindingsToDefault( void )
+{
+	for( MetaMapRec *map = m_metaMaps; map; map = map->m_next )
+	{
+		map->m_key = map->m_defaultKey;
+		map->m_modState = map->m_defaultModState;
+	}
+
+	saveUserBindings();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** "KEY_A CTRL" - the same two words CommandMap.ini spells a binding with, so the file can be read
+	* and hand-edited by anybody who already knows the INI. */
+//-------------------------------------------------------------------------------------------------
+static AsciiString spellBinding( MappableKeyType key, MappableKeyModState mods )
+{
+	const char *keyName = "KEY_NONE";
+	for( const LookupListRec *k = KeyNames; k->name; k++ )
+		if( k->value == (Int)key ) { keyName = k->name; break; }
+
+	const char *modName = "NONE";
+	for( const LookupListRec *m = ModifierNames; m->name; m++ )
+		if( m->value == (Int)mods ) { modName = m->name; break; }
+
+	AsciiString out;
+	out.format( "%s %s", keyName, modName );
+	return out;
+}
+
+//-------------------------------------------------------------------------------------------------
+static Bool readBinding( const AsciiString& text, MappableKeyType *key, MappableKeyModState *mods )
+{
+	char keyName[ 64 ], modName[ 64 ];
+	keyName[ 0 ] = modName[ 0 ] = 0;
+	if( sscanf( text.str(), "%63s %63s", keyName, modName ) < 1 )
+		return FALSE;
+
+	Bool gotKey = FALSE;
+	for( const LookupListRec *k = KeyNames; k->name; k++ )
+		if( stricmp( k->name, keyName ) == 0 ) { *key = (MappableKeyType)k->value; gotKey = TRUE; break; }
+	if( !gotKey )
+		return FALSE;
+
+	*mods = NONE;
+	for( const LookupListRec *m = ModifierNames; m->name; m++ )
+		if( stricmp( m->name, modName ) == 0 ) { *mods = (MappableKeyModState)m->value; break; }
+
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+void MetaMap::loadUserBindings( void )
+{
+	if( theKeybindPrefs == NULL )
+		theKeybindPrefs = NEW UserPreferences;
+
+	if( !theKeybindPrefs->load( "Keybinds.ini" ) )
+		return;			// nobody has moved a key yet
+
+	for( UserPreferences::const_iterator it = theKeybindPrefs->begin(); it != theKeybindPrefs->end(); ++it )
+	{
+		MetaMapRec *rec = findByName( it->first.str() );
+		if( rec == NULL )
+			continue;			// a command from a version that had it, or a typo: leave the default alone
+
+		MappableKeyType key;
+		MappableKeyModState mods;
+		if( readBinding( it->second, &key, &mods ) )
+		{
+			rec->m_key = key;
+			rec->m_modState = mods;
+		}
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+void MetaMap::saveUserBindings( void )
+{
+	if( theKeybindPrefs == NULL )
+	{
+		theKeybindPrefs = NEW UserPreferences;
+		theKeybindPrefs->load( "Keybinds.ini" );
+	}
+
+	theKeybindPrefs->clear();
+
+	for( MetaMapRec *map = m_metaMaps; map; map = map->m_next )
+	{
+		if( map->m_key == map->m_defaultKey && map->m_modState == map->m_defaultModState )
+			continue;			// still where the data put it: nothing to remember
+
+		const char *name = findGameMessageNameByType( map->m_meta );
+		if( name )
+			(*theKeybindPrefs)[ AsciiString( name ) ] = spellBinding( map->m_key, map->m_modState );
+	}
+
+	theKeybindPrefs->write();
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -108,6 +108,20 @@ Bool ctrlDown = false;
 // shows whether or not a correctly formatted hotkey assignment is in the text area
 Bool absolute = false;
 
+//
+// What the screen is working on: the command whose row is selected, and the key the player has
+// pressed into the box but not yet accepted.  The box captures a keystroke whole - key and
+// modifiers together, on the way down - rather than assembling a string out of the letters typed
+// into it, which is what it used to do and which could never produce a binding at the end.
+//
+static MetaMapRec *theSelectedRec = NULL;
+static MappableKeyType thePendingKey = MK_NONE;
+static MappableKeyModState thePendingMods = NONE;
+
+static UnicodeString bindingText( const MetaMapRec *rec );
+static UnicodeString bindingTextFor( MappableKeyType key, MappableKeyModState mods );
+static Bool catchBindingKey( WindowMsgData mData1, WindowMsgData mData2 );
+
 // initialize these, they will be used a lot
 UnicodeString alt;
 UnicodeString ctrl;
@@ -115,22 +129,16 @@ UnicodeString shift;
 
 
 
+//-------------------------------------------------------------------------------------------------
+/** There is no category dropdown any more.
+	*
+	* It was a filter over a list, on a screen whose whole job is to answer "what is bound to what" -
+	* so it hid seven eighths of the answer behind a control you had to work.  Every command is in
+	* the one list now, in category order, with the category written across the row above its
+	* commands.  This is kept as a no-op because the screen's message handler still names it. */
+//-------------------------------------------------------------------------------------------------
 void populateCategoryBox()
 {
-	Int i;
-	Int index;
-	Color color =  GameMakeColor(255,255,255,255);
-	AsciiString temp;
-	UnicodeString str;
-	GadgetComboBoxReset(comboBoxCategoryList);
-	for ( i = 0; i < CATEGORY_NUM_CATEGORIES; ++i)
-	{
-		temp.format("GUI:%s", CategoryListName[i]);
-		str = TheGameText->fetch( temp ); 
-		index = GadgetComboBoxAddEntry(comboBoxCategoryList, str, color);
-	}
-
-	GadgetComboBoxSetSelectedPos(comboBoxCategoryList, 0);
 }
 
 // keeps track of whether or not each text modifier is being currently displayed in the text entry field
@@ -144,20 +152,159 @@ void setKeyDown( UnicodeString mod, Bool b )
 		altDown = b;
 }
 
-// initialized the command list box
+//-------------------------------------------------------------------------------------------------
+/** A binding as a player reads it: "Ctrl+A", "F9", or nothing at all. */
+//-------------------------------------------------------------------------------------------------
+static UnicodeString bindingTextFor( MappableKeyType key, MappableKeyModState mods )
+{
+	if( key == MK_NONE )
+		return TheGameText->fetch( "GUI:NULL" );
+
+	UnicodeString out;
+	if( mods & CTRL )
+		out.concat( TheGameText->fetch( "KEYBOARD:Ctrl+" ) );
+	if( mods & ALT )
+		out.concat( TheGameText->fetch( "KEYBOARD:Alt+" ) );
+	if( mods & SHIFT )
+		out.concat( TheGameText->fetch( "KEYBOARD:Shift+" ) );
+
+	// the KEY_ names are what the INI spells, and the "KEY_" in front of them is noise on a screen
+	for( const LookupListRec *keyName = KeyNames; keyName->name; keyName++ )
+	{
+		if( keyName->value != (Int)key )
+			continue;
+
+		const char *bare = keyName->name;
+		if( strncmp( bare, "KEY_", 4 ) == 0 )
+			bare += 4;
+
+		UnicodeString uStr;
+		uStr.translate( AsciiString( bare ) );
+		out.concat( uStr );
+		break;
+	}
+
+	return out;
+}
+
+//-------------------------------------------------------------------------------------------------
+static UnicodeString bindingText( const MetaMapRec *rec )
+{
+	if( rec == NULL )
+		return TheGameText->fetch( "GUI:NULL" );
+	return bindingTextFor( rec->m_key, rec->m_modState );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Take one keystroke as the binding the player wants, and show it in the box.
+	*
+	* Whole, on the way down: the key and whatever of ctrl, alt and shift was held with it.  Both the
+	* box and the screen behind it offer their keystrokes here, because which of the two has the
+	* keyboard focus is not something a player should have to know - clicking a row is the whole
+	* interaction, and the next key you press is the answer to it. */
+//-------------------------------------------------------------------------------------------------
+static Bool catchBindingKey( WindowMsgData mData1, WindowMsgData mData2 )
+{
+	if( theSelectedRec == NULL || textEntryAssignHotkey == NULL )
+		return FALSE;
+
+	const UnsignedByte key = (UnsignedByte)mData1;
+	const UnsignedShort state = (UnsignedShort)mData2;
+
+	if( !BitTest( state, KEY_STATE_DOWN ) || BitTest( state, KEY_STATE_AUTOREPEAT ) )
+		return FALSE;
+
+	// escape leaves the screen; the modifier keys are what you hold, not what you bind
+	if( key == KEY_ESC )
+		return FALSE;
+	if( key == KEY_LCTRL || key == KEY_RCTRL || key == KEY_LALT || key == KEY_RALT ||
+			key == KEY_LSHIFT || key == KEY_RSHIFT )
+		return TRUE;
+
+	Int mods = 0;
+	if( BitTest( state, KEY_STATE_CONTROL ) )	mods |= CTRL;
+	if( BitTest( state, KEY_STATE_ALT ) )			mods |= ALT;
+	if( BitTest( state, KEY_STATE_SHIFT ) )		mods |= SHIFT;
+
+	thePendingKey = (MappableKeyType)key;
+	thePendingMods = (MappableKeyModState)mods;
+
+	EntryData *e = (EntryData *)textEntryAssignHotkey->winGetUserData();
+	if( e && e->text )
+	{
+		e->text->setText( bindingTextFor( thePendingKey, thePendingMods ) );
+		e->charPos = e->text->getTextLength();
+	}
+
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The category the combo box is showing.  Its rows are the CategoryListName table in order, and
+	* the row's *value* is the category - not its index, which is only the same by luck. */
+//-------------------------------------------------------------------------------------------------
+static MappableKeyCategories currentCategory( void )
+{
+	// every category is in the one list; the argument is only there because the signature is
+	return CATEGORY_CONTROL;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Every command in this category, each with the key it is on right now.
+	*
+	* The key is in the row rather than only in the box below, so the screen answers "what is bound
+	* to what" at a glance - which is the question somebody opens it with - and the record itself is
+	* the row's data, so a selection is exact instead of matched back by display name. */
+//-------------------------------------------------------------------------------------------------
 void fillCommandListBox( MappableKeyCategories cat )
 {
 	if(!listBoxCommandList)
 		return;
 
 	GadgetListBoxReset(listBoxCommandList);
-	Color color =  GameMakeColor(255,255,255,255);
 
-	for(const MetaMapRec *rec = TheMetaMap->getFirstMetaMapRec(); rec; rec = rec->m_next)
+	const Color color = GameMakeColor( 255, 255, 255, 255 );
+	const Color heading = GameMakeColor( 255, 220, 120, 255 );
+
+	for( Int c = 0; c < CATEGORY_NUM_CATEGORIES; ++c )
 	{
-		if(rec->m_category == cat)
-			GadgetListBoxAddEntryText(listBoxCommandList, rec->m_displayName, color, -1, -1 );
+		const MappableKeyCategories thisCat = (MappableKeyCategories)CategoryListName[ c ].value;
 
+		//
+		// The debug commands are compiled out of a shipping build, so binding one would be binding a
+		// key to nothing at all.  Everything else the game answers to is here.
+		//
+		if( thisCat == CATEGORY_DEBUG )
+			continue;
+
+		Bool wroteHeading = FALSE;
+
+		for(const MetaMapRec *rec = TheMetaMap->getFirstMetaMapRec(); rec; rec = rec->m_next)
+		{
+			if( rec->m_category != thisCat || rec->m_displayName.isEmpty() )
+				continue;
+
+			if( !wroteHeading )
+			{
+				AsciiString key;
+				key.format( "GUI:%s", CategoryListName[ c ].name );
+				Int head = GadgetListBoxAddEntryText( listBoxCommandList,
+																							TheGameText->fetch( key ), heading, -1, -1 );
+				// a heading is not a command: no record, so a click on it selects nothing
+				if( head >= 0 )
+					GadgetListBoxSetItemData( listBoxCommandList, NULL, head );
+				wroteHeading = TRUE;
+			}
+
+			UnicodeString row( L"    " );
+			row.concat( rec->m_displayName );
+			row.concat( UnicodeString( L"  -  " ) );
+			row.concat( bindingText( rec ) );
+
+			Int at = GadgetListBoxAddEntryText(listBoxCommandList, row, color, -1, -1 );
+			if( at >= 0 )
+				GadgetListBoxSetItemData( listBoxCommandList, (void *)rec, at );
+		}
 	}
 }
 
@@ -433,6 +580,13 @@ void KeyboardOptionsMenuInit( WindowLayout *layout, void *userData )
 	//disable textEntry until specific command is chosen
 	textEntryAssignHotkey->winEnable( false );
 
+	// nothing is selected yet, so say what to do rather than showing an empty panel
+	GadgetStaticTextSetText( staticTextDescription, TheGameText->fetch( "GUI:PressAKey" ) );
+	GadgetStaticTextSetText( staticTextCurrentHotkey, TheGameText->fetch( "GUI:NULL" ) );
+	theSelectedRec = NULL;
+	thePendingKey = MK_NONE;
+	thePendingMods = NONE;
+
 	//clear textEntry field
 	EntryData *e = (EntryData *)textEntryAssignHotkey->winGetUserData();
 	e->text->setText( UnicodeString::TheEmptyString );
@@ -515,6 +669,10 @@ WindowMsgHandledType KeyboardOptionsMenuInput( GameWindow *window, UnsignedInt m
 
 			}  // end switch( key )
 
+			// with a command picked, the next key you press is the one you want it on
+			if( catchBindingKey( mData1, mData2 ) )
+				return MSG_HANDLED;
+
 		}  // end char
 
 	}  // end switch( msg )
@@ -566,16 +724,11 @@ WindowMsgHandledType KeyboardOptionsMenuSystem( GameWindow *window, UnsignedInt 
 			GameWindow *control = (GameWindow *)mData1;
 			Int controlID = control->winGetWindowId();
 
-      if(controlID == comboBoxCategoryListID )
+      if( comboBoxCategoryList != NULL && controlID == comboBoxCategoryListID )
       {
-        Int selected;
-        GadgetComboBoxGetSelectedPos(comboBoxCategoryList, &selected);
+				// the category dropdown is gone; if a layout still carries one, it just refills the list
+				fillCommandListBox( currentCategory() );
 
-				LookupListRec rec;
-				rec = CategoryListName[selected]; 
-				MappableKeyCategories cat = (MappableKeyCategories)(rec.value);
-				fillCommandListBox( cat );
-				
 				//reset current hotkey description
 				GadgetStaticTextSetText( staticTextDescription, TheGameText->fetch( "GUI:NULL" ) );
 
@@ -603,39 +756,36 @@ WindowMsgHandledType KeyboardOptionsMenuSystem( GameWindow *window, UnsignedInt 
 
 			if( controlID == listBoxCommandListID )
 			{
-				Int selected;
+				Int selected = -1;
 				GadgetListBoxGetSelected( listBoxCommandList,  &selected );
-				UnicodeString str;
-				str = GadgetListBoxGetText( listBoxCommandList, selected/*, Int column = 0*/ );
-				for(const MetaMapRec *rec = TheMetaMap->getFirstMetaMapRec(); rec; rec = rec->m_next)
-				{
-					if(rec->m_displayName == str)
-					{
-						//set text in description window
-						GadgetStaticTextSetText( staticTextDescription, rec->m_description );
-						//set text in current hotkey text
-						MappableKeyType type = rec->m_key;
-						//enable text entry for assigning different hotkey
-						textEntryAssignHotkey->winEnable( true );
-						
-						for (const LookupListRec* keyName = KeyNames; keyName->name; keyName++)
-						{
-							if( keyName->value == type )
-							{
-								const char *cptr = keyName->name;
-								AsciiString aStr;
-								aStr.format( cptr );
-								UnicodeString uStr;
-								uStr.translate( aStr );
-								
-								GadgetStaticTextSetText( staticTextCurrentHotkey, uStr );
-								break;
-							}
-						}
 
-						break;
-					}
-				} // end if
+				// the record is the row's own data, so this is exact rather than matched by name -
+				// two commands sharing a display name used to both answer to the first one's row
+				theSelectedRec = ( selected >= 0 )
+													 ? (MetaMapRec *)GadgetListBoxGetItemData( listBoxCommandList, selected )
+													 : NULL;
+
+				thePendingKey = MK_NONE;
+				thePendingMods = NONE;
+
+				EntryData *entry = (EntryData *)textEntryAssignHotkey->winGetUserData();
+				if( entry )
+				{
+					entry->text->setText( UnicodeString::TheEmptyString );
+					entry->charPos = 0;
+				}
+
+				if( theSelectedRec )
+				{
+					GadgetStaticTextSetText( staticTextDescription, theSelectedRec->m_description );
+					GadgetStaticTextSetText( staticTextCurrentHotkey, bindingText( theSelectedRec ) );
+					textEntryAssignHotkey->winEnable( true );
+					TheWindowManager->winSetFocus( textEntryAssignHotkey );
+				}
+				else
+				{
+					textEntryAssignHotkey->winEnable( false );
+				}
 
 			} // end selected
 
@@ -658,15 +808,48 @@ WindowMsgHandledType KeyboardOptionsMenuSystem( GameWindow *window, UnsignedInt 
 			}  // end if
 			else if( controlID == buttonAssignID )
 			{
-				// check grammar in text field
+				//
+				// Put the command on the key the box caught.  Whatever else was on that key gives it
+				// up - a key can only mean one thing - and the list is rebuilt so both the command
+				// that moved and the one that was displaced show what they answer to now.
+				//
+				if( theSelectedRec && thePendingKey != MK_NONE )
+				{
+					MetaMapRec *displaced = TheMetaMap->rebind( theSelectedRec, thePendingKey, thePendingMods );
+
+					fillCommandListBox( currentCategory() );
+
+					GadgetStaticTextSetText( staticTextCurrentHotkey, bindingText( theSelectedRec ) );
+
+					// say which command just went quiet, rather than leaving it to be found in a game
+					if( displaced )
+					{
+						UnicodeString note = displaced->m_displayName;
+						note.concat( UnicodeString( L"  -  " ) );
+						note.concat( TheGameText->fetch( "GUI:NULL" ) );
+						GadgetStaticTextSetText( staticTextDescription, note );
+					}
+
+					thePendingKey = MK_NONE;
+					thePendingMods = NONE;
+					EntryData *entry = (EntryData *)textEntryAssignHotkey->winGetUserData();
+					if( entry )
+					{
+						entry->text->setText( UnicodeString::TheEmptyString );
+						entry->charPos = 0;
+					}
+				}
 			}
 			else if( controlID == buttonResetAllID )
 			{
-				// populate category combo box
-				populateCategoryBox();
+				// every key back to what the game shipped with, and the file written out empty
+				TheMetaMap->resetBindingsToDefault();
 
-				// populate command list
-				fillCommandListBox(CATEGORY_CONTROL);
+				fillCommandListBox( currentCategory() );
+
+				theSelectedRec = NULL;
+				thePendingKey = MK_NONE;
+				thePendingMods = NONE;
 
 				//reset current hotkey text
 				GadgetStaticTextSetText( staticTextCurrentHotkey, TheGameText->fetch( "GUI:NULL" ) );
@@ -676,11 +859,6 @@ WindowMsgHandledType KeyboardOptionsMenuSystem( GameWindow *window, UnsignedInt 
 				e->text->setText( UnicodeString::TheEmptyString );
 				e->charPos = e->text->getTextLength();
 
-				//set all mods to false
-				setKeyDown(alt, false );
-				setKeyDown(ctrl, false );
-				setKeyDown(shift, false );
-				
 				//disable text entry
 				textEntryAssignHotkey->winEnable( false );
 
@@ -715,7 +893,23 @@ WindowMsgHandledType KeyboardTextEntryInput( GameWindow *window, UnsignedInt msg
 		return MSG_HANDLED;
 	}
 
-	switch( msg ) 
+	//
+	// This box does not take text.  It takes one keystroke, whole: the key and whatever of ctrl,
+	// alt and shift were held with it, on the way down, and it shows what it caught.  The several
+	// hundred lines below used to assemble a display string out of the characters typed into it,
+	// character by character, and never arrived at a key and a modifier that anything could be
+	// bound to - which is why the Assign button had nothing to do and said so in a comment.
+	//
+	// The mouse cases further down still matter (the box highlights and takes focus like any
+	// other), so this sits in front of the keyboard ones rather than replacing the function.
+	//
+	if( msg == GWM_CHAR )
+		return catchBindingKey( mData1, mData2 ) ? MSG_HANDLED : MSG_IGNORED;
+
+	if( msg == GWM_IME_CHAR )
+		return MSG_HANDLED;			// a keystroke is not a character here
+
+	switch( msg )
 	{
 		// ------------------------------------------------------------------------
 		case GWM_IME_CHAR:

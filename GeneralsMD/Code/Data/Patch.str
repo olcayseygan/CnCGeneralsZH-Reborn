@@ -365,7 +365,7 @@ GUI:WindowMode2
 END
 
 TOOLTIP:WindowMode
-"Fullscreen takes the display mode, borderless covers it with a window and alt-tabs instantly. Takes effect the next time the game starts."
+"Fullscreen takes the display mode, borderless covers it with a window and alt-tabs instantly. Borderless picks the resolution itself, so the list on the left is yours in the other two."
 END
 
 GUI:MSAA
@@ -530,4 +530,48 @@ END
 
 TOOLTIP:HealthBars
 "Smart shows a bar over anything hurt, plus the selection and whatever is under the cursor. Selection only is what retail did."
+END
+
+GUI:Assign
+"Assign"
+END
+
+GUI:ResetAll
+"Reset All"
+END
+
+GUI:PressAKey
+"Click a command, then press the key you want"
+END
+
+GUI:CONTROL
+"Unit control"
+END
+
+GUI:INFORMATION
+"Information"
+END
+
+GUI:INTERFACE
+"Interface"
+END
+
+GUI:SELECTION
+"Selection"
+END
+
+GUI:TAUNT
+"Taunts"
+END
+
+GUI:TEAM
+"Teams"
+END
+
+GUI:MISC
+"Miscellaneous"
+END
+
+GUI:DEBUG
+"Debug"
 END

@@ -331,6 +331,10 @@ public:
 	MappableKeyCategories		m_category;				///< This is the catagory the key falls under
 	UnicodeString						m_description;		///< The description string for the keys
 	UnicodeString						m_displayName;		///< The display name of our command
+
+	// What CommandMap.ini said, kept so Reset can put it back after the player has rebound it
+	MappableKeyType					m_defaultKey;
+	MappableKeyModState			m_defaultModState;
 };
 EMPTY_DTOR(MetaMapRec)
 
@@ -376,6 +380,24 @@ public:
 
 	static void parseMetaMap(INI* ini);
 	const MetaMapRec *getFirstMetaMapRec() const { return m_metaMaps; }
+
+	//
+	// Rebinding.  CommandMap.ini is the default set and is in the multiplayer checksum, so a player
+	// who moves a key does not edit it: the change goes into Keybinds.ini beside Options.ini, and is
+	// applied over the defaults every time the game starts.  A binding is a key plus the state of
+	// ctrl, alt and shift; the transition, the category and what the command actually does stay the
+	// data's business.
+	//
+	MetaMapRec *findByName( const char *name );							///< the record a command name belongs to
+	const char *getName( const MetaMapRec *rec ) const;			///< ...and back the other way
+
+	/** Point one command at a different key.  Answers the record that was already on that key and had
+		* to give it up, or NULL - a key can only mean one thing, and the screen says which one moved. */
+	MetaMapRec *rebind( MetaMapRec *rec, MappableKeyType key, MappableKeyModState mods );
+
+	void resetBindingsToDefault( void );		///< back to what CommandMap.ini says, all of them
+	void loadUserBindings( void );					///< read Keybinds.ini over the defaults, at startup
+	void saveUserBindings( void );					///< write out everything that is not on its default key
 };
 
 extern MetaMap *TheMetaMap;

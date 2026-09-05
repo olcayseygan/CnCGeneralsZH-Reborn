@@ -752,6 +752,14 @@ void GameEngine::init( int argc, char *argv[] )
 		ini.load("Data\\INI\\CommandMapDemo.ini", INI_LOAD_MULTIFILE, NULL);
 #endif
 
+		//
+		// ... and last, whatever the player has moved.  Keybinds.ini sits next to Options.ini and
+		// holds only the commands that are not on the key the data gave them, so it survives a patch
+		// that adds commands and it is not part of the INI checksum: two players in one match can
+		// hold completely different keyboards.
+		//
+		TheMetaMap->loadUserBindings();
+
 
 		initSubsystem(TheActionManager,"TheActionManager", MSGNEW("GameEngineSubsystem") ActionManager(), NULL);
 		//initSubsystem((CComObject<WebBrowser> *)TheWebBrowser,"(CComObject<WebBrowser> *)TheWebBrowser", (CComObject<WebBrowser> *)createWebBrowser(), NULL);
