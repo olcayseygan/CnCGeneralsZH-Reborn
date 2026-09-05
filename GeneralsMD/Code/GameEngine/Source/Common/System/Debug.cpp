@@ -149,10 +149,29 @@ inline HWND getThreadHWND()
 
 // ----------------------------------------------------------------------------
 
+/**
+ * True for a run with nobody in front of it.
+ *
+ * Read straight off the command line and cached, rather than taken from TheGlobalData, because the
+ * two places this matters - an assert and a release crash - happen at times when the engine may not
+ * exist yet or may already be half torn down.
+ *
+ * A batch of forty headless matches that hits one crash used to stop dead on a message box waiting
+ * for a click that was never coming, and the system-modal one put that box over everything else on
+ * the machine while it waited.
+ */
+static Bool isUnattendedRun( void )
+{
+	static Int cached = -1;
+	if (cached < 0)
+		cached = findEarlyCommandLineOption( L"-headless" ) ? 1 : 0;
+	return cached != 0;
+}
+
 int MessageBoxWrapper( LPCSTR lpText, LPCSTR lpCaption, UINT uType )
 {
 	HWND threadHWND = getThreadHWND();
-	if (!threadHWND)
+	if (!threadHWND || isUnattendedRun())
 		return (uType & MB_ABORTRETRYIGNORE)?IDIGNORE:IDYES;
 
 	return ::MessageBox(threadHWND, lpText, lpCaption, uType);
@@ -714,6 +733,12 @@ void ReleaseCrash(const char *reason)
 			ShowWindow(ApplicationHWnd, SW_HIDE);
 		}
 	}
+	// the log is written by now; a run nobody is watching should die rather than wait for a click
+	if (isUnattendedRun())
+	{
+		_exit(1);
+	}
+
 #if defined(_DEBUG) || defined(_INTERNAL)
 	/* static */ char buff[8192]; // not so static so we can be threadsafe
 	_snprintf(buff, 8192, "Sorry, a serious error occurred. (%s)", reason);
@@ -755,11 +780,15 @@ void ReleaseCrashLocalized(const AsciiString& p, const AsciiString& m)
 		}
 	}
 
-	if (TheSystemIsUnicode) 
+	if (isUnattendedRun())
+	{
+		// nobody to read it; the log below is the report - see ReleaseCrash above
+	}
+	else if (TheSystemIsUnicode)
 	{
 		::MessageBoxW(NULL, mesg.str(), prompt.str(), MB_OK|MB_SYSTEMMODAL|MB_ICONERROR);
-	} 
-	else 
+	}
+	else
 	{
 		// However, if we're using the default version of the message box, we need to 
 		// translate the string into an AsciiString

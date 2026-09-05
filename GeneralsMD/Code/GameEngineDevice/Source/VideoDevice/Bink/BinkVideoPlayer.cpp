@@ -222,6 +222,15 @@ VideoStreamInterface*	BinkVideoPlayer::open( AsciiString movieTitle )
 {
 	VideoStreamInterface*	stream = NULL;
 
+	//
+	// VideoOn is what -headless and -novideo turn off, and nothing had ever read it: a run with no
+	// picture still opened the file, decoded every frame of it and played its audio.  Every caller
+	// already copes with a NULL stream - that is what a missing movie file gives them - so this is
+	// the one place the switch has to be honoured.
+	//
+	if (TheGlobalData && !TheGlobalData->m_videoOn)
+		return NULL;
+
 	const Video* pVideo = getVideo(movieTitle);
 	if (pVideo) {
 		DEBUG_LOG(("BinkVideoPlayer::createStream() - About to open bink file\n"));
