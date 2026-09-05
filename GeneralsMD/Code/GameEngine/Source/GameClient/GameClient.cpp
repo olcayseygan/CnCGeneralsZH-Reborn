@@ -844,6 +844,22 @@ void GameClient::update( void )
 				TheClientDrawMS = (Real)((double)(drawEnd - drawStart) * 1000.0 / (double)freq);
 #endif
 		}
+		else if( TheParticleSystemManager )
+		{
+			//
+			// The particle manager is updated from inside the draw, and its update is the only thing
+			// that ever retires a particle system.  Skipping the draw therefore left every system the
+			// logic created standing for the rest of the run: a four-player brutal match on one seed
+			// held 1,008 of them at frame 6,000, 13,861 at 18,000 and 26,811 at 30,000, growing in a
+			// straight line and never coming down.  30,000 frames is the length of a batch match.
+			//
+			// It cannot move the simulation: ParticleSys.cpp draws on GameClientRandomValue in all
+			// thirty-three places it wants a random number and never on the logic stream, so this is
+			// the same bookkeeping a rendered run does, on a run that has no picture.  The same seed
+			// ends with 138 systems instead of 26,811, and the run takes 19.1s against 18.8 and 19.0.
+			//
+			TheParticleSystemManager->update();
+		}
 	}
 
 	{

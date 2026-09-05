@@ -1463,6 +1463,14 @@ static void updateHeadlessRun( void )
 						 why, frame,
 						 frame - runStartFrame, wallMs / 1000.0f, logicFps,
 						 logicFps / (Real)TheGameEngine->getFramesPerSecondLimit()));
+	//
+	// Client bookkeeping an unattended run still has to do: nothing draws, so nothing was retiring
+	// particle systems and the count climbed all run (see GameClient::update).  Print it, because a
+	// number that is supposed to stay flat is only worth anything if somebody would notice it move.
+	//
+	DEBUG_LOG(("HEADLESS PARTICLES: %d systems, %d particles\n",
+						 TheParticleSystemManager ? TheParticleSystemManager->getParticleSystemCount() : -1,
+						 TheParticleSystemManager ? TheParticleSystemManager->getParticleCount() : -1));
 
 	/* The state of every object in the world, in one number, at the frame the run stopped.  Every
 		 movement change in PATHFINDING-PLAN.md edits GameLogic, and a change that plays beautifully
