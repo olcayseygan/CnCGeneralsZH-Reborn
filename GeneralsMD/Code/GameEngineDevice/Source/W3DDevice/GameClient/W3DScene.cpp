@@ -491,7 +491,12 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
 							if (draw->isKindOf(KINDOF_STRUCTURE) && m_numPotentialOccluders < TheGlobalData->m_maxVisibleOccluderObjects)
 							{	//object which could occlude other objects that need to be visible.
 								//Make sure this object is not translucent so it's not rendered twice (from m_potentialOccluders and m_translucentObjectsBuffer)
-								if (drawInfo->m_flags ^ DrawableInfo::ERF_IS_TRANSLUCENT)
+								// a bit test, not an exclusive or.  The two happen to agree today only
+								// because m_flags is cleared to ERF_IS_NORMAL a few lines up and
+								// ERF_IS_TRANSLUCENT is the one bit that can be set before this point;
+								// the moment anything else sets a flag first, the xor says "not
+								// translucent" for an object that is, and it gets drawn twice.
+								if (!(drawInfo->m_flags & DrawableInfo::ERF_IS_TRANSLUCENT))
 									m_potentialOccluders[m_numPotentialOccluders++]=robj;
 								drawInfo->m_flags |= DrawableInfo::ERF_POTENTIAL_OCCLUDER;
 							}
@@ -508,7 +513,12 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
 							if (drawInfo->m_flags == DrawableInfo::ERF_IS_NORMAL && m_numNonOccluderOrOccludee < TheGlobalData->m_maxVisibleNonOccluderOrOccludeeObjects)
 							{	//regular object with no custom effects but still needs to be delayed to get the occlusion feature to work correctly.
 								//Make sure this object is not translucent so it's not rendered twice (from m_potentialOccluders and m_translucentObjectsBuffer)
-								if (drawInfo->m_flags ^ DrawableInfo::ERF_IS_TRANSLUCENT)	//make sure not translucent
+								// a bit test, not an exclusive or.  The two happen to agree today only
+								// because m_flags is cleared to ERF_IS_NORMAL a few lines up and
+								// ERF_IS_TRANSLUCENT is the one bit that can be set before this point;
+								// the moment anything else sets a flag first, the xor says "not
+								// translucent" for an object that is, and it gets drawn twice.
+								if (!(drawInfo->m_flags & DrawableInfo::ERF_IS_TRANSLUCENT))	//make sure not translucent
 									m_nonOccludersOrOccludees[m_numNonOccluderOrOccludee++]=robj;
 								drawInfo->m_flags |= DrawableInfo::ERF_IS_NON_OCCLUDER_OR_OCCLUDEE;
 							}
@@ -1955,7 +1965,12 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
 							if (draw->isKindOf(KINDOF_STRUCTURE) && m_numPotentialOccluders < TheGlobalData->m_maxVisibleOccluderObjects)
 							{	//object which could occlude other objects that need to be visible.
 								//Make sure this object is not translucent so it's not rendered twice (from m_potentialOccluders and m_translucentObjectsBuffer)
-								if (drawInfo->m_flags ^ DrawableInfo::ERF_IS_TRANSLUCENT)
+								// a bit test, not an exclusive or.  The two happen to agree today only
+								// because m_flags is cleared to ERF_IS_NORMAL a few lines up and
+								// ERF_IS_TRANSLUCENT is the one bit that can be set before this point;
+								// the moment anything else sets a flag first, the xor says "not
+								// translucent" for an object that is, and it gets drawn twice.
+								if (!(drawInfo->m_flags & DrawableInfo::ERF_IS_TRANSLUCENT))
 									m_potentialOccluders[m_numPotentialOccluders++]=robj;
 								drawInfo->m_flags |= DrawableInfo::ERF_POTENTIAL_OCCLUDER;
 							}
@@ -1972,7 +1987,12 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
 							if (drawInfo->m_flags == DrawableInfo::ERF_IS_NORMAL && m_numNonOccluderOrOccludee < TheGlobalData->m_maxVisibleNonOccluderOrOccludeeObjects)
 							{	//regular object with no custom effects but still needs to be delayed to get the occlusion feature to work correctly.
 								//Make sure this object is not translucent so it's not rendered twice (from m_potentialOccluders and m_translucentObjectsBuffer)
-								if (drawInfo->m_flags ^ DrawableInfo::ERF_IS_TRANSLUCENT)	//make sure not translucent
+								// a bit test, not an exclusive or.  The two happen to agree today only
+								// because m_flags is cleared to ERF_IS_NORMAL a few lines up and
+								// ERF_IS_TRANSLUCENT is the one bit that can be set before this point;
+								// the moment anything else sets a flag first, the xor says "not
+								// translucent" for an object that is, and it gets drawn twice.
+								if (!(drawInfo->m_flags & DrawableInfo::ERF_IS_TRANSLUCENT))	//make sure not translucent
 									m_nonOccludersOrOccludees[m_numNonOccluderOrOccludee++]=robj;
 								drawInfo->m_flags |= DrawableInfo::ERF_IS_NON_OCCLUDER_OR_OCCLUDEE;
 							}
