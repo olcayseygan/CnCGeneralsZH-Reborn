@@ -1220,6 +1220,23 @@ bool TextureLoadTaskClass::Begin_Load(void)
 		return false;
 	}
 
+	/* A load that reported success and produced no texture is not a success.  Both of the Begin_
+		 functions above return true whatever _Create_DX8_Texture gave them, and that function returns
+		 NULL on a device that cannot currently create anything - which is every frame between losing
+		 the device and getting it back.  Lock_Surfaces then called GetLevelCount on a null pointer and
+		 took the game with it.
+
+		 The way in is ordinary: alt-tab out of a fullscreen game, the log fills with "Could not do
+		 WW3D::Begin_Render()", the simulation carries on regardless, a script spawns a unit, its model
+		 asks for a texture and there is no device to make one on.  Seen on 2026-09-05 in a script
+		 reinforcement drop, three frames after the device went.  Failing here instead puts the missing
+		 texture on it, which is what Finish_Load already does for a file that will not load. */
+	if (!D3DTexture) {
+		WWDEBUG_SAY(("Texture creation gave nothing back for %s - the device is probably lost\n",
+			Texture ? Texture->Get_Full_Path() : "<no texture>"));
+		return false;
+	}
+
 	// lock surfaces in preparation for copy
 	Lock_Surfaces();
 
@@ -1797,6 +1814,12 @@ bool TextureLoadTaskClass::Begin_Uncompressed_Load(void)
 
 void TextureLoadTaskClass::Lock_Surfaces(void)
 {
+	// nothing to lock, and the caller has already been told: see Begin_Load
+	if (!D3DTexture) {
+		MipLevelCount = 0;
+		return;
+	}
+
 	MipLevelCount = D3DTexture->GetLevelCount();
 
 	for (unsigned int i = 0; i < MipLevelCount; ++i) 

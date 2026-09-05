@@ -2088,6 +2088,24 @@ AGAIN:
 				}
 				// render is all done!
 				WW3D::End_Render();
+
+				/* End_Render is where a lost device is noticed and reset, and that reset is the most
+					 dangerous thing this process does: it hands every default-pool resource back and asks
+					 the driver to rebuild the swap chain, and under -d3d12 it has been seen to fault
+					 inside the 9On12 layer.  WW3D2 is built without RELEASE_DEBUG_LOGGING, so its own
+					 "Resetting device" line does not exist in a shipping build and the log went straight
+					 from an ordinary frame to a crash dump.  This is on the GameEngineDevice side of the
+					 fence, where logging is compiled in. */
+				{
+					static Bool s_wasDeviceLost = FALSE;
+					const Bool lost = DX8Wrapper::Is_Device_Lost();
+					if (lost != s_wasDeviceLost)
+					{
+						s_wasDeviceLost = lost;
+						DEBUG_LOG(("Direct3D device %s\n",
+							lost ? "LOST - End_Render will try to reset it" : "recovered"));
+					}
+				}
 			}
 			else
 			{
