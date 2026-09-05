@@ -299,9 +299,31 @@ void GetFunctionDetails(void *pointer, char*name, char*filename, unsigned int* l
 				{
 					*address = (unsigned int)line.Address;
 				}
-			} 					
+			}
 		}
     }
+	else if (name)
+	{
+		/* No symbol for it, which for anything outside this exe is the normal case: a system DLL,
+			 the Direct3D runtime, a display driver.  The stack then read `<Unknown> 0x582843F0` for
+			 every one of those frames, which says nothing at all - a crash inside a driver during a
+			 device reset looked exactly like a crash inside the game.  The module and the offset into
+			 it are free and are the whole of the answer: `d3d9on12.dll+0x143f0` is something that can
+			 be looked up, argued about, and worked around. */
+		HMODULE module = NULL;
+		if (::GetModuleHandleEx( GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+														 (LPCSTR)pointer, &module ) && module != NULL)
+		{
+			char modulePath[ MAX_PATH ];
+			modulePath[ 0 ] = 0;
+			if (::GetModuleFileName( module, modulePath, sizeof( modulePath ) ) > 0)
+			{
+				const char *leaf = strrchr( modulePath, '\\' );
+				leaf = leaf ? leaf + 1 : modulePath;
+				sprintf( name, "%s+0x%X;", leaf, (unsigned int)((char *)pointer - (char *)module) );
+			}
+		}
+	}
 }
 
 

@@ -391,8 +391,14 @@ void INI::load( AsciiString filename, INILoadType loadType, Xfer *pXfer )
 
 					} catch (...) {
 						DEBUG_CRASH(("Error parsing block '%s' in INI file '%s'\n", token, m_filename.str()) );
+						/* The line the block *started* on, which is what this used to report on its own,
+							 is rarely the line that is wrong: the parser has read its way down the block by
+							 the time anything throws.  m_lineNum is where it actually got to, and the last
+							 thing it read is usually the answer.  Without it a report of this reads "one of
+							 these nine fields", and the only way on is to guess. */
 						char buff[1024];
-						sprintf(buff, "Error parsing INI file '%s' (Line: '%s')\n", m_filename.str(), currentLine.str());
+						sprintf(buff, "Error parsing INI file '%s' (Line: '%s', reached line %d: '%s')\n",
+							m_filename.str(), currentLine.str(), m_lineNum, m_buffer);
 
 						throw INIException(buff);
 					}
