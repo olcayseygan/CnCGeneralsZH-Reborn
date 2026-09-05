@@ -1323,9 +1323,16 @@ Bool Radar::tryEvent( RadarEventType event, const Coord3D *pos )
 		if( m_event[ i ].type == event )
 		{
 
-			// get distance from our new event location to this event location in 2D
-			Real distSquared = m_event[ i ].worldLoc.x - pos->x * m_event[ i ].worldLoc.x - pos->x +
-												 m_event[ i ].worldLoc.y - pos->y * m_event[ i ].worldLoc.y - pos->y;
+			//
+			// Distance from the new event to this one, in 2D.  There were no brackets here at all,
+			// so what it worked out was x - (px*x) - px + y - (py*y) - py: not a distance, not even
+			// a positive number most of the time.  The test below it therefore answered at random,
+			// which is why two attacks on opposite ends of the map could suppress each other's
+			// warning while two on the same building both got one.
+			//
+			const Real dx = m_event[ i ].worldLoc.x - pos->x;
+			const Real dy = m_event[ i ].worldLoc.y - pos->y;
+			Real distSquared = dx * dx + dy * dy;
 
 			if( distSquared <= closeEnoughDistanceSq )
 			{

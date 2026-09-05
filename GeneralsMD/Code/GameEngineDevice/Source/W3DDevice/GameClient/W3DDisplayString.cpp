@@ -315,7 +315,14 @@ void W3DDisplayString::setFont( GameFont *font )
 	// set the font in our renderer
 	m_textRenderer.Set_Font( static_cast<FontCharsClass *>(m_font->fontData) );
 	
-	m_textRendererHotKey.Set_Font( static_cast<FontCharsClass *>(TheFontLibrary->getFont(font->nameString,font->pointSize, TRUE)->fontData) );
+	//
+	// The hotkey underline is drawn in the bold cut of the same font, and the library hands back
+	// null when it has not got one - a font set that ships without its bold face, or a malformed
+	// one that failed to load.  This read straight through that.
+	//
+	GameFont *boldFont = TheFontLibrary->getFont( font->nameString, font->pointSize, TRUE );
+	m_textRendererHotKey.Set_Font( boldFont ? static_cast<FontCharsClass *>(boldFont->fontData)
+																					: static_cast<FontCharsClass *>(m_font->fontData) );
 	// recompute extents for text with new font
 	computeExtents();
 

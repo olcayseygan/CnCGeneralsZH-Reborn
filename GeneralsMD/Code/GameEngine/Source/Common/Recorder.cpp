@@ -374,6 +374,11 @@ RecorderClass::RecorderClass()
 	m_nextFrame = 0;
 	m_wasDesync = FALSE;
 	//
+	// playbackFile allocates this and nothing ever freed it: three replays watched in one sitting
+	// left three of them behind.  It was also never set to anything before the first playback, so
+	// handleCRCMessage read whatever was on the heap if a CRC arrived first.
+	//
+	m_crcInfo = NULL;
 
 	init(); // just for the heck of it.
 }
@@ -382,6 +387,8 @@ RecorderClass::RecorderClass()
  * Destructor
  */
 RecorderClass::~RecorderClass() {
+	delete m_crcInfo;
+	m_crcInfo = NULL;
 }
 
 /**
@@ -417,6 +424,10 @@ void RecorderClass::reset() {
 		m_file = NULL;
 	}
 	m_fileName.clear();
+
+	// the playback that owned it is over; playbackFile makes a fresh one for the next
+	delete m_crcInfo;
+	m_crcInfo = NULL;
 
 	init();
 }
@@ -1143,6 +1154,7 @@ Bool RecorderClass::playbackFile(AsciiString filename)
 	}
 #endif
 
+	delete m_crcInfo;		// a replay started without a reset in between would leak the last one
 	m_crcInfo = NEW CRCInfo;
 	m_crcInfo->setLocalPlayer(header.localPlayerIndex);
 	REPLAY_CRC_INTERVAL = m_gameInfo.getCRCInterval();

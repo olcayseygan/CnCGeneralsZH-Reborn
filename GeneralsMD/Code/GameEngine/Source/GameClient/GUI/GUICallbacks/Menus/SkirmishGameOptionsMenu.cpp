@@ -1043,8 +1043,15 @@ static void handleStartingCashSelection()
   
   if (myGame)
   {
-    Int selIndex;
+    //
+    // Uninitialised, and the getter leaves it alone when there is nothing selected or no window to
+    // ask - so what got handed to GadgetComboBoxGetItemData as a list index was whatever had been
+    // on the stack.
+    //
+    Int selIndex = -1;
     GadgetComboBoxGetSelectedPos(comboBoxStartingCash, &selIndex);
+    if (selIndex < 0)
+      return;
 
     Money startingCash;
     startingCash.deposit( (UnsignedInt)GadgetComboBoxGetItemData( comboBoxStartingCash, selIndex ), FALSE );
