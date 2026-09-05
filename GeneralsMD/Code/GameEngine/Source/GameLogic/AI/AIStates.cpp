@@ -2085,8 +2085,21 @@ StateReturnType AIMoveToState::update()
 		blah++;
 	}
 
+	//
+	// An aggressive mood turns a plain move order into an attack move - but only a real move order.
+	// This same AIMoveToState instance is also handed out as the machine's *temporary* state, parked
+	// on top of another order by an internally generated move (AIUpdate.cpp,
+	// privateMoveToPosition), and its update runs every frame while the order underneath is held
+	// still. Converting from there did two wrong things at once: it clobbered the very order the
+	// temporary state exists to protect, and it re-entered AI_ATTACK_MOVE_TO every frame, whose
+	// onEnter pushes the target scan clock forward by design. A unit caught in that loop never
+	// scanned once in its life - an attack move walked it straight past everything it was pointed
+	// at, which is the bug this guard fixes. AssaultTransportAIUpdate already guards its own
+	// re-issue the same way.
+	//
 	UnsignedInt adjustment = ai->getMoodMatrixActionAdjustment(MM_Action_Move);
-	if (m_isMoveTo && (adjustment & MAA_Action_To_AttackMove))
+	if (m_isMoveTo && (adjustment & MAA_Action_To_AttackMove)
+			&& getMachine()->getCurrentStateID() == AI_MOVE_TO)
 		ai->aiAttackMoveToPosition(&m_goalPosition, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
 
 	// if we have a goal object, move to it, as it may have moved
@@ -3528,6 +3541,7 @@ AIAttackMoveToState::AIAttackMoveToState( StateMachine *machine ) : AIMoveToStat
 	m_engageStartFrame = 0;
 	m_ammoAtEngage = 0;
 	m_frameToScanOn = 0;
+	m_frameToApproachOn = 0;
 	m_reengageGoalDistSqr = 0.0f;
 	m_groupSpeed = FAST_AS_POSSIBLE;
 	m_isEngaging = FALSE;
@@ -3555,7 +3569,7 @@ void AIAttackMoveToState::crc( Xfer *xfer )
 void AIAttackMoveToState::xfer( Xfer *xfer )
 {
   // version
-  XferVersion currentVersion = 5;
+  XferVersion currentVersion = 6;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
@@ -3583,6 +3597,9 @@ void AIAttackMoveToState::xfer( Xfer *xfer )
 		// still holding whatever was in the block - and stopEngaging reads it to decide whether the
 		// fight was real, which sets m_frameToScanOn.  Uninitialized memory driving a logic clock.
 		xfer->xferInt(&m_ammoAtEngage);
+	}
+	if (version>=6) {
+		xfer->xferUnsignedInt(&m_frameToApproachOn);
 	}
 	xfer->xferSnapshot(m_attackMoveMachine);
 }  // end xfer
@@ -3623,6 +3640,7 @@ StateReturnType AIAttackMoveToState::onEnter()
 	m_engageStartFrame = 0;
 	m_engageOrigin = *owner->getPosition();
 	m_reengageGoalDistSqr = 0.0f;
+	m_frameToApproachOn = 0;
 	// spread the scans of a group that was all ordered on the same frame over the scan interval.
 	m_frameToScanOn = TheGameLogic->getFrame() + ((UnsignedInt)owner->getID() % ATTACK_MOVE_SCAN_RATE);
 
@@ -3690,7 +3708,7 @@ static Int countRemainingAmmo( const Object *obj )
 	return total;
 }
 
-void AIAttackMoveToState::startEngaging( Object *victim )
+void AIAttackMoveToState::startEngaging( Object *victim, Bool allowChase )
 {
 	Object *owner = getMachineOwner();
 	AIUpdateInterface *ai = owner->getAI();
@@ -3718,7 +3736,11 @@ void AIAttackMoveToState::startEngaging( Object *victim )
 	// AIAttackApproachTargetState::onEnter), so on attack move it used to lock onto a target it
 	// never closed with and keep driving to the goal instead.  Attack move is an explicit order to
 	// engage, so let it approach; hasLeftTheLeash() bounds how far the victim can drag it.
-	if (owner->getControllingPlayer()->getPlayerType() == PLAYER_HUMAN)
+	//
+	// allowChase is FALSE for a fight taken during the stretch of pure movement a dud fight or a
+	// broken leash buys (see update()): that fight was only allowed because the target was already
+	// in range, and letting it be chased is exactly the walk-off those windows exist to prevent.
+	if (allowChase && owner->getControllingPlayer()->getPlayerType() == PLAYER_HUMAN)
 		ai->setAllowedToChase(TRUE);
 
 
@@ -3793,9 +3815,16 @@ void AIAttackMoveToState::stopEngaging( void )
 																 m_engageStartFrame, now, ATTACK_MOVE_DUD_ENGAGE_FRAMES ))
 	{
 		// we could not touch it (unreachable, cannot attack it, out of ammo) - move on for a second.
-		m_frameToScanOn = now + ATTACK_MOVE_REACQUIRE_DELAY;
+		// m_victimID is deliberately left standing: it is who we failed on, and the scan refuses to
+		// pick it again until the window is up.  Without that, a unit that cannot hurt what is
+		// standing next to it - out of ammo is the common one - re-picks it every scan and stops
+		// there for good, since a target already in range is otherwise always worth taking.
+		m_frameToApproachOn = now + ATTACK_MOVE_REACQUIRE_DELAY;
 	}
-	m_victimID = INVALID_ID;
+	else
+	{
+		m_victimID = INVALID_ID;
+	}
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -3896,12 +3925,67 @@ Object *AIAttackMoveToState::findRetaliationTarget( void )
 		canShootBack = (result == ATTACKRESULT_POSSIBLE || result == ATTACKRESULT_POSSIBLE_AFTER_MOVING);
 	}
 
+	// m_victimID outlives a fight that ended as a dud (see stopEngaging), so "already fighting them"
+	// has to ask whether we are in fact fighting, not just who we last picked.
 	if (!AIAttackMove_shouldRetaliate( body->getLastDamageTimestamp(), TheGameLogic->getFrame(),
 																		 ATTACK_MOVE_RETALIATE_FRAMES,
-																		 attacker->getID() == m_victimID, canShootBack ))
+																		 m_isEngaging && attacker->getID() == m_victimID, canShootBack ))
 		return NULL;
 
 	return attacker;
+}
+
+//----------------------------------------------------------------------------------------------------------
+/**
+ * Can we shoot it from exactly where we stand?  ATTACKRESULT_POSSIBLE is the in-range answer;
+ * ATTACKRESULT_POSSIBLE_AFTER_MOVING means we would have to drive to it first (WeaponSet.cpp:706).
+ */
+Bool AIAttackMoveToState::canHitFromHere( const Object *victim )
+{
+	if (victim == NULL)
+		return FALSE;
+
+	Object *owner = getMachineOwner();
+
+	// An empty clip is the one thing getAbleToAttackSpecificObject does not ask about, and it is
+	// what a dud fight is usually made of: the unit stops for something it cannot presently shoot,
+	// the attack state exits within a few frames, and the whole thing repeats on the next scan.
+	// Nothing is lost by driving on and reloading.
+	if (owner->isOutOfAmmo())
+		return FALSE;
+
+	return owner->getAbleToAttackSpecificObject( ATTACK_NEW_TARGET, victim, CMD_FROM_AI ) == ATTACKRESULT_POSSIBLE;
+}
+
+//----------------------------------------------------------------------------------------------------------
+/**
+ * May this target be taken now?  With no Object involved so test_gameengine can link straight to it
+ * - the same trick as AIAttackMove_leashBroken above.
+ *
+ * A dud fight and a broken leash each buy the attack move a stretch of pure movement: the first a
+ * second of it, the second a leash length of progress toward the goal.  Both exist to stop a target
+ * we would have to drive to from walking the unit off its path, so both bound the *approach* - and
+ * a target already inside our weapon range needs no approach at all.  They used to stop the scan
+ * itself, and the unit spent those stretches blind, driving straight past whatever was standing
+ * next to it.  Shooting what we can already reach costs the attack move nothing, so nothing here
+ * refuses it.
+ *
+ * The one exception is the target the dud fight was against: we just failed to touch it (out of
+ * ammo is the usual reason) and it is usually still in range, so taking it again every scan would
+ * park the unit there for good.
+ */
+Bool AIAttackMove_mayTakeTarget( Bool targetIsInRangeNow, Bool targetIsTheLastDud,
+																 Bool owesProgressToGoal, UnsignedInt now, UnsignedInt frameToApproachOn )
+{
+	Bool inTheReacquireWindow = (now < frameToApproachOn);
+
+	if (targetIsTheLastDud && inTheReacquireWindow)
+		return FALSE;
+
+	if (targetIsInRangeNow)
+		return TRUE;
+
+	return !owesProgressToGoal && !inTheReacquireWindow;
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -3966,7 +4050,7 @@ StateReturnType AIAttackMoveToState::update()
 			m_attackMoveMachine->setState( AI_IDLE );
 			stopEngaging();
 			ai->friend_setLastCommandSource(m_commandSrc);
-			m_frameToScanOn = TheGameLogic->getFrame() + ATTACK_MOVE_REACQUIRE_DELAY;
+			m_frameToApproachOn = TheGameLogic->getFrame() + ATTACK_MOVE_REACQUIRE_DELAY;
 			requireProgressTowardGoal();
 			shouldRepathThisFrame = true;
 		}
@@ -3984,7 +4068,7 @@ StateReturnType AIAttackMoveToState::update()
 				{
 					stopEngaging();
 					m_frameToScanOn = now + ATTACK_MOVE_SCAN_RATE;
-					startEngaging(shooter);
+					startEngaging(shooter, TRUE);
 					return STATE_CONTINUE;
 				}
 			}
@@ -4019,20 +4103,42 @@ StateReturnType AIAttackMoveToState::update()
 		}
 
 		UnsignedInt now = TheGameLogic->getFrame();
-		if (now >= m_frameToScanOn && mayEngageYet())
+		if (now >= m_frameToScanOn)
 		{
 			m_frameToScanOn = now + ATTACK_MOVE_SCAN_RATE;
 			// Scan on our own clock rather than the unit's idle mood clock (seconds apart, long
 			// enough to drive right past an enemy), and take anything in vision range, not just what
 			// is already within weapon range - we stop and close with whatever we find.
 			ai->setNextMoodCheckTime(now);
+
+			// The scan itself never stops: what a dud fight or a broken leash suspends is the
+			// approach, so the unit still shoots anything it can already reach.  See
+			// AIAttackMove_mayTakeTarget.
+			Bool owesProgress = !mayEngageYet();
+			// ...which is the same question asked of a target we would have to drive to.
+			Bool mayApproach = AIAttackMove_mayTakeTarget( FALSE, FALSE, owesProgress, now, m_frameToApproachOn );
+
 			// whoever is shooting us beats whatever the scan would have picked (usually the nearest)
 			Object* nextObjectToAttack = findRetaliationTarget();
-			if (nextObjectToAttack == NULL)
-				nextObjectToAttack = ai->getNextMoodTarget( true, false, true );
+			if (nextObjectToAttack != NULL &&
+					!AIAttackMove_mayTakeTarget( canHitFromHere(nextObjectToAttack),
+																			 nextObjectToAttack->getID() == m_victimID,
+																			 owesProgress, now, m_frameToApproachOn ))
+				nextObjectToAttack = NULL;
+
+			// While the approach is suspended the search is narrowed to what is already in range, so a
+			// distant high-threat target cannot crowd out the enemy standing next to us - and an empty
+			// clip means there is nothing worth stopping for at all (see canHitFromHere).
+			if (nextObjectToAttack == NULL && (mayApproach || !owner->isOutOfAmmo()))
+			{
+				nextObjectToAttack = ai->getNextMoodTarget( true, false, true, !mayApproach );
+				if (nextObjectToAttack != NULL && !mayApproach && nextObjectToAttack->getID() == m_victimID)
+					nextObjectToAttack = NULL;		// the one we just failed on
+			}
+
 			if (nextObjectToAttack != NULL)
 			{
-				startEngaging(nextObjectToAttack);
+				startEngaging(nextObjectToAttack, mayApproach);
 				// we don't want an update to take place 'till next frame.
 				return STATE_CONTINUE;
 			}

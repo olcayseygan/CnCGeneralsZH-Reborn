@@ -6210,7 +6210,7 @@ public:
 #endif
 };
 
-Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuringIdle, Bool allowOutOfWeaponRangeTargets )
+Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuringIdle, Bool allowOutOfWeaponRangeTargets, Bool requireWithinWeaponRange )
 {
 	Object *obj = getObject();
 
@@ -6311,7 +6311,7 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	{
 		const Real weaponRange = obj->getLargestWeaponRange();
 		if (weaponRange > 0.0f)
-			rangeToFindWithin = weaponRange * ATTACK_MOVE_SEARCH_SCALE;
+			rangeToFindWithin = weaponRange * (requireWithinWeaponRange ? 1.0f : ATTACK_MOVE_SEARCH_SCALE);
 	}
 
 	if (rangeToFindWithin <= 0.0f)
@@ -6369,6 +6369,13 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	// The caller can lift that restriction (attack move does) when it will actually close
 	// with what it finds instead of driving past it.
 	if (calledByAI && !allowOutOfWeaponRangeTargets && obj->getControllingPlayer()->getPlayerType() == PLAYER_HUMAN)
+	{
+		flags |= AI::WITHIN_ATTACK_RANGE;
+	}
+
+	// ... and a caller that has been told not to move at all right now takes only what it can shoot
+	// from where it stands, whoever is playing.
+	if (requireWithinWeaponRange)
 	{
 		flags |= AI::WITHIN_ATTACK_RANGE;
 	}

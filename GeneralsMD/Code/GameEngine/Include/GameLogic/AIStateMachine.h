@@ -599,10 +599,11 @@ protected:
 	enum {ATTACK_MOVE_REACQUIRE_DELAY=30};			///< frames of pure movement after a dud fight or a broken leash
 	enum {ATTACK_MOVE_RETALIATE_FRAMES=30};			///< how recently we must have been hit to turn on whoever hit us
 
-	void startEngaging( Object *victim );				///< stop here and hand the victim to the attack sub-machine
+	void startEngaging( Object *victim, Bool allowChase );	///< stop here and hand the victim to the attack sub-machine
 	void stopEngaging( void );									///< the fight is over; put back what startEngaging changed
 	Bool hasLeftTheLeash( void );								///< has the victim dragged us too far off the attack move?
 	Object *findRetaliationTarget( void );			///< whoever is shooting us right now, if we can shoot back
+	Bool canHitFromHere( const Object *victim );	///< can we shoot it without moving an inch?
 	Bool mayEngageYet( void );									///< has the required progress toward the goal been made?
 	void requireProgressTowardGoal( void );			///< refuse to fight again until we are closer to the goal
 	void applyGroupSpeed( void );								///< hold this unit to the ordered group's speed
@@ -615,6 +616,7 @@ protected:
 	ObjectID			m_victimID;						///< who we picked
 	UnsignedInt		m_engageStartFrame;		///< when we picked it
 	UnsignedInt		m_frameToScanOn;			///< next frame we may look for a target
+	UnsignedInt		m_frameToApproachOn;	///< until this frame we only take targets we can already shoot
 	Real					m_reengageGoalDistSqr;	///< no new fight until we are this close to the goal (0 = no gate)
 	Real					m_groupSpeed;					///< speed of the slowest member of the ordered group
 	Bool					m_isEngaging;					///< true while the attack sub-machine owns us

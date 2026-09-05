@@ -59,6 +59,7 @@ found and fixed â€” EA's own, not port damage.**
 - Which enemy it goes after was the nearest one and nothing else, plus a rule with its sign the wrong way round: an opponent who had lost his units or his production had his distance treated as half the map, so the computer ignored the one it was about to beat. That is what dragged matches out.
 - It now weighs distance, whether the target is crippled - an opportunity, not a distraction - and how much of what it can see that player is worth. Only a genuinely finished enemy is skipped.
 - It still refuses to gang up with another computer opponent on one victim, and still gently prefers whoever is already shooting at it.
+- An aggressive computer team is supposed to fight its way to where it is sent rather than walk there. It never did. The order to fight was being reissued every frame, and each reissue pushed the moment that unit next looks for a target one step further into the future, so the look never came at all and the team crossed the map through the enemy without firing. Over four and a half minutes of one test match that order was restarted 2,240 times. It is restarted 15 times now.
 ## The computer knows when to quit
 
 - Its teams fought to the last man. The word "retreat" appeared nowhere in the opponent's code - the single most visible thing that made it look stupid.
@@ -96,6 +97,7 @@ found and fixed â€” EA's own, not port damage.**
 - Attack-moving through a base shoots the base; buildings were filtered out.
 - Aircraft make their pass, fly home, rearm and resume your order.
 - Nothing walks off the map chasing a target that keeps retreating.
+- Being pulled off a chase no longer blinds a unit on the way back. It owes the order a stretch of ground before it is allowed to drive to another fight, and it used to spend that stretch refusing to see anything at all - so a tank rolled past an enemy parked beside it without firing a shot. It still will not go chasing during that stretch. It will shoot whatever is already in front of its gun, which costs the advance nothing.
 - A unit turns onto whatever is actually shooting it, then resumes the advance.
 - Otherwise it picks the worst thing in range: anything armed before anything that is not, then the more dangerous of the two, and worth fades with distance so it is never the far one it walks the field for. A group ordered through a base no longer stops for the first dozer it passes while the artillery beside it keeps firing.
 - Ctrl on the attack-move click no longer shells the ground instead.

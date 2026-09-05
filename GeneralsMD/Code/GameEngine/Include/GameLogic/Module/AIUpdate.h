@@ -607,8 +607,10 @@ public:
 	///< States that are doing idle checks should call with calledDuringIdle set true so that they check their
 	///< States that will actually close with what they find (attack move) should call with allowOutOfWeaponRangeTargets
 	///< set true, which searches vision range instead of only what is already within weapon range.
+	///< requireWithinWeaponRange narrows that back to what can be shot without moving an inch, whoever
+	///< is playing - an attack move whose approach is suspended still fires at what it can reach.
 
-	Object *getNextMoodTarget( Bool calledByAI, Bool calledDuringIdle, Bool allowOutOfWeaponRangeTargets = FALSE );	
+	Object *getNextMoodTarget( Bool calledByAI, Bool calledDuringIdle, Bool allowOutOfWeaponRangeTargets = FALSE, Bool requireWithinWeaponRange = FALSE );
 	UnsignedInt getNextMoodCheckTime() const { return m_nextMoodCheckTime; }
 
 	// This function will return a combination of MoodMatrixParameter flags.

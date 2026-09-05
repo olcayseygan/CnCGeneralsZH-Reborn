@@ -1126,6 +1126,36 @@ TEST(attack_move_turns_on_whoever_is_shooting_it)
 	CHECK( !AIAttackMove_shouldRetaliate( 0xffffffff, 0xfffffff0, WINDOW, false, true ) );
 }
 
+/* AIStates.cpp: a dud fight and a broken leash suspend the approach, never the shooting -
+   a unit on attack move drove past whatever stood next to it during those windows. */
+extern Bool AIAttackMove_mayTakeTarget( Bool targetIsInRangeNow, Bool targetIsTheLastDud,
+																				Bool owesProgressToGoal, UnsignedInt now, UnsignedInt frameToApproachOn );
+
+TEST(attack_move_still_shoots_what_it_can_already_reach)
+{
+	/* nothing owed: take anything, in range or not. */
+	CHECK( AIAttackMove_mayTakeTarget( true,  false, false, 1000, 0 ) );
+	CHECK( AIAttackMove_mayTakeTarget( false, false, false, 1000, 0 ) );
+
+	/* inside the reacquire window after a dud fight: what we can shoot from here is still
+	   taken, what we would have to drive to is not. This is the bug being fixed. */
+	CHECK(  AIAttackMove_mayTakeTarget( true,  false, false, 1000, 1030 ) );
+	CHECK( !AIAttackMove_mayTakeTarget( false, false, false, 1000, 1030 ) );
+
+	/* owing the goal a leash length of progress after a broken leash: same answer. */
+	CHECK(  AIAttackMove_mayTakeTarget( true,  false, true, 1000, 0 ) );
+	CHECK( !AIAttackMove_mayTakeTarget( false, false, true, 1000, 0 ) );
+
+	/* the window is over the moment the frame arrives. */
+	CHECK( AIAttackMove_mayTakeTarget( false, false, false, 1030, 1030 ) );
+
+	/* the one target the window does refuse is the one we just failed on - it is usually
+	   still in range (out of ammo, cannot hurt it), so taking it again every scan would
+	   park the unit there for the rest of the match. */
+	CHECK( !AIAttackMove_mayTakeTarget( true, true, false, 1000, 1030 ) );
+	CHECK(  AIAttackMove_mayTakeTarget( true, true, false, 1030, 1030 ) );
+}
+
 /* AI.cpp: on attack move the scan ranks what it finds by threat instead of handing
    back the nearest thing. */
 extern Int AI_threatScore( Int templateThreatValue, Int buildCost, Bool threatensMe,
