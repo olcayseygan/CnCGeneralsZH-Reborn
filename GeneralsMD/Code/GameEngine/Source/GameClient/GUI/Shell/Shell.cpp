@@ -294,6 +294,22 @@ void Shell::push( AsciiString filename, Bool shutdownImmediate )
 	// sanity
 	if( filename.isEmpty() )
 		return;
+
+	//
+	// A push already waiting on the outgoing screen's shutdown animation owns this transition. The
+	// button that started it stays live while that animation plays, so a second click ran the same
+	// screen's shutdown a second time, and shutdownComplete then fired twice for one push: the
+	// screen opened as two separate layouts, the extra copy stayed drawn over whatever came next,
+	// and clicking that copy drove a layout that was no longer the top of the stack. Let a later
+	// call change where we are going - that is what overwriting the name always did - but never
+	// start the outgoing screen's shutdown twice.
+	//
+	if( m_pendingPush )
+	{
+		m_pendingPushName = filename;
+		return;
+	}
+
 	if(TheGameSpyInfo)
 			GameSpyCloseAllOverlays();
 

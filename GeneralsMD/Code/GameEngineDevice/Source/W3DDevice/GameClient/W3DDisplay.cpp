@@ -2102,6 +2102,23 @@ AGAIN:
 			if (TheW3DProjectedShadowManager)
 				TheW3DProjectedShadowManager->updateRenderTargetTextures();
 		}
+		else
+		{
+			//
+			// The particle manager's update is bookkeeping, not drawing: it ages particles, retires
+			// the systems that have finished and frees them.  Skipping it along with the rendering
+			// meant that for as long as the device was gone the game went on creating particle
+			// systems and destroyed none.  Locking the Windows session is the reliable way to see
+			// it - a hundred rocket buggies firing at the ground push that list into six figures in
+			// under a minute, every walk of it gets slower as it grows, and what you unlock to is a
+			// game that has either run out of memory or stopped responding.
+			//
+			// Above it runs right after updateViews on purpose (see Lorenzen's note), so the systems
+			// read the client transform while it is still valid.  There is no updateViews here and
+			// nothing to draw the result of, so a frame's worth of stale transforms costs nothing.
+			//
+			TheParticleSystemManager->update();
+		}
 
 		Debug_Statistics::End_Statistics();	//record number of polygons rendered in RenderTargetTextures.
 

@@ -826,9 +826,24 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 
 void LookAtTranslator::resetModes()
 {
+	//
+	// A key or a mouse button held at the moment the window loses focus never sends its release:
+	// alt-tab away with an arrow key down and the view keeps sliding that way when you come back,
+	// until that key is pressed and let go once more.  A drag that ends outside the window is the
+	// same story with the mouse.  So this has to put back everything a scroll turned on - the
+	// direction flags the keyboard scroll reads, the mouse lock, the cursor - and not just clear
+	// the flags that say a scroll is in progress.
+	//
+	for( Int i = 0; i < 4; ++i )
+		scrollDir[i] = false;
+
+	if( m_isScrolling && TheInGameUI && TheTacticalView && TheMouse )
+		stopScrolling();
+
 	m_isScrolling = FALSE;
 	m_isRotating = FALSE;
 	m_freeRotateAngle = 0.0f;
 	m_isPitching = FALSE;
 	m_isChangingFOV = FALSE;
+	m_scrollType = SCROLL_NONE;
 }

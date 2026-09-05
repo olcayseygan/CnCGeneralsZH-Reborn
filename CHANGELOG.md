@@ -377,6 +377,9 @@ found and fixed â€” EA's own, not port damage.**
 - Closing a dialog while another one sits on top of it no longer leaves the game holding a pointer to the window it just freed. Every click, every keypress and the tab order all read that list, so what it caused was a crash with no pattern to it.
 - Ordering a group to use a special power that can kill the units casting it, the GLA rebel ambush over water being the one that does it every time, no longer walks a list of units that the ambush is deleting underneath.
 - A replay that never recorded which seat was yours plays instead of crashing before the map loads.
+- Alt-tabbing away with an arrow key held no longer leaves the camera sliding that way when you come back. The key release goes to whatever you switched to, so the game never heard it; losing focus now ends the scroll, the middle-button pan and the ALT pitch drag along with it.
+- Locking Windows mid-battle no longer eats the game. Nothing that renders runs while the screen is locked, and the particle bookkeeping had been filed under rendering, so every explosion while you were away was created and never cleared up. A hundred rocket buggies firing at the ground for a minute is enough to come back to a game that has run out of memory or simply stopped responding.
+- Double-clicking a menu button opens the screen once. The button stays live while the old screen animates out, so the second click started the same transition again and the screen opened twice, one copy left drawn over whatever came next and doing nothing sensible when clicked.
 - Double-tapping 0 jumps the camera to that group.
 - The mouse wheel no longer cancels a camera move already in progress.
 

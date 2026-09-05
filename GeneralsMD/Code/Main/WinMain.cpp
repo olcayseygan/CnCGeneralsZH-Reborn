@@ -61,6 +61,7 @@
 #include "GameLogic/GameLogic.h"  ///< @todo for demo, remove
 #include "GameClient/Mouse.h"
 #include "GameClient/IMEManager.h"
+#include "GameClient/LookAtXlat.h"
 #include "Win32Device/GameClient/Win32Mouse.h"
 #include "Win32Device/Common/Win32GameEngine.h"
 #include "Common/Version.h"
@@ -430,6 +431,14 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message,
 				if( TheKeyboard )
 					TheKeyboard->resetKeys();
 
+				//
+				// ...and whatever those keys were driving.  resetKeys clears the keyboard device; it
+				// has no way to know that an arrow key held when focus went away left the camera
+				// scrolling, and no key-up is ever coming for it.
+				//
+				if( TheLookAtTranslator )
+					TheLookAtTranslator->resetModes();
+
 				if (TheWin32Mouse)
 					TheWin32Mouse->lostFocus(FALSE);
 
@@ -461,6 +470,8 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message,
 			{
 				if (TheKeyboard )
 					TheKeyboard->resetKeys();
+				if( TheLookAtTranslator )
+					TheLookAtTranslator->resetModes();		// see WM_SETFOCUS above
 				if (TheWin32Mouse)
 					TheWin32Mouse->lostFocus(TRUE);
 
