@@ -1291,6 +1291,12 @@ MultiPlayerLoadScreen::MultiPlayerLoadScreen( void )
 	//Initializations missing and needed
 	m_mapPreview = NULL;
 
+	// ...and these three, which init() only fills in when it finds the windows and the destructor
+	// and update() both read
+	m_portraitLocalGeneral = NULL;
+	m_featuresLocalGeneral = NULL;
+	m_nameLocalGeneral = NULL;
+
 	//
 	for(Int i = 0; i < MAX_SLOTS; ++i)
 	{
@@ -1578,10 +1584,15 @@ GameSpyLoadScreen::GameSpyLoadScreen( void )
 		m_playerFavoriteFactions[i]= NULL;
 		m_playerTotalDisconnects[i]= NULL;
 		m_playerWin[i]= NULL;
-		m_playerWinLosses[i]= NULL;		
+		m_playerWinLosses[i]= NULL;
 	}
+
+	// the three the loop does not cover, for the same reason as MultiPlayerLoadScreen above
+	m_portraitLocalGeneral = NULL;
+	m_featuresLocalGeneral = NULL;
+	m_nameLocalGeneral = NULL;
 }
-	
+
 GameSpyLoadScreen::~GameSpyLoadScreen( void )
 {
 	for(Int i = 0; i < MAX_SLOTS; ++i)
