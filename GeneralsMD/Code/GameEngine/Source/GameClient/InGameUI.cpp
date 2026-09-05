@@ -4190,23 +4190,31 @@ void InGameUI::setInputEnabled( Bool enable )
 	
 	if (wasEnabled && !enable)
 	{
-		/*
-			when input is disabled, clear out all the special "modes" we can be in, since we can miss
-			the "exit mode" message during the cinematic. e.g., hold down the ctrl key when a cinematic
-			begins, then release it during the cinematic... since input is disabled, we never see the keyup
-			and thus think we're still in forceattack when its done, until you jiggle that key again.
-			(admittedly, this code will actually do the wrong thing if you were to hold down the ctrl
-			key thru the whole cinematic, but that's even more unlikely...)
-		*/
-		setForceAttackMode( false );			// CTRL
-		setForceMoveMode( false );				// apparently unmapped in current CommandMap.ini
-		setWaypointMode( false );					// ALT
-		setPreferSelectionMode( false );	// SHIFT
-		setCameraRotateLeft( false );			// KP4
-		setCameraRotateRight( false );		// KP6
-		setCameraZoomIn( false );					// KP8
-		setCameraZoomOut( false );				// KP2
+		clearModifierModes();
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Forget every "mode" a held key puts us in.
+	*
+	* Two things can eat the key release that would normally end one of these.  A cinematic disables
+	* input, so a ctrl held as it starts and let go during it is never seen released, and the game
+	* still thinks you are force-attacking when it ends.  Losing the window's focus does the same
+	* thing and is the one a player meets: alt-tab out with alt held - which is how you alt-tab -
+	* and you come back in waypoint mode, laying a route with every click, until you press and
+	* release alt once more.  WinMain calls this from both focus messages, next to the keyboard's
+	* own reset. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::clearModifierModes( void )
+{
+	setForceAttackMode( false );			// CTRL
+	setForceMoveMode( false );				// apparently unmapped in current CommandMap.ini
+	setWaypointMode( false );					// ALT
+	setPreferSelectionMode( false );	// SHIFT
+	setCameraRotateLeft( false );			// KP4
+	setCameraRotateRight( false );		// KP6
+	setCameraZoomIn( false );					// KP8
+	setCameraZoomOut( false );				// KP2
 }
 
 //-------------------------------------------------------------------------------------------------

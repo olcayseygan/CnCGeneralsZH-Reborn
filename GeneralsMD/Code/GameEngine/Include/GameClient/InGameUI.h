@@ -602,6 +602,7 @@ public:  // ********************************************************************
 	virtual void setRadiusCursorForRadius(Real radius);
 
 	virtual void setInputEnabled( Bool enable );										///< Set the input enabled or disabled
+	virtual void clearModifierModes( void );												///< forget every mode a held key puts us in (see the definition)
 	virtual Bool getInputEnabled( void ) { return m_inputEnabled; }	///< Get the current input status
 
 	virtual void disregardDrawable( Drawable *draw );				///< Drawable is being destroyed, clean up any UI elements associated with it

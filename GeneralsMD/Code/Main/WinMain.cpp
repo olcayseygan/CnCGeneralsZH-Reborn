@@ -438,6 +438,8 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message,
 				//
 				if( TheLookAtTranslator )
 					TheLookAtTranslator->resetModes();
+				if( TheInGameUI )
+					TheInGameUI->clearModifierModes();
 
 				if (TheWin32Mouse)
 					TheWin32Mouse->lostFocus(FALSE);
@@ -471,7 +473,9 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message,
 				if (TheKeyboard )
 					TheKeyboard->resetKeys();
 				if( TheLookAtTranslator )
-					TheLookAtTranslator->resetModes();		// see WM_SETFOCUS above
+					TheLookAtTranslator->resetModes();
+				if( TheInGameUI )
+					TheInGameUI->clearModifierModes();		// see WM_SETFOCUS above
 				if (TheWin32Mouse)
 					TheWin32Mouse->lostFocus(TRUE);
 
