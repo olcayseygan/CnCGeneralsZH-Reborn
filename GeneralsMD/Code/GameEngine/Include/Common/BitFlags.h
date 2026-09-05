@@ -48,7 +48,19 @@ class AsciiString;
 	So we wrap to correct this, but leave the bitset "exposed" so that we can use all the non-ctor
 	functions on it directly (since it doesn't overload operator= to do the "wrong" thing, strangley enough)
 */
-template <size_t NUMBITS>
+/*
+	TAG exists only to keep two flag sets that happen to have the same number of bits from becoming
+	the same type.  s_bitNameList is a static member of the instantiation, so two such sets used to
+	share one name table: the linker folded the two definitions and kept whichever it felt like, and
+	what that looked like from the outside was one INI parser suddenly refusing to recognise any of
+	its own keywords, in a file that had nothing to do with the change that caused it.  Adding a
+	single KindOf was enough - it took KINDOF_COUNT to 117, which is what MODELCONDITION_COUNT
+	already was.  Every typedef below therefore carries its own tag, and
+	bitflags_counts_are_all_different in test_gameengine says so out loud if two ever meet again.
+
+	It costs nothing at runtime: the layout is the bitset and nothing else.
+*/
+template <size_t NUMBITS, int TAG = 0>
 class BitFlags
 {
 private:

@@ -1162,6 +1162,66 @@ TEST(attack_move_turns_on_whoever_is_shooting_it)
 	CHECK( !AIAttackMove_shouldRetaliate( 0xffffffff, 0xfffffff0, WINDOW, false, true ) );
 }
 
+/* BitFlags used to be templated on the bit count alone, and its name table is a static
+   member of the instantiation - so two flag sets with the same count were the SAME type
+   and shared one s_bitNameList.  The linker folded the two definitions and kept whichever
+   it liked.  From the outside that looked like one INI parser suddenly refusing to
+   recognise any of its own keywords, in a file with no connection to the change that
+   caused it: adding a single KindOf took KINDOF_COUNT to 117, which is what
+   MODELCONDITION_COUNT already was, and airforcegeneral.ini stopped parsing on a
+   ConditionState line.
+
+   Each typedef now carries its own tag, so equal counts are harmless.  This test keeps
+   watch anyway - a tag that gets copied and pasted rather than incremented puts the trap
+   straight back, and it is cheaper to read it here than to find it there. */
+#include "Common/KindOf.h"
+#include "Common/ModelState.h"
+#include "Common/DisabledTypes.h"
+#include "Common/ObjectStatusTypes.h"
+#include "Common/SpecialPowerMaskType.h"
+#include "GameLogic/ArmorSet.h"
+#include "GameLogic/Damage.h"
+#include "GameLogic/WeaponSetFlags.h"
+
+TEST(bitflags_types_keep_their_own_name_tables)
+{
+	/* KINDOF_COUNT and MODELCONDITION_COUNT are in fact equal - both 117 - which is exactly
+	   the case that used to break.  The tags are what keeps them apart now. */
+	struct Named { const char *name; const char **names; const char *firstExpected; };
+	const Named tables[] = {
+		{ "KINDOF",					KindOfMaskType::getBitNames(),				"OBSTACLE" },
+		{ "MODELCONDITION",	ModelConditionFlags::getBitNames(),	NULL },
+		{ "DISABLED",				DisabledMaskType::getBitNames(),		NULL },
+		{ "OBJECT_STATUS",	ObjectStatusMaskType::getBitNames(),NULL },
+		{ "SPECIALPOWER",		SpecialPowerMaskType::getBitNames(),NULL },
+		{ "ARMORSET",				ArmorSetFlags::getBitNames(),				NULL },
+		{ "DAMAGE",					DamageTypeFlags::getBitNames(),			NULL },
+		{ "WEAPONSET",			WeaponSetFlags::getBitNames(),			NULL },
+	};
+	const Int n = sizeof(tables) / sizeof(tables[0]);
+
+	/* every table is somebody else's table only if two flag sets ended up the same type */
+	for( Int i = 0; i < n; ++i )
+	{
+		CHECK( tables[i].names != NULL );
+		CHECK( tables[i].names[0] != NULL );
+		for( Int j = i + 1; j < n; ++j )
+		{
+			if( tables[i].names == tables[j].names )
+			{
+				printf( "  BitFlags name table shared between %s and %s - they are the same type\n",
+								tables[i].name, tables[j].name );
+			}
+			CHECK( tables[i].names != tables[j].names );
+		}
+	}
+
+	/* and the KindOf table is the KindOf table, not whatever the linker felt like */
+	CHECK_STR( KindOfMaskType::getBitNames()[0], "OBSTACLE" );
+	CHECK_EQ( KindOfMaskType::getSingleBitFromName("STRUCTURE"), (Int)KINDOF_STRUCTURE );
+	CHECK_EQ( ModelConditionFlags::getSingleBitFromName("RUBBLE"), (Int)MODELCONDITION_RUBBLE );
+}
+
 /* GameWindowManager.cpp: destroying a modal window that is not the top of the modal stack
    used to leave its entry behind, holding a pointer to freed memory. */
 #include "GameClient/GameWindow.h"

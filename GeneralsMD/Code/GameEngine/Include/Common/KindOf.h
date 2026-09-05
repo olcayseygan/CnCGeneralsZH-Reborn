@@ -170,12 +170,13 @@ enum KindOfType
 	KINDOF_DEMOTRAP,								///< Added strictly only for disarming purposes. They don't act like mines which have rendering and selection implications!
 	KINDOF_CONSERVATIVE_BUILDING,		///< Conservative structures aren't considered part of your base for sneak attack boundary calculations...
 	KINDOF_IGNORE_DOCKING_BONES,		///< Structure will not look up docking bones. Patch 1.03 hack.
+	KINDOF_NO_ATTACK_WARNING,				///< Damage to this raises no "under attack" alarm, ping or EVA line.
 
 	KINDOF_COUNT										// total number of kindofs
 	
 }; 
 
-typedef BitFlags<KINDOF_COUNT>	KindOfMaskType;
+typedef BitFlags<KINDOF_COUNT, 2>	KindOfMaskType;
 
 #define MAKE_KINDOF_MASK(k) KindOfMaskType(KindOfMaskType::kInit, (k))
 

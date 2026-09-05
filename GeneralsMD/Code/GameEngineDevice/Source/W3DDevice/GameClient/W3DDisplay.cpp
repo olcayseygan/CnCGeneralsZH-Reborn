@@ -611,7 +611,7 @@ static void applyWindowFrame( Int mode )
 
 	DWORD style = WS_POPUP | WS_VISIBLE | WS_SYSMENU;
 	if( mode == WINDOW_MODE_WINDOWED )
-		style |= WS_DLGFRAME | WS_CAPTION;
+		style |= WS_DLGFRAME | WS_CAPTION | WS_MINIMIZEBOX;		// see WinMain: windowed means a real window
 
 	::SetWindowLong( ApplicationHWnd, GWL_STYLE, style );
 

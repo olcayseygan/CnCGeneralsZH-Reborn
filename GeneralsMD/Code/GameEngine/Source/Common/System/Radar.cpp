@@ -1185,6 +1185,14 @@ void Radar::tryUnderAttackEvent( const Object *obj )
 	if( obj == NULL )
 		return;
 
+	//
+	// Some things are shot at constantly and raising the alarm for each of them buries the one that
+	// matters: a wall segment, a mine, a piece of scenery a stray shell clipped.  NO_ATTACK_WARNING
+	// in an object's KindOf says damage to it is not news - no ping, no glow, no EVA line.
+	//
+	if( obj->isKindOf( KINDOF_NO_ATTACK_WARNING ) )
+		return;
+
 	// try to create the event
 	Bool eventCreated = tryEvent( RADAR_EVENT_UNDER_ATTACK, obj->getPosition() );
 

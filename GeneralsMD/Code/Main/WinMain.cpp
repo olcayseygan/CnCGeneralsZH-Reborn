@@ -743,7 +743,10 @@ static Bool initializeAppWindows( HINSTANCE hInstance, Int nCmdShow, Bool runWin
 	else if (ApplicationIsBorderless)
 		windowStyle |= WS_SYSMENU;	// no caption, no frame; system menu so alt+F4 still closes it
 	else if (runWindowed)
-		windowStyle |= WS_DLGFRAME | WS_CAPTION | WS_SYSMENU;
+		// WS_MINIMIZEBOX: a windowed game should have the button every other window has.  Without it
+		// the only way out of the window was alt+tab, and the system menu offered a Minimise entry
+		// that did nothing.
+		windowStyle |= WS_DLGFRAME | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 	else
 		windowStyle |= WS_EX_TOPMOST | WS_SYSMENU;
 

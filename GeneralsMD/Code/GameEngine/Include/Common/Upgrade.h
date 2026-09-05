@@ -59,7 +59,7 @@ enum UpgradeStatusType
 // field, so raising it costs 48 bytes per player and per object that carries one.
 #define UPGRADE_MAX_COUNT 512
 
-typedef BitFlags<UPGRADE_MAX_COUNT>	UpgradeMaskType;
+typedef BitFlags<UPGRADE_MAX_COUNT, 6>	UpgradeMaskType;
 
 #define MAKE_UPGRADE_MASK(k) UpgradeMaskType(UpgradeMaskType::kInit, (k))
 #define MAKE_UPGRADE_MASK2(k,a) UpgradeMaskType(UpgradeMaskType::kInit, (k), (a))
