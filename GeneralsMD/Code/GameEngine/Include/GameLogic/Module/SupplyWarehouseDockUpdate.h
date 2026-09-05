@@ -49,6 +49,16 @@ public:
 
 	Int m_startingBoxesData;
 	Bool m_deleteWhenEmpty;
+
+	//
+	// A supply point refills itself, slowly, and faster the more of the base is built around it.
+	// A warehouse used to be a fixed lump of money that ran out and left the map with nothing left
+	// to fight over: whoever mined it out first had the game, and the second half of every match
+	// was played on the income two players could no longer earn.  Now it is ground worth holding.
+	//
+	UnsignedInt m_regenDelay;			///< frames a box takes with nothing built near it, 0 = never refills
+	Real m_regenRadius;						///< how close a cash building has to be to count
+	Int m_regenMaxBoxes;					///< ceiling, -1 for whatever it started with
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -73,10 +83,16 @@ public:
 	void setCashValue( Int cashValue );
 
 	virtual void onObjectCreated();
+	virtual UpdateSleepTime update();
+
+	/// how many cash buildings stand close enough to work this point
+	Int countNearbyCollectors( void ) const;
+
 protected:
 
 
 	Int m_boxesStored;
+	UnsignedInt m_nextRegenFrame;		///< when the next box arrives, 0 until the first one is scheduled
 
 };
 

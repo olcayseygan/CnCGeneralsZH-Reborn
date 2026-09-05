@@ -49,6 +49,17 @@ SupplyWarehouseDockUpdateModuleData::SupplyWarehouseDockUpdateModuleData( void )
 {
 	m_startingBoxesData = 1;
 	m_deleteWhenEmpty = FALSE;
+
+	//
+	// Forty seconds a box standing on its own, and every cash building inside 250 feet takes a
+	// share off that: one supply centre next to it halves the wait, two thirds it.  The numbers are
+	// module data rather than constants so a mod can turn the whole thing off with RegenDelay = 0,
+	// and the defaults apply to every warehouse the game already ships without touching one INI
+	// file - which matters, because the INI files are in the multiplayer checksum.
+	//
+	m_regenDelay = 40 * LOGICFRAMES_PER_SECOND;
+	m_regenRadius = 250.0f;
+	m_regenMaxBoxes = -1;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -62,6 +73,9 @@ SupplyWarehouseDockUpdateModuleData::SupplyWarehouseDockUpdateModuleData( void )
 	{
 		{ "StartingBoxes",	INI::parseInt,	NULL, offsetof( SupplyWarehouseDockUpdateModuleData, m_startingBoxesData ) },
 		{ "DeleteWhenEmpty",	INI::parseBool,	NULL, offsetof( SupplyWarehouseDockUpdateModuleData, m_deleteWhenEmpty ) },
+		{ "RegenDelay",				INI::parseDurationUnsignedInt, NULL, offsetof( SupplyWarehouseDockUpdateModuleData, m_regenDelay ) },
+		{ "RegenRadius",			INI::parseReal,	NULL, offsetof( SupplyWarehouseDockUpdateModuleData, m_regenRadius ) },
+		{ "RegenMaxBoxes",		INI::parseInt,	NULL, offsetof( SupplyWarehouseDockUpdateModuleData, m_regenMaxBoxes ) },
 		{ 0, 0, 0, 0 }
 	};
 
@@ -75,6 +89,7 @@ SupplyWarehouseDockUpdateModuleData::SupplyWarehouseDockUpdateModuleData( void )
 SupplyWarehouseDockUpdate::SupplyWarehouseDockUpdate( Thing *thing, const ModuleData* moduleData ) : DockUpdate( thing, moduleData )
 {
 	m_boxesStored = getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData;
+	m_nextRegenFrame = 0;
 }
 
 SupplyWarehouseDockUpdate::~SupplyWarehouseDockUpdate()
@@ -88,6 +103,90 @@ void SupplyWarehouseDockUpdate::onObjectCreated()
 	{
 		draw->updateDrawableSupplyStatus( getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData, m_boxesStored );
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** How many cash buildings stand close enough to work this supply point.
+	*
+	* Anybody's: the point is neutral ground and the question is how much of a base has grown around
+	* it, not whose.  Two players expanding onto the same patch both make it richer and then have to
+	* decide which of them keeps it, which is the whole reason for putting the money back. */
+//-------------------------------------------------------------------------------------------------
+Int SupplyWarehouseDockUpdate::countNearbyCollectors( void ) const
+{
+	const SupplyWarehouseDockUpdateModuleData *data = getSupplyWarehouseDockUpdateModuleData();
+	if( data->m_regenRadius <= 0.0f || ThePartitionManager == NULL )
+		return 0;
+
+	Object *self = (Object *)getObject();
+
+	PartitionFilterAlive fAlive;
+	PartitionFilterSameMapStatus fMap( self );
+	PartitionFilter *filters[] = { &fAlive, &fMap, NULL };
+
+	SimpleObjectIterator *iter =
+		ThePartitionManager->iterateObjectsInRange( self, data->m_regenRadius, FROM_CENTER_2D, filters );
+	MemoryPoolObjectHolder hold( iter );
+
+	Int count = 0;
+	for( Object *o = iter->first(); o; o = iter->next() )
+	{
+		if( o == self || !o->isKindOf( KINDOF_CASH_GENERATOR ) )
+			continue;
+		if( o->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION ) || o->testStatus( OBJECT_STATUS_SOLD ) )
+			continue;			// a half-built centre is not working anything yet
+		++count;
+	}
+
+	return count;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Put a box back now and then, faster the more of a base has grown around this point. */
+//-------------------------------------------------------------------------------------------------
+UpdateSleepTime SupplyWarehouseDockUpdate::update()
+{
+	UpdateSleepTime ret = DockUpdate::update();
+
+	const SupplyWarehouseDockUpdateModuleData *data = getSupplyWarehouseDockUpdateModuleData();
+	if( data->m_regenDelay == 0 )
+		return ret;
+
+	Int ceiling = data->m_regenMaxBoxes;
+	if( ceiling < 0 )
+		ceiling = data->m_startingBoxesData;
+	if( m_boxesStored >= ceiling )
+	{
+		m_nextRegenFrame = 0;			// full: the clock starts again when somebody takes one
+		return ret;
+	}
+
+	const UnsignedInt now = TheGameLogic->getFrame();
+
+	//
+	// The wait is worked out once, when the clock starts - counting what is standing around is a
+	// range query and a supply point does not need one every frame.  So a centre built while a box
+	// is already on its way speeds up the box after it rather than the one in flight, which nobody
+	// can see and which saves an eighth of a millisecond a frame on a map full of warehouses.
+	//
+	if( m_nextRegenFrame == 0 )
+	{
+		const Int collectors = countNearbyCollectors();
+		const UnsignedInt wait = data->m_regenDelay / (UnsignedInt)( collectors + 1 );
+		m_nextRegenFrame = now + ( wait > 0 ? wait : 1 );
+	}
+
+	if( now < m_nextRegenFrame )
+		return ret;
+
+	++m_boxesStored;
+	m_nextRegenFrame = 0;			// re-measured against the new count next time round
+
+	Drawable *draw = getObject()->getDrawable();
+	if( draw )
+		draw->updateDrawableSupplyStatus( data->m_startingBoxesData, m_boxesStored );
+
+	return ret;
 }
 
 Bool SupplyWarehouseDockUpdate::action( Object* docker, Object *drone )
@@ -220,7 +319,7 @@ void SupplyWarehouseDockUpdate::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 1;
+	XferVersion currentVersion = 2;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -229,6 +328,12 @@ void SupplyWarehouseDockUpdate::xfer( Xfer *xfer )
 
 	// boxes stored
 	xfer->xferInt( &m_boxesStored );
+
+	// when the next box arrives (version 2)
+	if( version >= 2 )
+		xfer->xferUnsignedInt( &m_nextRegenFrame );
+	else
+		m_nextRegenFrame = 0;
 
 }  // end xfer
 
