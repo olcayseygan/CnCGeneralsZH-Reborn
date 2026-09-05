@@ -479,6 +479,8 @@ public:
 	Bool isQuickPathAvailable( const Coord3D *destination ) const;  ///< does a path (using quick pathfind) exist between us and the destination
 	Int getNumFramesBlocked(void) const {return m_blockedFrames;}
 	Bool isBlockedAndStuck(void) const {return m_isBlockedAndStuck;}
+	/// consecutive frames this unit has wanted to move without moving; see updateProgress
+	Int getNoProgressFrames(void) const {return m_noProgress;}
 
 	/* Lanes.  The route says where to go; the lane fraction says where across its width this unit
 		 rides while it goes there - 0 hard right, 1 hard left, 0.5 the centre line, which is where
@@ -515,6 +517,13 @@ public:
 			at the next one. Only read under -crowd. */
 	void setPendingCrowdLane( Int idx, Int of, Real spacing )
 		{ m_crowdLaneIdx = idx; m_crowdLaneOf = of; m_crowdLaneSpace = spacing; }
+
+	/** Out of the march. The slot deliberately outlives a route - a group that repaths halfway
+			across a map keeps its formation - so an order that hands out no lanes has to say so, or a
+			unit sent off on its own would still be riding the lane it was given as part of a group
+			that has since dispersed. */
+	void clearCrowdLane( void )
+		{ m_crowdLaneIdx = 0; m_crowdLaneOf = 0; m_crowdLaneSpace = 0.0f; m_hasPendingCrowdLat = FALSE; }
 	Real getCrowdLat( void ) const { return m_crowdLat; }
 	const CrowdCorridor *getCrowdCorridor( void ) const { return m_corridor; }
 	/** Which sample of its own band the unit was beside last frame.  Priority between two units is
@@ -751,6 +760,26 @@ private:
 	/// throw the measured band away; the next frame that needs one measures the new route
 	void crowdReleaseCorridor( void );
 
+	/** Is this unit getting anywhere?  One test, once a frame, for every unit that is trying to
+			drive somewhere, and the only place m_noProgress is written. */
+	void updateProgress( void );
+
+	/** And what to do when the answer has been no for long enough.  A ladder with a rung every
+			second and a half, ending in one that always does something, so no unit can want to move
+			and be ignored for longer than that.  The timing itself is `AIUpdate_stuckRung`, which is
+			a free function so a test can hold it to the promise. */
+	void stuckRescue( void );
+
+	/** TRUE when a rescue manoeuvre owns the steering this frame, in which case `goalPos` has been
+			replaced with where the unit is being sent and nothing else may touch it. */
+	Bool rescueSteer( Coord3D& goalPos );
+
+	/// Give up on the current route and ask the move state for a fresh one to the same place.
+	void crowdRepath( void );
+
+	/// Tell whoever is queued right behind us to make room, so we can back out of a jam.
+	void crowdAskBehindToBackOff( const Coord2D& tan );
+
 	/// TRUE when `other` gets the line and we are the one who has to do something about it
 	Bool crowdOutranksMe( Object *other ) const;
 
@@ -820,11 +849,22 @@ private:
 	Real				m_crowdSepSmooth;						///< -crowd: low-passed sideways push from the neighbours.
 	Real				m_crowdAim;									///< -crowd: low-passed direction the steering point is taken in, radians.
 	Bool				m_crowdAimValid;						///< -crowd: FALSE until the filter has something to start from.
-	Int					m_crowdStuck;								///< -crowd: consecutive frames spent wanting to move and not moving.
-	Coord3D			m_crowdLastPos;							///< -crowd: where we were last frame, which is how the above is counted.
-	Coord3D			m_crowdEscape;							///< -crowd: the free ground a wedged unit is backing out to.
-	UnsignedInt	m_crowdEscapeUntil;					///< -crowd: frame that manoeuvre gives up (0 = not backing out).
-	UnsignedInt	m_crowdEscapeCool;					///< -crowd: no second one before this frame.
+	/* Being stuck, and getting out of it.  None of this is behind -crowd: a unit that has stopped
+			without a collision to show for it is not a crowd problem, it is the problem, and until this
+			was pulled out of the crowd model it was only ever asked about units that happened to have
+			been handed a lane by a group order. */
+	Int					m_noProgress;								///< consecutive frames wanting to move, not moving, not turning either.
+	Coord3D			m_lastProgressPos;					///< where we were last frame, which is how the above is counted.
+	Real				m_lastProgressAngle;				///< and which way we were pointing, because coming about is progress too.
+	/* Dithering: driving a long way and getting nowhere, which the frame by frame test above cannot
+			see because the unit is moving on every one of those frames. */
+	Coord3D			m_ditherFrom;								///< where the current window opened.
+	UnsignedInt	m_ditherFrame;							///< and when.
+	Real				m_ditherTravel;							///< how much ground has actually been covered since, path length not displacement.
+	Int					m_rescueStage;							///< how far up the rescue ladder this episode has climbed.
+	Coord3D			m_rescueTo;									///< the free ground a wedged unit is backing out to.
+	UnsignedInt	m_rescueUntil;							///< frame that manoeuvre gives up (0 = not backing out).
+	UnsignedInt	m_rescueCool;								///< no second drastic thing before this frame.
 	Real				m_bumpSpeedLimit;						///< Max speed after bumping a unit.
 	UnsignedInt	m_ignoreCollisionsUntil;		///< Timer to cheat if we get stuck.
 	/**
@@ -903,6 +943,24 @@ private:
 	Bool				m_isInUpdate;								///< If true, we are inside our update method.
 	Bool				m_fixLocoInPostProcess;		
 };
+
+/** Which rung of the rescue ladder a unit takes next, given how long it has wanted to move without
+		moving and how far up the ladder this episode has already climbed.
+
+		0 is "nothing yet", 1 asks for another route, 2 asks the neighbours to move and stops bouncing
+		off them, 3 backs the body out, and -1 says start again from the bottom.  It is a free function
+		with no state so the promise it makes can be tested rather than believed: the rungs come in
+		order, none is skipped, and the ladder never stops offering one. */
+extern Int AIUpdate_stuckRung( Int noProgressFrames, Int stageDone );
+
+/** Has this unit driven a long way and got nowhere?
+
+		`travelled` is the ground actually covered over the window, `net` the straight line from where
+		it started to where it ended, and `bodySize` the unit's own diameter.  A unit going somewhere
+		has a net close to its travel; one shuffling back and forth beside a building has a travel of
+		several body lengths and a net of almost nothing.  The body-size floor is what keeps a unit
+		that is simply slow, or stopped, out of it: those are the other test's business. */
+extern Bool AIUpdate_isDithering( Real net, Real travelled, Real bodySize );
 
 //------------------------------------------------------------------------------------------------------------
 // Inlines

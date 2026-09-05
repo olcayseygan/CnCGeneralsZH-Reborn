@@ -71,8 +71,22 @@ enum
 	CROWD_BRIDGE_SEAL			= 6,
 
 	/// how far ahead of itself a unit steers, in cells, before its own body length is added
-	CROWD_LOOKAHEAD_CELLS	= 2
+	CROWD_LOOKAHEAD_CELLS	= 2,
+
+	/* The most lanes a group is ever laid out in, whatever the ground says.  Fitting the count to
+		 the band every frame took the old fixed cap off, and on open country that is a group of
+		 twenty arriving as a line twenty abreast: the front is wider than anything it is walking
+		 into, the flanks take the whole map's worth of fire before the middle is in range, and a
+		 rank that wide cannot get through the first gap without renumbering itself completely.
+		 Five is the widest that still fits through a base entrance without a re-fit, so the group
+		 keeps its shape from the field to the door. */
+	CROWD_MAX_LANES				= 5
 };
+
+/** How many lanes to lay across `span` of drivable ground, `spacing` apart: what the ground holds,
+		capped at CROWD_MAX_LANES, and never more lanes than there are bodies to put in them
+		(`members` of 0 means the caller counts them itself). */
+extern Int Crowd_laneCount( Real span, Real spacing, Int members );
 
 /**
  * A route, sampled, with the width of the drivable ground either side of every sample.
@@ -132,9 +146,21 @@ public:
 	/// `lat`, cut down to what the ground allows at distance `along`
 	Real clampLatAt( Real along, Real lat ) const;
 
+	/** `lat`, cut down to the tightest the ground gets anywhere between `from` and `to`.
+
+			Clamping at the two ends only is what lets a unit aim across a corner: both the point it is
+			standing on and the point it is steering at are comfortably inside the band, and the pinch
+			between them is not consulted by either.  The unit then drives the straight line between
+			them, which goes through the building on the corner.  This is the cheap version of a line
+			of sight test - no cell lookups, just the samples that were measured when the band was
+			built. */
+	Real clampLatNarrowest( Real from, Real to, Real lat ) const;
+
 	/** Build from a plain polyline, with the same width everywhere: for tests, which have no Object,
-			no pathfinder and no ground to probe.  `layers`, when given, is one entry per point. */
-	void buildForTest( const Coord3D *pts, Int count, Real halfWidth, const PathfindLayerEnum *layers = NULL );
+			no pathfinder and no ground to probe.  `layers`, when given, is one entry per point, and so
+			is `halfWidths`, which overrides the single width where a test needs a pinch in the road. */
+	void buildForTest( const Coord3D *pts, Int count, Real halfWidth,
+										 const PathfindLayerEnum *layers = NULL, const Real *halfWidths = NULL );
 
 	/// close the band on every bridge deck and on the ground either side of one
 	void sealBridges( void );

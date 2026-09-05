@@ -457,6 +457,26 @@ found and fixed â€” EA's own, not port damage.**
 - A transport told to load into something it cannot enter - or into itself, which happens when it is part of the group you gave the order to - ignores the order instead of flying over and hovering beside it.
 - A pilot ejecting from a wreck no longer plays a promotion sound and animation somewhere out in the map.
 - A sound finishing does not take the game with it. Every sound carries a description of itself, and that description can be gone by the time the sound ends - it is dropped when the sound is renamed, cleared by hand when what it points at is about to be deleted, and absent on a sound that was queued to repeat after a delay. The 2003 code checked for that in two places and then read straight through it in fifteen others, one of which is where every finished sound goes. It crashed mid-match with a stack that is all audio and names nothing that caused it. A sound with no description is now simply not music and not speech, which is what all fifteen questions were asking; the channel it was using is still handed back, because losing one leaks a voice for the rest of the match and enough of them go quiet.
+- A guard posted at a tunnel network no longer takes the game down when its target stops existing.
+  EA's own copy of that function, the one for units guarding anywhere else, tests for it on its first
+  line; the tunnel copy read straight through the missing pointer and crashed mid-match.
+- Alt-tabbing out no longer kills the game if something needs loading while you are away. The
+  simulation keeps running while the window is not drawing, so a script can drop reinforcements in,
+  and the new unit's model asks for a texture that cannot be made because there is no graphics device
+  to make it on. The failure came back as a success with nothing attached, and the next line of code
+  used it. Two lines apart in the log: "Are we ALT-Tabbed out?" and the crash. A load that produces
+  nothing is now a failed load, which the game has always known how to handle, and the texture is
+  rebuilt when the device comes back.
+- A bad line in a data file says which line. The startup error for an unparseable block named the
+  line the block began on, which is almost never the line that is wrong, so the answer was "one of
+  these nine fields, good luck". It now also reports the line it got to and what was on it.
+- A crash inside somebody else's code now says whose. Every line of the stack that is not ours used
+  to read "Unknown" and a bare address, so a fault inside a graphics driver looked exactly like a
+  fault inside the game. Those lines now carry the file the address belongs to and the offset into
+  it, which is the difference between a report that can be acted on and one that cannot.
+- The game says so in the log when the graphics device is lost, which is what happens when you
+  alt-tab out. The recovery after that is the riskiest thing the renderer does, and until now it
+  left no trace at all in a shipping build.
 - Something going wrong now writes a readable crash report.
 
 ## Units take corners wide, and drive round a jam instead of into it
@@ -508,6 +528,85 @@ found and fixed â€” EA's own, not port damage.**
   behind another unit fell 31%. Over six 4v4 battles, where every unit is on one of two fronts, it
   fell 38%, units left properly stuck fell by half, and the worst single frame of a match went from
   30.6 milliseconds to 9.9.
+- A corner now costs what the vehicle takes to turn it. Every turn used to be priced the same,
+  whether the thing making it pivots on the spot or needs a second and a half to swing a hull round,
+  and the very first turn of a route was free: the one out of where the unit is standing at the
+  moment you give the order. That is why a column ordered forward would sometimes set off by turning
+  round, and why a tank was handed corners it had to stop, reverse and grind through. A turn is
+  charged at what that hull actually takes now, and the first step is charged against the way the
+  unit is already pointing. Twelve matches on the same twelve maps: time spent standing behind
+  another unit down 38%, time spent properly wedged rather than merely queuing down from 11.3 to 0.3
+  unit-frames a match, and the routing itself 20% cheaper to work out, because a route a vehicle can
+  drive is a route it does not come back and ask to have redone.
+- A group crossing open ground no longer arrives twenty abreast. Measuring the road is what stopped
+  a dozen tanks driving down a two-lane street in single file, and with nothing capping it the same
+  measurement turned an open field into a firing line wider than anything the group was walking
+  into. Five lanes is the ceiling: still a front on open ground, still narrow enough to go through a
+  base entrance without the whole group renumbering itself sideways at the gate.
+- Attack-move spreads out the way a plain move does. It is the order that expects to be interrupted,
+  and it was the one order that handed nobody a place in the formation, so a group told to fight its
+  way across the map went in single file while the same group told to walk there arrived as a front.
+- A group that has to find a new way round keeps its shape. Any new route used to drop a unit out of
+  its formation permanently: it held its place until the first thing that made it re-plan, and drove
+  down the middle of the road on its own from there on. Arriving is what ends a formation now.
+- A unit stuck behind a unit that is never going to move asks for a different route. It tries both
+  sides of the blockage first, and the outside of the whole pack, and where the road genuinely has no
+  room it now stops steering around the problem and plans another way there. The squares the jam is
+  standing on are already expensive by then, so the new route goes round it. A unit that has been
+  getting nowhere for a third of a second also used to stop looking for a way past at exactly the
+  moment it needed one; only the politeness stops now, and the looking carries on.
+- Backing out of a wedge asks the queue behind to make room first, rather than reversing into it, and
+  the unit plans a fresh route once it is out instead of driving back into the hole it just left.
+- Units keep their distance from each other and not only from whoever is exactly alongside them. A
+  neighbour half a body ahead and half a body over, closing, is the collision nothing used to see
+  coming, and it is now worth a foot of road before it is worth a stop.
+- Units no longer stop dead for traffic that was never going to hit them. Something crossing your
+  path at an angle is not something sitting in your lane, and for one build it was priced as though
+  it were: the brake reads how fast the obstruction is travelling along your route, which for a unit
+  crossing it is nothing at all, so a jeep driving across a road brought the column on it to a
+  standstill. Crossing traffic now costs a lift off the throttle, and only a unit genuinely in the
+  way can ask for a stop.
+- A unit turning on the spot is not a unit that is stuck. A heavy hull takes two seconds to come
+  about and covers no ground doing it, which the jam detector counted as being wedged, so tanks
+  halfway through a turn decided they were trapped and reversed out of a jam that did not exist.
+- A unit aims at a point it can actually drive to. The steering point sits a couple of squares
+  ahead and off to the side of the route, and it used to be checked against the width of the road
+  where the unit is standing and the width where it is aiming, but not against the gap in between.
+  Both ends being wide is not the same as the middle being wide, and the straight line between them
+  went through the corner of the building the route had gone round. That is what catching on
+  scenery looked like from the inside.
+- Those three together, over eight battles on the same eight maps with forty units moved as one
+  group every twenty seconds: time spent standing behind another unit down 7%, and no stutter added
+  to the worst frames of a match. One map of the eight got worse, which is written down rather than
+  averaged away.
+- A unit that has stopped and wants to move is never left to it. The game now checks, once a frame
+  and for every unit under orders, whether it is actually getting anywhere, and when the answer has
+  been no for a second and a half it does something about it: first a fresh route from where the
+  unit is standing, then telling whoever is crowding it to move and letting it push through, then
+  backing the body out to open ground. If it is still stuck after all that, the whole sequence runs
+  again rather than giving up. None of this waits for a collision, which is what the old machinery
+  needed and what a unit stuck on scenery never produces.
+- This is not a promise that units never get stuck. A unit walled in by buildings has nowhere to be
+  sent, and no amount of steering makes ground that is not there. What it is is a promise that
+  nothing is ignored: over twenty test battles, the longest any single unit spent wanting to move
+  and not moving was 2.9 seconds in ordinary play, and 3.4 in a battle deliberately set up to jam.
+  That number is measured at the end of every test run, so if it ever grows the run says so.
+- Units that go back and forth on the spot are counted now, which is the first step to fixing them.
+  A unit shuffling beside a building is moving on every single frame, so nothing in the game noticed
+  it: the jam detector wants a unit that has stopped. Ground covered against ground gained over three
+  seconds catches it instead, and about fifteen units a battle turn out to do it. Nothing is done
+  about it yet on purpose. Three cures were tried and measured, and all three cost more than they
+  saved: backing the unit out made everything a third worse, and forbidding it to change its mind
+  for three seconds made it queue instead. The count ships so the next attempt has a number to beat.
+- The plain version of the same question, asked of orders rather than of units: forty units sent
+  across the map at once, checked twenty seconds later, 525 orders over eight maps. Of the units
+  still carrying that order, one had not got going at all. Not one in a hundred: one. That is the
+  figure this work is held to from now on, and every test run prints it along with the reason each
+  stalled unit gave. Over those eight battles, no unit anywhere failed to move because no route
+  could be found for it, and none was jammed against another unit for a whole twenty seconds.
+- Jams in the heavy test fell 14% against the build from before all of this, and in ordinary play
+  the whole of it costs nothing measurable: same number of routes planned, same time spent planning
+  them.
 
 ## Long orders stopped hitching
 

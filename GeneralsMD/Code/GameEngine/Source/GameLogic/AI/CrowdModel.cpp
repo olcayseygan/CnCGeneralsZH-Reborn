@@ -359,6 +359,34 @@ void CrowdCorridor::pointAt( Real along, Real lat, Coord3D *out ) const
 }
 
 //-------------------------------------------------------------------------------------------------
+Real CrowdCorridor::clampLatNarrowest( Real from, Real to, Real lat ) const
+{
+	if (to < from)
+	{
+		const Real swap = from;
+		from = to;
+		to = swap;
+	}
+
+	lat = clampLatAt( from, lat );
+	lat = clampLatAt( to, lat );
+
+	// and every whole sample in between, which is where the pinch that neither end can see lives
+	const Int n = (Int)m_samples.size();
+	for (Int k = 0; k < n; k++)
+	{
+		const Sample& s = m_samples[ k ];
+		if (s.along <= from)
+			continue;
+		if (s.along >= to)
+			break;
+		if (lat > s.left) lat = s.left;
+		if (lat < -s.right) lat = -s.right;
+	}
+	return lat;
+}
+
+//-------------------------------------------------------------------------------------------------
 Real CrowdCorridor::clampLatAt( Real along, Real lat ) const
 {
 	Real f = 0.0f;
@@ -374,7 +402,8 @@ Real CrowdCorridor::clampLatAt( Real along, Real lat ) const
 }
 
 //-------------------------------------------------------------------------------------------------
-void CrowdCorridor::buildForTest( const Coord3D *pts, Int count, Real halfWidth, const PathfindLayerEnum *layers )
+void CrowdCorridor::buildForTest( const Coord3D *pts, Int count, Real halfWidth,
+																	const PathfindLayerEnum *layers, const Real *halfWidths )
 {
 	m_samples.clear();
 	if (pts == NULL || count < 2)
@@ -406,12 +435,29 @@ void CrowdCorridor::buildForTest( const Coord3D *pts, Int count, Real halfWidth,
 		s.pos = pts[ k ];
 		s.tan.x = dx;
 		s.tan.y = dy;
-		s.left = halfWidth;
-		s.right = halfWidth;
+		s.left = halfWidths ? halfWidths[ k ] : halfWidth;
+		s.right = halfWidths ? halfWidths[ k ] : halfWidth;
 		s.along = along;
 		s.layer = layers ? layers[ k ] : LAYER_GROUND;
 		m_samples.push_back( s );
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+Int Crowd_laneCount( Real span, Real spacing, Int members )
+{
+	if (spacing < 0.001f)
+		return 1;
+
+	// centres, so a span exactly one spacing wide is two lanes and a span of nothing is still one
+	Int lanes = (Int)(span / spacing) + 1;
+	if (lanes > CROWD_MAX_LANES)
+		lanes = CROWD_MAX_LANES;
+	if (members > 0 && lanes > members)
+		lanes = members;
+	if (lanes < 1)
+		lanes = 1;
+	return lanes;
 }
 
 //-------------------------------------------------------------------------------------------------

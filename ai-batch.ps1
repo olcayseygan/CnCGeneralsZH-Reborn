@@ -93,7 +93,12 @@ for ($i = 0; $i -lt $Runs; $i++) {
 	# rather than an AI against an idle human seat (see the observer note in setupAutoSkirmish).
 	# -multiInstance: the single-instance guard counts a headless run as "Generals is already
 	# running" and bails at once, so a batch cannot be measured while a copy of the game is open
-	$args = @("-headless", "-quickstart", "-noshellmap", "-observer", "-multiInstance")
+	# -noFPSLimit uncaps the renderer. A headless run has no renderer and already ticks its logic
+	# every pass, so it changes nothing here; it is passed anyway so that dropping -headless (which
+	# is how a renderer or stutter question is measured) does not quietly put the run back behind
+	# the monitor's refresh. Game speed is untouched - that is -fps, and moving it would make this
+	# batch incomparable with every earlier one.
+	$args = @("-headless", "-quickstart", "-noshellmap", "-observer", "-multiInstance", "-noFPSLimit")
 	if ($Map) {
 		# -map wants the path the map cache holds, and WinMain's tokenizer honours double quotes -
 		# which every shipped map name needs, because they all have a space in them.
@@ -138,7 +143,9 @@ for ($i = 0; $i -lt $Runs; $i++) {
 	# what the pathfinder did over the whole match, for comparing a pathing change against its
 	# baseline: search time and count say what it cost, nopath/outofcells say whether it broke,
 	# blocked/stuck say whether the traffic jams it was aimed at actually got shorter
-	$pf = [pscustomobject]@{ FindMs = 0.0; Finds = 0; Expands = 0; NoPath = 0; OutOfCells = 0; Blocked = 0; Stuck = 0 }
+	$pf = [pscustomobject]@{ FindMs = 0.0; Finds = 0; Expands = 0; NoPath = 0; OutOfCells = 0; Blocked = 0; Stuck = 0
+													 Wedge = 0; WedgeWorst = 0; Escapes = 0; Repaths = 0
+													 Dithers = 0; Orders = 0; Arrived = 0; Stalled = 0 }
 	# THREADING-ROADMAP.md section 0: the per-scope frame cost, present only in a PERF_TIMERS
 	# build (-Exe generals_perf.exe), and the job pool's own report, present in every build.
 	$perf = @{}
@@ -171,6 +178,12 @@ for ($i = 0; $i -lt $Runs; $i++) {
 			$why = $Matches[1]
 			$frames = [int]$Matches[2]
 		}
+		elseif ($line -match "HEADLESS DRILL: orders (\d+) arrived (\d+) stalled (\d+)") {
+			# -groupdrill only: did the units that were marched across the map get there
+			$pf.Orders = [int]$Matches[1]
+			$pf.Arrived = [int]$Matches[2]
+			$pf.Stalled = [int]$Matches[3]
+		}
 		elseif ($line -match "HEADLESS PATHFIND: (.*)") {
 			$report = $Matches[1]
 			# "queue 6000x/47 find 2313x/0 ... expand 11414x | nopath 0 outofcells 0 blocked 17 stuck 0"
@@ -188,6 +201,13 @@ for ($i = 0; $i -lt $Runs; $i++) {
 			if ($report -match "outofcells (\d+)")        { $pf.OutOfCells = [int]$Matches[1] }
 			if ($report -match "blocked (\d+)")           { $pf.Blocked = [int]$Matches[1] }
 			if ($report -match "stuck (\d+)")             { $pf.Stuck = [int]$Matches[1] }
+			# the crowd model's own three: a unit stopped with nothing to blame it on, the backing-out
+			# manoeuvres that answers, and the routes given up on entirely
+			if ($report -match "wedge (\d+)")             { $pf.Wedge = [int]$Matches[1] }
+			if ($report -match "worst (\d+)")             { $pf.WedgeWorst = [int]$Matches[1] }
+			if ($report -match "escape (\d+)")            { $pf.Escapes = [int]$Matches[1] }
+			if ($report -match "repath (\d+)")            { $pf.Repaths = [int]$Matches[1] }
+			if ($report -match "dither (\d+)")            { $pf.Dithers = [int]$Matches[1] }
 		}
 		elseif ($line -match "HEADLESS PLAYER (\d+) '(.*?)': (\w+) \| score (\d+) \| money (\d+) earned (\d+) spent \| units (\d+) built (\d+) lost (\d+) killed peak (\d+)") {
 			$slots[[int]$Matches[1]] = [pscustomobject]@{
@@ -259,6 +279,29 @@ if ($pfRows.Count -gt 0) {
 	$totFrames = ($pfRows | Measure-Object Frames -Sum).Sum
 	$totBlocked = ($pfRows | ForEach-Object { $_.Pf.Blocked } | Measure-Object -Sum).Sum
 	Write-Host ("blocked unit-frames per 1000 logic frames: {0:n1}" -f (1000.0 * $totBlocked / $totFrames))
+
+	# and the half of it a collision never sees: stopped with nothing to blame, and what was done
+	# about it. Only the crowd model counts these, so a run without -crowd reports zeroes.
+	$totWedge = ($pfRows | ForEach-Object { $_.Pf.Wedge } | Measure-Object -Sum).Sum
+	# the worst is the one that matters: the rescue ladder promises nothing is left wanting to move
+	# and not moving for longer than its own cycle, and this is the number that holds it to it
+	$worstWedge = ($pfRows | ForEach-Object { $_.Pf.WedgeWorst } | Measure-Object -Maximum).Maximum
+	Write-Host ("wedged unit-frames per 1000 logic frames: {0:n1} | worst single wedge {1} frames ({2:n1}s) | escapes {3} repaths {4} dithers {5} per match" -f
+		(1000.0 * $totWedge / $totFrames),
+		$worstWedge, ($worstWedge / 30.0),
+		(& $avg { param($p) $p.Escapes }),
+		(& $avg { param($p) $p.Repaths }),
+		(& $avg { param($p) $p.Dithers }))
+
+	# -groupdrill only: the plainest question there is. Of every unit sent across the map, how many
+	# were still going when the next order came, and how many had stopped and stayed stopped.
+	$totOrders = ($pfRows | ForEach-Object { $_.Pf.Orders } | Measure-Object -Sum).Sum
+	if ($totOrders -gt 0) {
+		$totArrived = ($pfRows | ForEach-Object { $_.Pf.Arrived } | Measure-Object -Sum).Sum
+		$totStalled = ($pfRows | ForEach-Object { $_.Pf.Stalled } | Measure-Object -Sum).Sum
+		Write-Host ("group orders: {0:n0} scored, {1:n1}% reached the destination, {2:n1}% never got going" -f
+			$totOrders, (100.0 * $totArrived / $totOrders), (100.0 * $totStalled / $totOrders))
+	}
 }
 
 # Stability. A mean frame time is the statistic that hides a stutter, so this reports the tail:
@@ -319,5 +362,10 @@ $rows | Select-Object Seed, Cells, Why, Frames, Wall,
 	@{n="NoPath";e={ if ($_.Pf) { $_.Pf.NoPath } }},
 	@{n="OutOfCells";e={ if ($_.Pf) { $_.Pf.OutOfCells } }},
 	@{n="Blocked";e={ if ($_.Pf) { $_.Pf.Blocked } }},
-	@{n="Stuck";e={ if ($_.Pf) { $_.Pf.Stuck } }} | Export-Csv -Path $csv -NoTypeInformation
+	@{n="Stuck";e={ if ($_.Pf) { $_.Pf.Stuck } }},
+	@{n="Wedge";e={ if ($_.Pf) { $_.Pf.Wedge } }},
+	@{n="WedgeWorst";e={ if ($_.Pf) { $_.Pf.WedgeWorst } }},
+	@{n="Escapes";e={ if ($_.Pf) { $_.Pf.Escapes } }},
+	@{n="Repaths";e={ if ($_.Pf) { $_.Pf.Repaths } }},
+	@{n="Dithers";e={ if ($_.Pf) { $_.Pf.Dithers } }} | Export-Csv -Path $csv -NoTypeInformation
 Write-Host "per-match rows: $csv"

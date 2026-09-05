@@ -57,7 +57,10 @@ $lastReplay = Join-Path $replayDir "00000000.rep"
 
 function Invoke-Run([string[]] $extra, [string] $prefix)
 {
-	$args = @("-headless", "-quickstart", "-noshellmap", "-multiInstance",
+	# -noFPSLimit for the same reason as in ai-batch.ps1: headless does not need it, and a run that
+	# has its window back must not be paced by the monitor. It cannot touch the logic, so the CRC
+	# this script compares is unaffected either way.
+	$args = @("-headless", "-quickstart", "-noshellmap", "-multiInstance", "-noFPSLimit",
 						"-maxframes", $MaxFrames, "-logPrefix", $prefix) + $extra + $ExtraArgs
 	$proc = Start-Process -FilePath $exePath -ArgumentList $args -WorkingDirectory $RunDir -PassThru
 	$proc.WaitForExit()

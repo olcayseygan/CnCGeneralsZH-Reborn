@@ -3839,8 +3839,154 @@ static const char *getModuleProfileReport( void )
 		rate means nothing at all.  The blocked unit-frames underneath it are the point, and they are
 		the first numbers this fork has ever had for the steering itself. */
 //-------------------------------------------------------------------------------------------------
+/* What the drill is for, in the end: were the units that were sent somewhere still trying to get
+	 there when the next order arrived, or had they stopped.  Blocked unit-frames say how much time
+	 was spent in traffic; this says whether the traffic was ever cleared.  One entry per unit per
+	 order, scored at the next tick and thrown away.
+
+	 "Stalled" is deliberately not "did not arrive".  Forty units sent to one point cannot all stand
+	 on it, and a unit that spent the whole window fighting has not failed to move for want of a
+	 route.  It is "covered less than a tenth of the distance it was given", which is a unit that
+	 never got going at all. */
+struct DrillOrder
+{
+	ObjectID	id;
+	Coord3D		dest;
+	Real			startDist;
+};
+static std::vector<DrillOrder> theDrillOrders;
+static Int theDrillScored = 0;
+static Int theDrillArrived = 0;
+static Int theDrillStalled = 0;
+
+/* And why the stalled ones stalled.  "1.2% never got going" is a number to be held to; it is not
+	 an answer, and without this the only way to find out was to watch a match.  Every unit that
+	 scores as stalled is asked the six questions that can be asked from outside it, in the order
+	 that makes the answer unambiguous: the first one that fits is the reason. */
+enum
+{
+	DRILL_WHY_DISABLED = 0,		///< held, EMP'd, sold, whatever: not a movement answer
+	DRILL_WHY_NOSTATE,				///< not in a move state any more, so something else took the unit over
+	DRILL_WHY_NOPATH,					///< in a move state, no path and not waiting for one: the search failed
+	DRILL_WHY_WAITING,				///< still waiting for the pathfinder
+	DRILL_WHY_BLOCKED,				///< has a path and is being collided with
+	DRILL_WHY_SILENT,					///< has a path, nothing is touching it, and it is not moving
+	DRILL_WHY_COUNT
+};
+static const char *theDrillWhyName[ DRILL_WHY_COUNT ] =
+	{ "disabled", "nostate", "nopath", "waiting", "blocked", "silent" };
+static Int theDrillWhy[ DRILL_WHY_COUNT ];
+static char theDrillReport[ 256 ];
+
+const char *GroupDrill_report( void )
+{
+	Int len = sprintf( theDrillReport, "orders %d arrived %d stalled %d",
+										 theDrillScored, theDrillArrived, theDrillStalled );
+	for( Int w = 0; w < DRILL_WHY_COUNT; w++ )
+		len += sprintf( theDrillReport + len, " %s %d", theDrillWhyName[ w ], theDrillWhy[ w ] );
+	return theDrillReport;
+}
+
+void GroupDrill_reset( void )
+{
+	theDrillOrders.clear();
+	theDrillScored = 0;
+	theDrillArrived = 0;
+	theDrillStalled = 0;
+	for( Int w = 0; w < DRILL_WHY_COUNT; w++ )
+		theDrillWhy[ w ] = 0;
+}
+
+/** Why is this unit, which was sent somewhere twenty seconds ago and has not moved, not moving. */
+static Int groupDrillWhyStalled( Object *obj )
+{
+	AIUpdateInterface *ai = obj->getAIUpdateInterface();
+	if (ai == NULL || obj->isDisabled())
+		return DRILL_WHY_DISABLED;
+
+	const AIStateType state = ai->getAIStateType();
+	if (state != AI_MOVE_TO && state != AI_ATTACK_MOVE_TO && state != AI_MOVE_AND_TIGHTEN
+			&& state != AI_FOLLOW_PATH && state != AI_MOVE_OUT_OF_THE_WAY)
+		return DRILL_WHY_NOSTATE;
+
+	if (ai->isWaitingForPath())
+		return DRILL_WHY_WAITING;
+	if (ai->getPath() == NULL)
+		return DRILL_WHY_NOPATH;
+	if (ai->getNumFramesBlocked() > 0)
+		return DRILL_WHY_BLOCKED;
+	return DRILL_WHY_SILENT;
+}
+
+static void groupDrillScorePrevious( void )
+{
+	const Real arriveDist = PATHFIND_CELL_SIZE_F * 12.0f;
+
+	for (std::vector<DrillOrder>::iterator it = theDrillOrders.begin(); it != theDrillOrders.end(); ++it)
+	{
+		Object *obj = TheGameLogic->findObjectByID( it->id );
+		if (obj == NULL || obj->isEffectivelyDead())
+			continue;						// died on the way: not a movement answer either way
+
+		/* Only units that were actually given a journey.  Forty units sent to a point they are
+			 already standing on shuffle a body length while the group re-forms, and against a starting
+			 distance of eight world units that shuffle reads as "went nowhere": four of the first
+			 seven stalls this ever reported were that. */
+		if (it->startDist < arriveDist * 2.0f)
+			continue;
+
+		const Coord3D *pos = obj->getPosition();
+		const Real dx = it->dest.x - pos->x;
+		const Real dy = it->dest.y - pos->y;
+		const Real now = (Real)sqrt( dx * dx + dy * dy );
+
+		AIUpdateInterface *ai = obj->getAIUpdateInterface();
+		const Bool doneWithIt = (ai == NULL) || (ai->getPath() == NULL && !ai->isWaitingForPath());
+
+		/* Arrived, and the second half of that is not pedantry either.  Forty units cannot stand on
+			 one point, so the ones that packed in around it are further from the middle than the
+			 radius allows while being exactly where they meant to stop.  A unit that has stopped
+			 trying and is inside a quarter of the distance it was given has arrived. */
+		if (now < arriveDist || (doneWithIt && now < it->startDist * 0.25f))
+		{
+			++theDrillScored;
+			++theDrillArrived;
+			continue;
+		}
+
+		/* Still ours?  The computer player goes on giving its teams orders of its own between drill
+			 ticks, and a unit sent somewhere else is not a unit that failed to get here.  Without this
+			 the stalled figure was two fifths of every order given, and most of that was the AI
+			 changing its mind rather than anything being stuck. */
+		Coord3D goal;
+		if (!TheAI->pathfinder()->goalPosition( obj, &goal ))
+			continue;
+		const Real gdx = goal.x - it->dest.x;
+		const Real gdy = goal.y - it->dest.y;
+		if ((Real)sqrt( gdx * gdx + gdy * gdy ) > PATHFIND_CELL_SIZE_F * 20.0f)
+			continue;
+
+		++theDrillScored;
+		if (now > it->startDist * 0.9f)
+		{
+			++theDrillStalled;
+			const Int why = groupDrillWhyStalled( obj );
+			++theDrillWhy[ why ];
+			DEBUG_LOG(("DRILLSTALL frame %d unit %d %s: %s, %.0f of %.0f left at %.0f,%.0f layer %d, blocked %d noprogress %d state %d\n",
+				TheGameLogic->getFrame(), (Int)it->id, obj->getTemplate()->getName().str(),
+				theDrillWhyName[ why ], now, it->startDist, pos->x, pos->y, (Int)obj->getLayer(),
+				ai ? ai->getNumFramesBlocked() : -1,
+				ai ? ai->getNoProgressFrames() : -1,
+				ai ? (Int)ai->getAIStateType() : -1));
+		}
+	}
+	theDrillOrders.clear();
+}
+
 static void groupDrillTick( void )
 {
+	groupDrillScorePrevious();
+
 	Region3D extent;
 	TheTerrainLogic->getExtent( &extent );
 	const Real inset = PATHFIND_CELL_SIZE_F * 8.0f;
@@ -3887,6 +4033,26 @@ static void groupDrillTick( void )
 		dest.z = TheTerrainLogic->getGroundHeight( dest.x, dest.y );
 
 		group->groupMoveToPosition( &dest, false, CMD_FROM_AI );
+
+		// and remember who was sent where, so the next tick can ask whether they got there
+		for( Object *member = TheGameLogic->getFirstObject(); member; member = member->getNextObject() )
+		{
+			if (!group->isMember( member ))
+				continue;
+			// the order itself skips these, so counting them as sent somewhere is counting a
+			// passenger in a transport as a unit that failed to drive there
+			if (member->isDisabledByType( DISABLED_HELD ) || member->isKindOf( KINDOF_IMMOBILE ))
+				continue;
+			const Coord3D *pos = member->getPosition();
+			const Real dx = dest.x - pos->x;
+			const Real dy = dest.y - pos->y;
+			DrillOrder order;
+			order.id = member->getID();
+			order.dest = dest;
+			order.startDist = (Real)sqrt( dx * dx + dy * dy );
+			theDrillOrders.push_back( order );
+		}
+
 		TheAI->destroyGroup( group );
 	}
 }

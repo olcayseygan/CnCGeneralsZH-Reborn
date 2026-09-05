@@ -1410,6 +1410,8 @@ static void updateHeadlessRun( void )
 		Pathfinder::resetMatchProfile();
 		// and -tracemove with no id picks its unit out of the match, not out of the shell map
 		AIUpdate_resetMoveTrace();
+		extern void GroupDrill_reset( void );
+		GroupDrill_reset();
 	}
 
 	const UnsignedInt frame = TheGameLogic->getFrame();
@@ -1471,6 +1473,16 @@ static void updateHeadlessRun( void )
 	// `outofcells` say whether it broke anything, `blocked`/`stuck` say whether it actually
 	// reduced the traffic jams it was supposed to reduce.
 	DEBUG_LOG(("HEADLESS PATHFIND: %s\n", Pathfinder::getMatchProfileReport()));
+
+	/* And under -groupdrill, the question the blocked counters cannot answer: of the units that were
+		 marched across the map, how many were still going when the next order came, and how many had
+		 stopped and stayed stopped.  Time spent in traffic is one thing; never getting there at all
+		 is the thing anybody actually complains about. */
+	if (TheGlobalData->m_groupDrill > 0)
+	{
+		extern const char *GroupDrill_report( void );
+		DEBUG_LOG(("HEADLESS DRILL: %s\n", GroupDrill_report()));
+	}
 
 	/* Stability, which is a different question from speed and is answered by the tail rather than
 		 by the average.  These two lines are the ones a stutter complaint is argued with. */

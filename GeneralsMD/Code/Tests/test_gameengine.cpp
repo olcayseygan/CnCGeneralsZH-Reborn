@@ -8761,6 +8761,149 @@ TEST(crowd_corridor_has_no_band_on_a_bridge_or_at_its_approaches)
 		CHECK_NEAR( plain.at( k ).left, 15.0f, 0.001f );
 }
 
+TEST(the_rescue_ladder_never_runs_out_of_rungs)
+{
+	/* The promise: a unit that wants to move and is not moving always has something tried on it, in
+		 order, and when the ladder runs out it starts again rather than going quiet.  Written against
+		 the shape rather than the frame counts, so tuning the thresholds does not break the test and
+		 skipping a rung does. */
+
+	// nothing at all while the unit is still getting somewhere
+	CHECK_EQ( AIUpdate_stuckRung( 0, 0 ), 0 );
+	CHECK_EQ( AIUpdate_stuckRung( 1, 0 ), 0 );
+
+	// long enough, and the rungs come one at a time and in order
+	CHECK_EQ( AIUpdate_stuckRung( 1000, 0 ), 1 );
+	CHECK_EQ( AIUpdate_stuckRung( 1000, 1 ), 2 );
+	CHECK_EQ( AIUpdate_stuckRung( 1000, 2 ), 3 );
+
+	// past the last one it restarts, and only after a further wait
+	CHECK_EQ( AIUpdate_stuckRung( 1000, 3 ), -1 );
+	CHECK_EQ( AIUpdate_stuckRung( 0, 3 ), 0 );
+
+	/* No rung is ever skipped and none is ever offered early: whatever the frame count, the answer
+		 is either nothing or exactly the next one up. */
+	for (Int stage = 0; stage <= 3; stage++)
+	{
+		Int seen = 0;
+		for (Int f = 0; f < 400; f++)
+		{
+			const Int rung = AIUpdate_stuckRung( f, stage );
+			CHECK( rung == 0 || rung == stage + 1 || rung == -1 );
+			if (rung != 0)
+				++seen;
+		}
+		// and the ladder always eventually offers something, at every stage including the last
+		CHECK( seen > 0 );
+	}
+}
+
+TEST(driving_a_long_way_and_gaining_nothing_is_not_the_same_as_being_slow)
+{
+	const Real body = 24.0f;			// a tank
+
+	// going somewhere: what it covered is what it gained
+	CHECK( !AIUpdate_isDithering( 200.0f, 210.0f, body ) );
+	CHECK( !AIUpdate_isDithering( 90.0f, 100.0f, body ) );
+
+	// round a corner, so some of the travel is spent turning: still going somewhere
+	CHECK( !AIUpdate_isDithering( 140.0f, 200.0f, body ) );
+
+	// back and forth beside a building: eight body lengths covered, half a body gained
+	CHECK( AIUpdate_isDithering( 12.0f, 200.0f, body ) );
+	CHECK( AIUpdate_isDithering( 0.0f, 100.0f, body ) );
+
+	/* Slow is not dithering and neither is stopped.  A unit that crept twenty units in three
+		 seconds has gained everything it covered, and one that never moved has covered nothing: both
+		 belong to the other test, and catching them here is what makes a rule fire on every unit
+		 politely slowing down to park. */
+	CHECK( !AIUpdate_isDithering( 20.0f, 20.0f, body ) );
+	CHECK( !AIUpdate_isDithering( 0.0f, 0.0f, body ) );
+	CHECK( !AIUpdate_isDithering( 1.0f, 30.0f, body ) );		// under two body lengths of travel
+
+	// and the floor scales with the body, so infantry are not held to a tank's yardstick
+	CHECK( AIUpdate_isDithering( 1.0f, 30.0f, 6.0f ) );
+}
+
+TEST(a_steering_point_is_clamped_by_the_pinch_it_has_to_drive_through)
+{
+	/* A straight road, wide at both ends and one body wide in the middle.  Clamping the aim point
+		 against the ground at either end says nothing is wrong with riding 30 units off the centre
+		 line, and the straight line between those two points goes through whatever is making the
+		 middle narrow.  That is a unit driving into the corner of a building on a route that went
+		 round it. */
+	Coord3D pts[ 7 ];
+	Real width[ 7 ];
+	for (Int k = 0; k < 7; k++)
+	{
+		pts[ k ].x = (Real)k * 10.0f;
+		pts[ k ].y = 0.0f;
+		pts[ k ].z = 0.0f;
+		width[ k ] = (k == 3) ? 4.0f : 40.0f;			// one sample of narrow ground in the middle
+	}
+
+	CrowdCorridor corr;
+	corr.buildForTest( pts, 7, 40.0f, NULL, width );
+	CHECK( !corr.isEmpty() );
+
+	// each end on its own allows the whole offset
+	CHECK_NEAR( corr.clampLatAt( 0.0f, 30.0f ), 30.0f, 0.001f );
+	CHECK_NEAR( corr.clampLatAt( 60.0f, 30.0f ), 30.0f, 0.001f );
+
+	// asked about the stretch that contains the pinch, it gives the pinch
+	CHECK_NEAR( corr.clampLatNarrowest( 0.0f, 60.0f, 30.0f ), 4.0f, 0.001f );
+	CHECK_NEAR( corr.clampLatNarrowest( 0.0f, 60.0f, -30.0f ), -4.0f, 0.001f );
+
+	// argument order does not matter, and a stretch past the pinch is not cut by it
+	CHECK_NEAR( corr.clampLatNarrowest( 60.0f, 0.0f, 30.0f ), 4.0f, 0.001f );
+	CHECK_NEAR( corr.clampLatNarrowest( 40.0f, 60.0f, 30.0f ), 30.0f, 0.001f );
+
+	// and it never widens anything: whatever comes back fits everywhere the walk looked
+	CHECK_NEAR( corr.clampLatNarrowest( 0.0f, 60.0f, 2.0f ), 2.0f, 0.001f );
+}
+
+TEST(a_group_is_never_more_than_five_lanes_wide)
+{
+	const Real body = 24.0f;			// about a tank, which is what the spacing is measured from
+
+	// the ground decides, up to the cap: two lanes of room is two lanes
+	CHECK_EQ( Crowd_laneCount( 0.0f, body, 0 ), 1 );
+	CHECK_EQ( Crowd_laneCount( body, body, 0 ), 2 );
+	CHECK_EQ( Crowd_laneCount( body * 3.0f, body, 0 ), 4 );
+
+	// and then it stops.  Open country is not a reason to arrive twenty abreast
+	CHECK_EQ( Crowd_laneCount( body * 4.0f, body, 0 ), 5 );
+	CHECK_EQ( Crowd_laneCount( body * 40.0f, body, 0 ), 5 );
+	CHECK_EQ( Crowd_laneCount( 100000.0f, body, 0 ), 5 );
+
+	// never more lanes than there are bodies to put in them
+	CHECK_EQ( Crowd_laneCount( body * 40.0f, body, 3 ), 3 );
+	CHECK_EQ( Crowd_laneCount( body * 40.0f, body, 9 ), 5 );
+
+	// degenerate inputs are one lane, not a division by zero or a negative count
+	CHECK_EQ( Crowd_laneCount( body * 4.0f, 0.0f, 4 ), 1 );
+	CHECK_EQ( Crowd_laneCount( -50.0f, body, 4 ), 1 );
+}
+
+TEST(a_turn_costs_what_the_hull_takes_to_swing_it)
+{
+	// chassis is the cost of one radian: a hull that drives 40 units while turning one radian
+	CHECK_EQ( Pathfinder_turnCost( 1.0f, 40, 60 ), 40 );
+	CHECK_EQ( Pathfinder_turnCost( 0.5f, 40, 60 ), 20 );
+
+	// the caps bite, and they are the two different ones the search uses
+	CHECK_EQ( Pathfinder_turnCost( 3.14159f, 40, 60 ), 60 );
+	CHECK_EQ( Pathfinder_turnCost( 3.14159f, 40, 28 ), 28 );
+
+	// a hull that turns on the spot pays nothing, and so does the switch being off
+	CHECK_EQ( Pathfinder_turnCost( 3.14159f, 0, 60 ), 0 );
+	CHECK_EQ( Pathfinder_turnCost( 0.0f, 40, 60 ), 0 );
+
+	// never negative, whatever it is handed
+	CHECK_EQ( Pathfinder_turnCost( -1.0f, 40, 60 ), 0 );
+	CHECK( Pathfinder_turnCost( 2.0f, 3, 60 ) >= 0 );
+}
+
 TEST(crowd_brake_only_reads_closing_time)
 {
 	const Int frames = 8;

@@ -45,6 +45,7 @@
 
 #include "GameLogic/AI.h"
 #include "GameLogic/AIPathfind.h"
+#include "GameLogic/CrowdModel.h"
 #include "GameLogic/Locomotor.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/BodyModule.h"
@@ -1618,10 +1619,23 @@ static Int crowdRoadLanes( Object *probe, const Coord3D& center, const Coord2D& 
 
 	*bias = (leftRoom - rightRoom) * 0.5f;
 
-	// centres, so a span exactly one spacing wide is two lanes and a span of nothing is still one
-	Int lanes = (Int)((leftRoom + rightRoom) / spacing) + 1;
-	if (lanes < 1) lanes = 1;
-	return lanes;
+	// the cap is CROWD_MAX_LANES and it is not the ground's opinion: see the comment on it
+	return Crowd_laneCount( leftRoom + rightRoom, spacing, 0 );
+}
+
+/** Take a member out of the crowd march.  A slot survives a repath - that is the whole point of it,
+		or a group that repaths mid-march loses its formation for the rest of the trip - so the only
+		thing that ends one is the next order, and this is where an order that hands out no lanes says
+		so.  Without it a unit ordered somewhere on its own would still be riding a lane it was given
+		as part of a group that no longer exists. */
+static void crowdClearLanes( std::list<Object *>& members )
+{
+	for (std::list<Object *>::iterator it = members.begin(); it != members.end(); ++it)
+	{
+		AIUpdateInterface *ai = (*it)->getAIUpdateInterface();
+		if (ai != NULL)
+			ai->clearCrowdLane();
+	}
 }
 
 /** Hand every member of a group the distance it should sit off the centre of the road, for the
@@ -1635,6 +1649,8 @@ static Int crowdRoadLanes( Object *probe, const Coord3D& center, const Coord2D& 
 		collision rules in AIUpdate::blockedBy - while reporting on the crowd model. */
 static void crowdSeedLanes( std::list<Object *>& members, const Coord3D& center, const Coord3D *pos )
 {
+	crowdClearLanes( members );		// whatever this order hands out replaces the last one entirely
+
 	Coord2D dir;
 	dir.x = pos->x - center.x;
 	dir.y = pos->y - center.y;
@@ -1898,6 +1914,8 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 	groupDir.y = pos->y - center.y;
 	const Coord3D groupCenter = center;
 	Bool spreadLanes = !TheGlobalData->m_noLanePath && groupDir.length() > 1.0f;
+	if (TheGlobalData->m_crowdModel)
+		crowdClearLanes( m_memberList );	// this order replaces the last one, spread or no spread
 	if (spreadLanes)
 	{
 		groupDir.normalize();
@@ -2631,6 +2649,13 @@ void AIGroup::groupAttackMoveToPosition( const Coord3D *pos, Int maxShotsToFire,
 	Coord2D min;
 	Coord2D max;
 	getMinMaxAndCenter( &min, &max, &center );
+
+	/* An attack move is a march that expects to be interrupted, which is exactly the order that
+		 wants the crowd model and was not getting it: nothing here handed out a lane, and a unit with
+		 no lane is one crowdSteer returns out of on its first line.  So a group told to fight its way
+		 across a map drove there in single file while the same group told to walk there spread out. */
+	if (TheGlobalData->m_crowdModel)
+		crowdSeedLanes( m_memberList, center, pos );
 
 	// path the members closest to the goal first; it leaves fewer of them to collide on arrival.
 	MemoryPoolObjectHolder iterHolder;
