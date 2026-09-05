@@ -228,16 +228,24 @@ void AsciiString::toLower()
 	validate();
 	if (m_data)
 	{
-		char buf[MAX_FORMAT_BUF_LEN];
-		strcpy(buf, peek());
-
-		char *c = buf;
-		while (c && *c)
+		//
+		// This used to strcpy into a fixed 2048 byte buffer on the stack.  A longer string - a path,
+		// a map name off the network - wrote straight past the end of it, and every call allocated a
+		// new buffer for the answer even when the string was already lowercase.  Do it where the
+		// string already lives, which is the same in-place shape removeLastChar uses just below.
+		//
+		// tolower() is called on a plain char exactly as it always was.  On this compiler a byte
+		// above 127 arrives as a negative index and the CRT's table tolerates it; changing that to
+		// an unsigned char would be the correct call in the abstract and a different answer for
+		// those bytes, and lowercased strings are keys here - the map cache is one.
+		//
+		const int len = strlen(peek());
+		if (len > 0)
 		{
-			*c = tolower(*c);
-			c++;
+			ensureUniqueBufferOfSize(len + 1, true, NULL, NULL);
+			for (char *c = peek(); *c; ++c)
+				*c = tolower(*c);
 		}
-		set(buf);
 	}
 	validate();
 }

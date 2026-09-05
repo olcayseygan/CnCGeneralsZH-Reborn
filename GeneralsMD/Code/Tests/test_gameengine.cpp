@@ -279,6 +279,42 @@ TEST(name_key_generator_round_trips)
 						(Int)TheNameKeyGenerator->nameToLowercaseKey( "tankgeneralusa" ) );
 }
 
+/* AsciiString::toLower used to strcpy into a fixed 2048-byte stack buffer, so a
+   longer string - a path, or a map name arriving over the network - wrote past the
+   end of it.  2048 is MAX_FORMAT_BUF_LEN, private to the header, so this walks
+   across it rather than naming it. */
+TEST(asciistring_tolower_survives_a_string_longer_than_the_old_buffer)
+{
+	CHECK( bootOnce() );
+
+	AsciiString empty;
+	empty.toLower();
+	CHECK( empty.isEmpty() );			/* no buffer at all is not a special case */
+
+	AsciiString shrt( "MixedCase.INI" );
+	shrt.toLower();
+	CHECK_STR( shrt.str(), "mixedcase.ini" );
+
+	for( Int len = 2040; len <= 2060; ++len )
+	{
+		std::string big( (size_t)len, 'A' );
+		big[ (size_t)len - 1 ] = 'Z';		/* so a truncated copy is visible at the end */
+
+		AsciiString str( big.c_str() );
+		str.toLower();
+
+		CHECK_EQ( str.getLength(), len );
+		CHECK_EQ( (Int)str.str()[ 0 ], (Int)'a' );
+		CHECK_EQ( (Int)str.str()[ len - 1 ], (Int)'z' );
+		CHECK_EQ( (Int)str.str()[ len ], 0 );
+	}
+
+	/* a string with nothing to change comes back the same */
+	AsciiString already( "already lower" );
+	already.toLower();
+	CHECK_STR( already.str(), "already lower" );
+}
+
 /* The port aliased hash_map onto unordered_map, which meant supplying
    rts::hash<AsciiString>.  STLport's default hashed the pointer, so equal
    strings in different buffers have to land in the same bucket now. */
