@@ -171,7 +171,10 @@ void CreditsManager::load(void )
 														TheGlobalLanguageData->adjustFontSize(TheGlobalLanguageData->m_creditsNormalFont.size),
 														TheGlobalLanguageData->m_creditsNormalFont.bold);
 
-	m_normalFontHeight = font->height;
+	// getFont hands back NULL for a font it could not load - a malformed file, or one the language
+	// data names that is not installed.  Every other caller passes the answer straight to setFont,
+	// which checks; this one reads a field off it.
+	m_normalFontHeight = font ? font->height : 0;
 }
 
 void CreditsManager::reset( void )
