@@ -1379,6 +1379,35 @@ static Int autoCameraCountBits( UnsignedInt v )
 	return n;
 }
 
+/** -----------------------------------------------------------------------------------------------
+ * -camera <x> <y>: point the camera at one map position, once, when the match starts.
+ *
+ * Applied on the first in-game frame rather than at parse time: TheTacticalView does not exist yet
+ * while the command line is read, and the map's own starting view is set during load and would win.
+ */
+static void updateFixedCamera( void )
+{
+	if( !TheGlobalData->m_cameraLookSet || TheTacticalView == NULL || TheTerrainLogic == NULL )
+		return;
+	if( !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
+		return;
+
+	Coord3D look;
+	look.x = TheGlobalData->m_cameraLook.x;
+	look.y = TheGlobalData->m_cameraLook.y;
+	look.z = TheTerrainLogic->getGroundHeight( look.x, look.y );
+	TheTacticalView->lookAt( &look );
+
+	// held every frame, not set once: the map's own starting view and the shell's reset both land
+	// after the first in-game frame and put the camera back on the player's base.
+	static Bool logged = FALSE;
+	if( !logged )
+	{
+		logged = TRUE;
+		DEBUG_LOG(("CAMERA: holding (%.0f,%.0f)\n", look.x, look.y));
+	}
+}
+
 static void updateAutoCamera( void )
 {
 	if( TheGlobalData->m_autoCameraSeconds <= 0 || TheTacticalView == NULL || TheTerrainLogic == NULL )
@@ -1801,6 +1830,7 @@ void GameEngine::update( void )
 		}
 
 		updateHeadlessRun();
+		updateFixedCamera();
 		updateAutoCamera();
 
 #ifdef DEBUG_LOGGING

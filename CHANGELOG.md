@@ -824,6 +824,7 @@ found and fixed â€” EA's own, not port damage.**
 - That found every multiplayer replay falsely accusing itself of desync since 2003.
 - Every fix was proved by putting the bug back and watching the test fail.
 - No debugger here: a crash symboliser, a sampling profiler, probes in live matches.
+- A graphics fix is argued with pixels: an unattended match can now be told where to point the camera and which frame to photograph, so the two builds are compared by counting the pixels between them. The river above changed 126,535 of them and the eye had been calling it "about the same".
 - Reverted and recorded: wide FOV, the whole group movement rework, tree shadows.
 - The six-rung difficulty ladder is back down to three. The three extra rungs were built, played and taken out again: a player picks a level once and wants to know what it means, and six names that each moved one switch was a worse answer to that than three that each describe an opponent. The machinery underneath is the same, so the levels are still tunable in the data files, and Brutal kept the top rung's numbers rather than the old Brutal ones.
 - The three-piece command bar was reverted once, for having nowhere to put the painting of the bar, and is back now that the painting has been cut into three to match. Each piece is fitted by matching it against the artwork it was cut from rather than by eye: the eyeballed fit was four percent out, which nobody sees on the metal and everybody sees on the money readout.

@@ -690,6 +690,8 @@ GlobalData::GlobalData()
 	m_maxGameFrames = 0; // run until the match ends
 	m_screenShotFrame = 0; // take no picture unless -screenshot asks for one
 	m_autoCameraSeconds = 0; // the camera stays where it was put
+	m_cameraLookSet = FALSE; // -camera not given: the map decides where the view starts
+	m_cameraLook.x = m_cameraLook.y = 0.0f;
 	m_traceMoveID = 0; // no movement trace
 	m_slowFrameMS = 20.0f; // a frame worth a line in the log; -slowframe lowers it for a hunt
 	m_aiSliceFrames = 1; // every unit thinks every frame, which is what the game has always done

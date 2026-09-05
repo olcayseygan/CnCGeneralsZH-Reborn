@@ -1330,6 +1330,25 @@ Int parseMSAA(char *args[], int num)
 	return 1;
 }
 
+/* -camera <x> <y>: point the camera at one map position and leave it there.
+	 *
+	 * -screenshot only made a picture; it could not say of what.  The camera starts at the local
+	 * player's own base, so anything the player does not own - a river, a bridge, a piece of terrain
+	 * a shader change is about - cannot be got into the frame from a script at all, and -autocamera
+	 * follows the fighting, which is somewhere else again.  Map coordinates, the same ones the log
+	 * prints; the ground height is looked up. */
+Int parseCameraLook(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 2 && args[1] && args[2])
+	{
+		TheWritableGlobalData->m_cameraLook.x = (Real)atof(args[1]);
+		TheWritableGlobalData->m_cameraLook.y = (Real)atof(args[2]);
+		TheWritableGlobalData->m_cameraLookSet = TRUE;
+		return 3;
+	}
+	return 1;
+}
+
 Int parseAutoCamera(char *args[], int num)
 {
 	if (TheWritableGlobalData)
@@ -1824,6 +1843,7 @@ static CommandLineParam params[] =
 	{ "-screenshot", parseScreenShot },
 	{ "-msaa", parseMSAA },
 	{ "-autocamera", parseAutoCamera },
+	{ "-camera", parseCameraLook },
 	{ "-tracemove", parseTraceMove },
 	{ "-slowframe", parseSlowFrame },
 	{ "-teams", parseTeams },
