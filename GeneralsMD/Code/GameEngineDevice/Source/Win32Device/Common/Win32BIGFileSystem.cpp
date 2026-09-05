@@ -58,13 +58,21 @@ void Win32BIGFileSystem::init() {
 		return;
 	}
 
-	loadBigFilesFromDirectory("", "*.big");
+	//
+	// The exe's own directory and no further down.  This used to walk every subdirectory under it,
+	// which had two consequences.  A stray archive - one extracted into Data\INI, say - joined the
+	// set without anyone asking, and since the INI CRC covers the INI files as resolved, that is a
+	// silent "join denied, different INI set" for everyone who has not got the same stray file.  And
+	// ZH_Generals\*.big, which the explicit pass below loads on purpose and in a particular order,
+	// was found and parsed by this pass as well: fifteen archives opened twice at every start.
+	//
+	loadBigFilesFromDirectory("", "*.big", FALSE, FALSE);
 
 	// loadIntoDirectoryTree keeps the FIRST archive that claims a path and the plain
 	// *.big pass above enumerates case-insensitively alphabetically, so INIZH.big claims
 	// Data\INI\... before PatchINI.big is even looked at and the 1.04 patch content is
 	// unreachable.  Re-load the patch archives with overwrite so they win, like retail.
-	loadBigFilesFromDirectory("", "Patch*.big", TRUE);
+	loadBigFilesFromDirectory("", "Patch*.big", TRUE, FALSE);
 
     // load original Generals assets
     AsciiString installPath;
@@ -236,10 +244,10 @@ void Win32BIGFileSystem::closeAllArchiveFiles() {
 void Win32BIGFileSystem::closeAllFiles() {
 }
 
-Bool Win32BIGFileSystem::loadBigFilesFromDirectory(AsciiString dir, AsciiString fileMask, Bool overwrite) {
+Bool Win32BIGFileSystem::loadBigFilesFromDirectory(AsciiString dir, AsciiString fileMask, Bool overwrite, Bool searchSubdirectories) {
 
 	FilenameList filenameList;
-	TheLocalFileSystem->getFileListInDirectory(dir, AsciiString(""), fileMask, filenameList, TRUE);
+	TheLocalFileSystem->getFileListInDirectory(dir, AsciiString(""), fileMask, filenameList, searchSubdirectories);
 
 	Bool actuallyAdded = FALSE;
 	FilenameListIter it = filenameList.begin();

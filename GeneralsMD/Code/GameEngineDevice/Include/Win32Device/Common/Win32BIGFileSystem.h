@@ -52,7 +52,7 @@ public:
 	virtual void closeArchiveFile(const Char *filename);
 	virtual void closeAllFiles( void );															///< Close all files associated with ArchiveFiles
 
-	virtual Bool loadBigFilesFromDirectory(AsciiString dir, AsciiString fileMask, Bool overwrite = FALSE);
+	virtual Bool loadBigFilesFromDirectory(AsciiString dir, AsciiString fileMask, Bool overwrite = FALSE, Bool searchSubdirectories = TRUE);
 protected:
 
 };
