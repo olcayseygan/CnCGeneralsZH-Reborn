@@ -647,8 +647,15 @@ void GameEngine::init( int argc, char *argv[] )
 	DEBUG_LOG(("%s", Buf));////////////////////////////////////////////////////////////////////////////
 	#endif/////////////////////////////////////////////////////////////////////////////////////////////
 		initSubsystem(TheAudio,"TheAudio", createAudioManager(), NULL);
+		//
+		// Missing music used to end the process here, with setQuitting and not one word anywhere: the
+		// game started, the window appeared for a moment and it closed again.  A player who deleted
+		// Music.big to save space, or a mod that ships without music, got that and no way to find out
+		// why.  Music is not a thing the game needs to run - the audio manager already plays nothing
+		// when it has nothing - so say so in the log and carry on.
+		//
 		if (!TheAudio->isMusicAlreadyLoaded())
-			setQuitting(TRUE);
+			DEBUG_LOG(("No music track was found - the game runs without music. Check that Music.big is next to the exe.\n"));
 
 	#ifdef DUMP_PERF_STATS///////////////////////////////////////////////////////////////////////////
 	GetPrecisionTimer(&endTime64);//////////////////////////////////////////////////////////////////
