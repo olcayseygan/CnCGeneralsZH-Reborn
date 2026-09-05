@@ -157,6 +157,17 @@ static Int thePFNoPath = 0;					///< a unit asked for a path and got nothing bac
 static Int thePFBlockedFrames = 0;	///< unit-frames spent standing behind another unit
 static Int thePFStuckFrames = 0;		///< of those, the ones where the blocker was not moving either
 
+/* The three above only ever see a collision, and the thing a player complains about is a unit that
+	 has stopped without one: facing the wrong way, talked down to no speed by its own steering, or
+	 wedged between two allies and a wall it never quite touches. The crowd model is the only part of
+	 the game that measures that, and until these existed it measured it privately, one unit at a
+	 time, where no batch could read it. */
+static Int thePFWedgeFrames = 0;		///< unit-frames a unit wanted to move, was not moving, and had hit nothing
+static Int thePFWedgeWorst = 0;			///< and the longest one unit was left that way in a row
+static Int thePFEscapes = 0;				///< backing-out manoeuvres started
+static Int thePFCrowdRepaths = 0;		///< routes given up on because nothing on them could get past
+static Int thePFDithers = 0;					///< units caught driving a long way and gaining nothing
+
 inline void pfBump( Int slot ) { thePFCalls[ slot ]++; }
 
 class PathProfile
@@ -2182,6 +2193,15 @@ const Int COST_DIAGONAL = 14;
 	 at 3/2; it is only raised while the flow charge is on. */
 Int thePathHeuristicNum = 3;
 Int thePathHeuristicDen = 2;
+
+/* Momentum, one search's worth.  Set by Pathfinder::beginFlowSearch and read by
+	 PathfindCell::costSoFar, which has no object and no locomotor of its own to ask.  Both are
+	 functions of state every machine in a network game already agrees on - the unit's facing and
+	 its locomotor's own numbers - so two machines charge the same turns. */
+Int thePathTurnChassis = 0;						///< cost of one radian for the unit being pathed; 0 = charge nothing
+Real thePathStartDirX = 0.0f;					///< which way it is pointing right now, as a unit vector
+Real thePathStartDirY = 0.0f;
+Bool thePathStartDirValid = FALSE;
 const Real COST_TO_DISTANCE_FACTOR = 1.0f/10.0f;
 const Real COST_TO_DISTANCE_FACTOR_SQR = COST_TO_DISTANCE_FACTOR*COST_TO_DISTANCE_FACTOR;
 
@@ -2276,17 +2296,53 @@ UnsignedInt PathfindCell::costSoFar( PathfindCell *parent )
 		ICoord2D dir;
 		dir.x = prevCell->getXIndex() - parent->getXIndex();
 		dir.y = prevCell->getYIndex() - parent->getYIndex();
-		
+
 		// count number of direction changes
 		if (dir.x != prevDir.x || dir.y != prevDir.y)
 		{
 			Int dot = dir.x * prevDir.x + dir.y * prevDir.y;
+			Real radians;
 			if (dot > 0)
+			{
 				numTurns=4;				// 45 degree turn
+				radians = PI/4;
+			}
 			else if (dot == 0)
+			{
 				numTurns = 8;		// 90 degree turn
+				radians = PI/2;
+			}
 			else
+			{
 				numTurns = 16;		// 135 degree turn
+				radians = 3*PI/4;
+			}
+
+			/* And what it costs this particular hull, which is the momentum part: retail's three
+				 numbers are the same for a bike and a battleship.  A floor rather than a replacement,
+				 so a unit that turns on the spot still pays retail's price and nothing gets cheaper
+				 than it was. */
+			const Int swing = Pathfinder_turnCost( radians, thePathTurnChassis, PF_TURN_CAP_STEP );
+			if (swing > numTurns)
+				numTurns = swing;
+		}
+	}
+	else if (thePathStartDirValid)
+	{
+		/* The first step out of the start cell, charged against where the hull is actually pointing.
+			 Nothing used to charge it at all, so a route that began by reversing out from under the
+			 unit's own tracks cost exactly the same as one that began by driving straight on, and the
+			 search picked between them on length - which is how a column ordered forward sets off by
+			 turning round.  The angle is the real one here, not one of three: the facing is a
+			 continuous number and this runs eight times a search, not millions. */
+		const Real len = (Real)sqrt( (Real)(prevDir.x*prevDir.x + prevDir.y*prevDir.y) );
+		if (len > 0.0f)
+		{
+			// prevDir points back at the parent, so the way we are travelling is the other way
+			Real dot = -((Real)prevDir.x * thePathStartDirX + (Real)prevDir.y * thePathStartDirY) / len;
+			if (dot < -1.0f) dot = -1.0f;
+			else if (dot > 1.0f) dot = 1.0f;
+			numTurns = Pathfinder_turnCost( ACos( dot ), thePathTurnChassis, PF_TURN_CAP_START );
 		}
 	}
 
@@ -4439,6 +4495,17 @@ Int Pathfinder_crossingCost( Int baseCost, Int claimHalves )
 	return (baseCost * PF_CROSSING_NUM * units) / PF_CROSSING_DEN;
 }
 
+/* The turn charge.  See PF_TURN_CAP_STEP for why this is a per-chassis number and not the flat
+	 4/8/16 retail pays, and why the two caps differ. */
+Int Pathfinder_turnCost( Real radians, Int chassis, Int cap )
+{
+	if (chassis <= 0 || radians <= 0.0f)
+		return 0;
+	Int cost = REAL_TO_INT_FLOOR( radians * (Real)chassis );
+	if (cost > cap) cost = cap;
+	return cost;
+}
+
 /* Lanes across the band.  Both of these are the whole of the lane arithmetic and neither of them
 	 touches the map, so the tests can check the edges - a band with no width, a body already outside
 	 it, a lane hard against a wall - without standing a Pathfinder up. */
@@ -4912,6 +4979,33 @@ void Pathfinder::beginFlowSearch( const Object *obj )
 	// and the estimate is raised to match what the charge adds, or the search stops steering
 	thePathHeuristicNum = m_flowCosts ? PF_HEURISTIC_FLOW_NUM : 3;
 	thePathHeuristicDen = m_flowCosts ? PF_HEURISTIC_FLOW_DEN : 2;
+
+	/* Momentum is a separate question from the three maps and is switched separately: it is about
+		 the hull, not about the ground or the traffic on it.  A search with no object behind it - is
+		 there a way at all, how far apart are these two points, where can I shoot from - has no hull
+		 and charges nothing. */
+	thePathTurnChassis = 0;
+	thePathStartDirValid = FALSE;
+	if (obj != NULL && !TheGlobalData->m_noMomentumPath)
+	{
+		const AIUpdateInterface *ai = obj->getAIUpdateInterface();
+		const Locomotor *loco = ai ? ai->getCurLocomotor() : NULL;
+		if (loco != NULL)
+		{
+			const BodyDamageType damage = obj->getBodyModule()->getDamageState();
+			const Real speed = loco->getMaxSpeedForCondition( damage );
+			const Real turn = loco->getMaxTurnRate( damage );
+			// per frame over per frame: world units of driving in the time it takes to turn a radian,
+			// which is one cost unit per world unit here
+			if (speed > 0.01f && turn > 0.0001f)
+				thePathTurnChassis = REAL_TO_INT_FLOOR( speed / turn );
+		}
+
+		const Real facing = obj->getOrientation();
+		thePathStartDirX = (Real)Cos( facing );
+		thePathStartDirY = (Real)Sin( facing );
+		thePathStartDirValid = (thePathTurnChassis > 0);
+	}
 }
 
 /* How wide the ground is beside a point, on one side.  Half-cell steps, stopping at the first
@@ -4970,6 +5064,11 @@ void Pathfinder::resetMatchProfile( void )
 	thePFNoPath = 0;
 	thePFBlockedFrames = 0;
 	thePFStuckFrames = 0;
+	thePFWedgeFrames = 0;
+	thePFWedgeWorst = 0;
+	thePFEscapes = 0;
+	thePFCrowdRepaths = 0;
+	thePFDithers = 0;
 }
 
 void Pathfinder::bumpNoPath( void )
@@ -4982,6 +5081,31 @@ void Pathfinder::bumpBlockedFrame( Bool stuck )
 	thePFBlockedFrames++;
 	if( stuck )
 		thePFStuckFrames++;
+}
+
+void Pathfinder::bumpWedgeFrame( Int consecutive )
+{
+	thePFWedgeFrames++;
+	/* And the longest any one unit was left like that, which is the number the rescue ladder is
+		 promising something about: if nothing is ever ignored for longer than the ladder's own cycle,
+		 this stays inside it, and if it does not, the promise is broken and the run says so. */
+	if( consecutive > thePFWedgeWorst )
+		thePFWedgeWorst = consecutive;
+}
+
+void Pathfinder::bumpEscape( void )
+{
+	thePFEscapes++;
+}
+
+void Pathfinder::bumpCrowdRepath( void )
+{
+	thePFCrowdRepaths++;
+}
+
+void Pathfinder::bumpDither( void )
+{
+	thePFDithers++;
 }
 
 const char *Pathfinder::getMatchProfileReport( void )
@@ -5006,9 +5130,11 @@ const char *Pathfinder::getMatchProfileReport( void )
 		strcpy( thePFMatchReport + len, one );
 		len += oneLen;
 	}
-	if( len < (Int)sizeof( thePFMatchReport ) - 64 )
-		sprintf( thePFMatchReport + len, "| nopath %d outofcells %d blocked %d stuck %d",
-						 thePFNoPath, thePFOutOfCells, thePFBlockedFrames, thePFStuckFrames );
+	if( len < (Int)sizeof( thePFMatchReport ) - 128 )
+		sprintf( thePFMatchReport + len,
+						 "| nopath %d outofcells %d blocked %d stuck %d wedge %d worst %d escape %d repath %d dither %d",
+						 thePFNoPath, thePFOutOfCells, thePFBlockedFrames, thePFStuckFrames,
+						 thePFWedgeFrames, thePFWedgeWorst, thePFEscapes, thePFCrowdRepaths, thePFDithers );
 	return thePFMatchReport;
 }
 

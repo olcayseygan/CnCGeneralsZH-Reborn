@@ -1412,6 +1412,19 @@ Int parseNoLanePath(char *args[], int num)
 	return 1;
 }
 
+/* -nomomentum prices a turn the way retail does: 4, 8 or 16 whatever is turning.
+
+	 The search charges what the swing actually costs this hull instead - its own speed over its own
+	 turn rate - and charges the first step against the direction the unit is already pointing, which
+	 retail charged not at all. That is the difference between a route and a route a tank can drive.
+	 Same reasoning as the two switches above: the baseline has to be the same binary. */
+Int parseNoMomentumPath(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_noMomentumPath = TRUE;
+	return 1;
+}
+
 /* -showlanes draws the band model on top of the world.
 
 	 A movement change that measures well in a batch and cannot be seen in a game is a change nobody
@@ -1760,6 +1773,7 @@ static CommandLineParam params[] =
 	{ "-aislice", parseAISlice },
 	{ "-noflowpath", parseNoFlowPath },
 	{ "-nolanes", parseNoLanePath },
+	{ "-nomomentum", parseNoMomentumPath },
 	{ "-showlanes", parseShowLanes },
 	{ "-crowd", parseCrowdModel },
 	{ "-groupdrill", parseGroupDrill },

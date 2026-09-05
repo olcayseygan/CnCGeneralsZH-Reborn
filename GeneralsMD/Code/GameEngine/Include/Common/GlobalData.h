@@ -380,6 +380,7 @@ public:
 	Int m_aiSliceFrames;						///< -aislice <n>: a unit's AI decides once every n logic frames, staggered by id (1 = every frame, the default)
 	Bool m_noFlowPath;							///< -noflowpath: price terrain only, the way retail does - no clearance, traffic or crossing cost
 	Bool m_noLanePath;							///< -nolanes: follow the centre of the route, the way retail does - no band, no lane, no passing
+	Bool m_noMomentumPath;					///< -nomomentum: charge a turn retail's flat 4/8/16 instead of what this hull's own turn rate costs
 	Bool m_showLanes;							///< -showlanes: draw every moving unit's route, the lane it was handed and the offset it kept
 	Bool m_crowdModel;						///< -crowd: the sandbox crowd model - corridor, absolute lanes, right of way, give way, fan out
 	Int m_groupDrill;							///< -groupdrill <n>: every n frames, order each player's army corner to corner as one group (0 = off)

@@ -685,6 +685,7 @@ GlobalData::GlobalData()
 	m_aiSliceFrames = 1; // every unit thinks every frame, which is what the game has always done
 	m_noFlowPath = FALSE; // the flow model is on; -noflowpath is the retail baseline to measure against
 	m_noLanePath = FALSE; // lanes are on; -nolanes is the retail baseline to measure against
+	m_noMomentumPath = FALSE; // a turn costs what the hull's own turn rate says; -nomomentum is retail's flat price
 	m_showLanes = FALSE; // the lane overlay is a diagnostic, off unless -showlanes asks for it
 	m_crowdModel = FALSE; // the crowd model is the change under test; without -crowd this is the old build
 	m_groupDrill = 0; // no group orders are faked; -groupdrill is a measuring tool and ruins the match it runs in

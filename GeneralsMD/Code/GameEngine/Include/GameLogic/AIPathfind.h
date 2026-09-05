@@ -727,6 +727,21 @@ enum
 	PF_HEURISTIC_FLOW_NUM			= 9,
 	PF_HEURISTIC_FLOW_DEN			= 4,
 
+	/* Momentum.  Retail charges a turn 4, 8 or 16 depending on how sharp it is, the same for a
+		 motorcycle and a battleship, which is how a route comes to ask a tank for a turn it has to
+		 stop and grind out.  What a turn actually costs is the time to swing the hull, and in these
+		 units that is exactly speed-per-frame over turn-rate-per-frame for every radian of it: a
+		 unit that covers two cells while turning one radian pays two cells for one radian.
+
+		 Two caps, and they are different on purpose.  Mid-route the charge is held to STEP so the
+		 estimate, which cannot see any of this, still has something to steer by - an A* whose real
+		 costs run far ahead of its estimate stops walking towards the goal and expands the whole
+		 corridor instead.  The first step out of the start cell is capped at START instead, higher,
+		 because that is the one turn the unit is definitely making right now and the one route
+		 nobody wants: the one that begins by reversing out from under its own tracks. */
+	PF_TURN_CAP_STEP					= 28,			///< 2 x COST_DIAGONAL
+	PF_TURN_CAP_START					= 60,
+
 	/* Lanes.  The three maps above decide where a route goes; these decide where across it a unit
 		 drives.  PROBE is how far sideways the ground is measured before the band is called wide
 		 enough, in cells; TAPER is how close to the goal the band closes back onto the centre so
@@ -758,6 +773,15 @@ extern Int Pathfinder_trafficCost( Int baseCost, Int traffic );
 
 /// How much extra a step into a cell somebody else wants at the same moment costs.
 extern Int Pathfinder_crossingCost( Int baseCost, Int claimHalves );
+
+/** What swinging the hull through `radians` costs this chassis, capped at `cap`.
+
+		`chassis` is the unit's own speed per frame divided by its turn rate per frame, which in the
+		pathfinder's units is the cost of one radian directly: a hull that covers 40 world units in
+		the time it turns one radian pays 40 for that radian, the same as walking four cells.  It is
+		zero for anything that turns on the spot, and the caller passes zero to switch the whole
+		charge off (`-nomomentum`, or a search with no object behind it). */
+extern Int Pathfinder_turnCost( Real radians, Int chassis, Int cap );
 
 /** Where across a band a body sitting `lateral` world units left of the centre line rides.
 	  0 is hard against the right edge, 1 hard against the left, 0.5 the centre; clamped just
@@ -910,6 +934,10 @@ public:
 	static const char *getMatchProfileReport( void );
 	static void bumpNoPath( void );									///< a path request came back empty
 	static void bumpBlockedFrame( Bool stuck );			///< one unit-frame spent blocked by another unit
+	static void bumpWedgeFrame( Int consecutive );	///< one unit-frame stopped with no collision to blame
+	static void bumpEscape( void );									///< a unit started backing out of somewhere
+	static void bumpCrowdRepath( void );						///< a unit gave up on its route rather than steer round
+	static void bumpDither( void );									///< a unit was caught driving a long way and gaining nothing
 	void processPathfindQueue(void); ///< Process some or all of the queued pathfinds.
 	void forceMapRecalculation( );	///< Force pathfind map recomputation. If region is given, only that area is recomputed
 
