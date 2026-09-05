@@ -1060,6 +1060,7 @@ protected:
 	Bool m_panelHidden[ CB_PANEL_COUNT ];						///< minimised: the radar and the middle stand down
 	Real m_panelSlide[ CB_PANEL_COUNT ];						///< 0 home, 1 clear of the bottom edge
 	Real m_panelSlideTo[ CB_PANEL_COUNT ];					///< where each one is heading
+	Int m_panelDropCap[ CB_PANEL_COUNT ];						///< pixels a panel may travel; 0 = all the way off
 	UnsignedInt m_panelSlideMs;											///< wall clock of the last slide step
 
 	void updatePanelSlide( void );									///< step the slide and put the windows where it says
@@ -1318,6 +1319,7 @@ struct ControlBarPlate
 	Int readoutShiftY;				///< design units the money readout moves to sit in this art's box
 	Int gridShiftX;						///< design units the command grid moves to centre in this art's field
 	Int artW, artH;						///< texels of painting in the targa; the rest is power-of-two padding
+	IRegion2D minTab;					///< the minimise tab this art paints, in design units; ButtonLarge takes it
 };
 
 /** The plate 'panel' wears while the bar is dressed in 'side'.  A general's scheme names a side

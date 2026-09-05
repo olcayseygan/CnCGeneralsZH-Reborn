@@ -117,10 +117,12 @@ static GameFont *getBadgeFont( GameWindow *window )
 	if( pointSize < 6 )
 		pointSize = 6;
 
-	if( pointSize == font->pointSize )
+	// bold, because these are markings on a picture: at seven points against a busy cameo the light
+	// weight reads as noise on the artwork rather than as a letter
+	if( pointSize == font->pointSize && font->bold )
 		return font;
 
-	return TheFontLibrary->getFont( font->nameString, pointSize, font->bold );
+	return TheFontLibrary->getFont( font->nameString, pointSize, TRUE );
 
 }  // end getBadgeFont
 

@@ -61,6 +61,7 @@
 #include "GameClient/Shell.h"
 #include "GameClient/KeyDefs.h"
 #include "GameClient/GameWindowManager.h"
+#include "GameClient/GUICallbacks.h"
 #include "GameClient/Mouse.h"
 #include "GameClient/GameText.h"
 #include "GameClient/MetaEvent.h"
@@ -117,6 +118,15 @@ Bool absolute = false;
 static MetaMapRec *theSelectedRec = NULL;
 static MappableKeyType thePendingKey = MK_NONE;
 static MappableKeyModState thePendingMods = NONE;
+
+//
+// The screen is one layout laid over whatever is underneath.  It used to be a shell screen, pushed
+// with TheShell->push, and the shell stack is not somewhere an in-game menu can go: pushing shut
+// down the screen the shell was parked on and popping brought it back, so opening this from a
+// running game put the skirmish lobby back on screen with the quit menu and the options menu still
+// drawn over it.
+//
+static WindowLayout *theKeyboardOptionsLayout = NULL;
 
 static UnicodeString bindingText( const MetaMapRec *rec );
 static UnicodeString bindingTextFor( MappableKeyType key, MappableKeyModState mods );
@@ -532,6 +542,67 @@ void doKeyDown(EntryData *e, UnicodeString mod )
 
 
 //-------------------------------------------------------------------------------------------------
+Bool IsKeyboardOptionsMenuOpen( void )
+{
+	return theKeyboardOptionsLayout != NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Put the keyboard screen up over whatever is already there, and stand the options menu it was
+	* opened from down while it is up. */
+//-------------------------------------------------------------------------------------------------
+void OpenKeyboardOptionsMenu( void )
+{
+	if( theKeyboardOptionsLayout != NULL )
+		return;
+
+	theKeyboardOptionsLayout = TheWindowManager->winCreateLayout( AsciiString( "Menus/KeyboardOptionsMenu.wnd" ) );
+	DEBUG_ASSERTCRASH( theKeyboardOptionsLayout, ("Unable to create the keyboard options layout\n") );
+	if( theKeyboardOptionsLayout == NULL )
+		return;
+
+	WindowLayout *optLayout = TheShell ? TheShell->getOptionsLayout( FALSE ) : NULL;
+	if( optLayout )
+		optLayout->hide( TRUE );
+
+	theKeyboardOptionsLayout->runInit();
+	theKeyboardOptionsLayout->hide( FALSE );
+	theKeyboardOptionsLayout->bringForward();
+}
+
+//-------------------------------------------------------------------------------------------------
+void CloseKeyboardOptionsMenu( void )
+{
+	if( theKeyboardOptionsLayout == NULL )
+		return;
+
+	theKeyboardOptionsLayout->destroyWindows();
+	theKeyboardOptionsLayout->deleteInstance();
+	theKeyboardOptionsLayout = NULL;
+
+	parentKeyboardOptionsMenu = NULL;
+	comboBoxCategoryList = NULL;
+	listBoxCommandList = NULL;
+	staticTextDescription = NULL;
+	staticTextCurrentHotkey = NULL;
+	buttonResetAll = NULL;
+	textEntryAssignHotkey = NULL;
+	buttonAssign = NULL;
+	buttonBack = NULL;
+	theSelectedRec = NULL;
+	thePendingKey = MK_NONE;
+	thePendingMods = NONE;
+
+	// the options menu was hidden rather than destroyed, so it comes back where it was
+	WindowLayout *optLayout = TheShell ? TheShell->getOptionsLayout( FALSE ) : NULL;
+	if( optLayout )
+	{
+		optLayout->hide( FALSE );
+		optLayout->bringForward();
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Initialize the options menu */
 //-------------------------------------------------------------------------------------------------
 void KeyboardOptionsMenuInit( WindowLayout *layout, void *userData )
@@ -609,11 +680,12 @@ void KeyboardOptionsMenuInit( WindowLayout *layout, void *userData )
 //-------------------------------------------------------------------------------------------------
 void KeyboardOptionsMenuShutdown( WindowLayout *layout, void *userData )
 {
-		// hide menu
+	//
+	// This is not a shell screen, so there is no shell stack waiting on a shutdownComplete - saying
+	// there was would pop whatever the shell really is parked on.  CloseKeyboardOptionsMenu is what
+	// takes the screen down.
+	//
 	layout->hide( TRUE );
-
-	// our shutdown is complete
-	TheShell->shutdownComplete( layout );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -802,8 +874,8 @@ WindowMsgHandledType KeyboardOptionsMenuSystem( GameWindow *window, UnsignedInt 
 			if( controlID == buttonBackID )
 			{
 
-				// go back one screen
-				TheShell->pop();
+				// take this screen down and give back whatever it was laid over
+				CloseKeyboardOptionsMenu();
 
 			}  // end if
 			else if( controlID == buttonAssignID )

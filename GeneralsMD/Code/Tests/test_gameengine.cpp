@@ -8095,6 +8095,112 @@ TEST(the_grid_and_the_readout_follow_the_plate_that_paints_them)
 	}
 }
 
+TEST(the_minimise_button_sits_on_the_tab_its_plate_paints)
+{
+	/* Each right-hand plate paints its own minimise tab, green arrow and all, and none of them
+		 paints it where ControlBar.wnd puts ButtonLarge - 666,445 to 714,473.  Left on the authored
+		 rectangle the button drew a second tab beside the painted one, which at 1920x1080 was up to
+		 nineteen pixels of doubled metal and two arrows.  The rectangles below were measured off the
+		 three targas; placeInPanel hands them to ButtonLarge instead of the authored one. */
+	static const char *const sides[] = { "America", "China", "GLA", NULL };
+
+	// what the .wnd says, which is the thing every one of these has to disagree with
+	const Int wndLeft = 666, wndTop = 445, wndRight = 714, wndBottom = 473;
+	const Int wndWidth = wndRight - wndLeft, wndHeight = wndBottom - wndTop;
+
+	for( const char *const *s = sides; *s; s++ )
+	{
+		const ControlBarPlate *plate = ControlBarPlateForSide( AsciiString( *s ), ControlBar::CB_PANEL_RIGHT );
+		CHECK( plate != NULL );
+
+		// a tab at all - a zeroed rectangle means the button went back to the authored place
+		CHECK( plate->minTab.width() > 0 );
+		CHECK( plate->minTab.height() > 0 );
+
+		// it has to be on the plate, not hanging in the battlefield beside it
+		CHECK( plate->minTab.lo.x >= plate->design.lo.x );
+		CHECK( plate->minTab.hi.x <= plate->design.hi.x );
+		CHECK( plate->minTab.lo.y >= plate->design.lo.y );
+		CHECK( plate->minTab.hi.y <= plate->design.hi.y );
+
+		// and it has to be a tab-sized thing: the arrow art is stretched into it, so a fat-fingered
+		// number that makes the button half the panel is the failure worth catching
+		CHECK( plate->minTab.width() >= wndWidth / 2 );
+		CHECK( plate->minTab.width() <= wndWidth * 2 );
+		CHECK( plate->minTab.height() >= wndHeight / 2 );
+		CHECK( plate->minTab.height() <= wndHeight * 2 );
+
+		// every one of the three moved; a rectangle equal to the .wnd's would be the bug back
+		CHECK( plate->minTab.lo.x != wndLeft || plate->minTab.lo.y != wndTop );
+
+		//
+		// The tab is also what stops the minimised bar: the selection panel drops until this
+		// rectangle's bottom edge stands on the bottom of the screen, so the tab and the metal it is
+		// painted on stay reachable and the portrait below goes off.  A tab whose bottom is the
+		// plate's bottom would give a drop of nothing and the panel would not move at all.
+		//
+		CHECK( plate->minTab.hi.y < plate->design.hi.y );
+	}
+}
+
+/* The keyboard screen is opened by a button on the options menu, and that button was the only one
+	 in the layout still wearing Times New Roman while every other button on the screen wears the
+	 game's own face.  It read as a different program's dialog dropped into the menu. */
+TEST(the_options_menu_buttons_all_wear_one_font)
+{
+	FILE *fp = fopen( OPTIONS_MENU_WND, "rb" );
+	CHECK( fp != NULL );
+	if( fp == NULL )
+		return;
+
+	// walk the file remembering the last window name seen; FONT comes a few lines after NAME
+	static const char *const buttons[] =
+	{
+		"OptionsMenu.wnd:ButtonBack", "OptionsMenu.wnd:ButtonAccept",
+		"OptionsMenu.wnd:ButtonDefaults", "OptionsMenu.wnd:ButtonKeyboardOptions", NULL
+	};
+
+	char line[ 1024 ], name[ 256 ];
+	Int found = 0, agreed = 0;
+	name[ 0 ] = 0;
+	while( fgets( line, sizeof( line ), fp ) != NULL )
+	{
+		const char *at = strstr( line, "NAME = \"" );
+		if( at != NULL )
+		{
+			at += 8;
+			Int i = 0;
+			while( at[ i ] && at[ i ] != '"' && i < (Int)sizeof( name ) - 1 )
+			{
+				name[ i ] = at[ i ];
+				++i;
+			}
+			name[ i ] = 0;
+			continue;
+		}
+
+		at = strstr( line, "FONT = NAME:" );
+		if( at == NULL || name[ 0 ] == 0 )
+			continue;
+
+		for( const char *const *b = buttons; *b; b++ )
+			if( strcmp( name, *b ) == 0 )
+			{
+				++found;
+				if( strstr( at, "\"Generals\"" ) != NULL && strstr( at, "SIZE: 15" ) != NULL )
+					++agreed;
+				else
+					printf( "    %s wears %s", name, at );
+			}
+		name[ 0 ] = 0;
+	}
+	fclose( fp );
+
+	// a scan that matched nothing would pass silently
+	CHECK_EQ( found, 4 );
+	CHECK_EQ( agreed, found );
+}
+
 TEST(every_plate_that_touches_a_design_edge_touches_the_screen_edge)
 {
 	/* The plate rectangles were measured against the paintings, and a painting stops a pixel or two

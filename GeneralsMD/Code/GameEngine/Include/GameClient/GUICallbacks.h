@@ -133,6 +133,15 @@ extern void KeyboardOptionsMenuUpdate( WindowLayout *layout, void *userData );
 extern void KeyboardOptionsMenuShutdown( WindowLayout *layout, void *userData );
 extern WindowMsgHandledType KeyboardOptionsMenuSystem( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
 extern WindowMsgHandledType KeyboardOptionsMenuInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
+//
+// The keyboard screen is a layout of its own laid over whatever is underneath, the way the options
+// menu is, and not a shell screen.  Pushing it on the shell stack shut down whatever screen the
+// shell was parked on, so opening it from a running game brought the skirmish lobby back up over
+// the battlefield and left the quit menu and the options menu drawn on top of it.
+//
+extern void OpenKeyboardOptionsMenu( void );
+extern void CloseKeyboardOptionsMenu( void );
+extern Bool IsKeyboardOptionsMenuOpen( void );
 
 // Lan Lobby Menu ----------------------------------------------------------------------------------
 extern void LanLobbyMenuInit( WindowLayout *layout, void *userData );

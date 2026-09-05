@@ -38,6 +38,7 @@
 #include "GameClient/IMEManager.h"
 #include "GameClient/AnimateWindowManager.h"
 #include "GameClient/ShellMenuScheme.h"
+#include "GameClient/GUICallbacks.h"
 #include "GameLogic/GameLogic.h"
 #include "GameNetwork/GameSpyOverlay.h"
 #include "GameNetwork/GameSpy/PeerDefsImplementation.h"
@@ -123,6 +124,9 @@ Shell::~Shell( void )
 		m_popupReplayLayout = NULL;
 
 	}  //end if
+
+	// the keyboard screen is laid over the options menu, so it goes first
+	CloseKeyboardOptionsMenu();
 
 	// delete the options menu if present.
 	if (m_optionsLayout != NULL) {

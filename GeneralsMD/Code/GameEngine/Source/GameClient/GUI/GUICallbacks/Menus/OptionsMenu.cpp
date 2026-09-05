@@ -1558,6 +1558,9 @@ static void saveOptions( void )
 
 static void DestroyOptionsLayout() {
 
+	// the keyboard screen is laid over this one; leaving it up would leave it over nothing
+	CloseKeyboardOptionsMenu();
+
 	SignalUIInteraction(SHELL_SCRIPT_HOOK_OPTIONS_CLOSED);
 
 	TheShell->destroyOptionsLayout();
@@ -2352,7 +2355,7 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 			}
 			else if ( controlID == buttonKeyboardOptionsMenu )
 			{
-				TheShell->push( AsciiString( "Menus/KeyboardOptionsMenu.wnd" ) );
+				OpenKeyboardOptionsMenu();
 			}
 			else if(controlID == checkDrawAnchorID )
       {

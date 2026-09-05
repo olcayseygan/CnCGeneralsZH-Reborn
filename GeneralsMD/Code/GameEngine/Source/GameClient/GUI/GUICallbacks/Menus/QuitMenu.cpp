@@ -305,6 +305,11 @@ void ToggleQuitMenu()
 	// BGC- this is kind of hackish, but its the safest way to do it I think.
 	// Basically we're seeing if either the save/load window or the options window is up
 	// and if one of them is, we quit out of them rather than toggle the quit menu.
+	// the keyboard screen sits over the options menu, so escape has to take it first
+	if (IsKeyboardOptionsMenuOpen()) {
+		CloseKeyboardOptionsMenu();
+		return;
+	}
 	if (TheShell->getOptionsLayout(FALSE) != FALSE) {
 		WindowLayout *optLayout = TheShell->getOptionsLayout(FALSE);
 		GameWindow *optionsParent = optLayout->getFirstWindow();

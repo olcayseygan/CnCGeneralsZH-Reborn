@@ -1115,6 +1115,7 @@ ControlBar::ControlBar( void )
 		m_panelHidden[ i ] = FALSE;
 		m_panelSlide[ i ] = 0.0f;
 		m_panelSlideTo[ i ] = 0.0f;
+		m_panelDropCap[ i ] = 0;
 	}
 	m_panelSlideMs = 0;
 	m_panelOrigin.x = m_panelOrigin.y = 0;
@@ -1550,6 +1551,14 @@ struct ControlBarPlateSet
 	ControlBarPlate plate[ ControlBar::CB_PANEL_COUNT ];
 };
 
+//
+// Every one of the nine plates paints its own minimise tab, arrow and all, because each is that
+// side's own composition rather than a cut of the shipped bar - and none of them paints it where
+// ControlBar.wnd puts ButtonLarge (666,445 to 714,473).  Left alone the button drew a second tab
+// beside the painted one, up to nineteen design units across and twelve down at 1920x1080.  The
+// rectangle below is the tab as the art paints it, measured off the targa: the button takes it, and
+// the image it draws lands on the painting instead of next to it.
+//
 static const ControlBarPlateSet thePlateSets[] =
 {
 	{ "America",
@@ -1567,21 +1576,24 @@ static const ControlBarPlateSet thePlateSets[] =
 				 column overhangs the left bezel by a unit and a half while eleven units stand empty
 				 on the right.  Six to the right centres the block in the field. */
 			{ "RebornBarAmericaCenter.tga",	{ { 180, 429 }, { 623, 599 } }, 10, 6, 706, 271 },
-			{ "RebornBarAmericaRight.tga",	{ { 610, 433 }, { 800, 599 } }, 0, 0, 304, 268 },
+			{ "RebornBarAmericaRight.tga",	{ { 610, 433 }, { 800, 599 } }, 0, 0, 304, 268,
+																			{ { 648, 434 }, { 717, 460 } } },
 		}
 	},
 	{ "China",
 		{
 			{ "RebornBarChinaLeft.tga",		{ {   1, 417 }, { 196, 598 } }, 0, 0, 315, 295 },
 			{ "RebornBarChinaCenter.tga",	{ { 176, 433 }, { 617, 597 } }, 0, 0, 718, 269 },
-			{ "RebornBarChinaRight.tga",	{ { 611, 424 }, { 798, 598 } }, 0, 0, 303, 284 },
+			{ "RebornBarChinaRight.tga",	{ { 611, 424 }, { 798, 598 } }, 0, 0, 303, 284,
+																		{ { 639, 430 }, { 686, 463 } } },
 		}
 	},
 	{ "GLA",
 		{
 			{ "RebornBarGLALeft.tga",		{ {   0, 416 }, { 215, 599 } }, 0, 0, 345, 295 },
 			{ "RebornBarGLACenter.tga",	{ { 168, 437 }, { 617, 599 } }, 0, 0, 720, 261 },
-			{ "RebornBarGLARight.tga",	{ { 612, 423 }, { 799, 599 } }, 0, 0, 300, 284 },
+			{ "RebornBarGLARight.tga",	{ { 612, 423 }, { 799, 599 } }, 0, 0, 300, 284,
+																	{ { 631, 428 }, { 705, 465 } } },
 		}
 	},
 };
@@ -1678,6 +1690,19 @@ void ControlBar::placeInPanel( GameWindow *win, Int panel,
 	if( plate && strcmp( shortName, "MoneyDisplay" ) == 0 )
 		newY += REAL_TO_INT_FLOOR( plate->readoutShiftY * s );
 
+	//
+	// The minimise button is not where the .wnd says either: every plate paints its own tab for it,
+	// and the button takes that rectangle rather than the authored one.  Otherwise it draws its own
+	// tab beside the painted one and you get two arrows.
+	//
+	if( plate && plate->minTab.width() > 0 && strcmp( shortName, "ButtonLarge" ) == 0 )
+	{
+		newX = REAL_TO_INT_FLOOR( originX + plate->minTab.lo.x * s );
+		newY = REAL_TO_INT_FLOOR( dispH - ( CONTROL_BAR_DESIGN_H - plate->minTab.lo.y ) * s );
+		newW = REAL_TO_INT_CEIL( plate->minTab.width() * s );
+		newH = REAL_TO_INT_CEIL( plate->minTab.height() * s );
+	}
+
 	// the grid shift starts at CenterBackground and is inherited by everything under it
 	Int childShiftX = shiftX;
 	if( strcmp( shortName, "CenterBackground" ) == 0 )
@@ -1741,8 +1766,16 @@ Int ControlBar::getPanelSlideOffset( Int panel ) const
 	if( m_panelSlide[ panel ] <= 0.0f )
 		return 0;
 
-	// far enough that the top edge of the frame is off the bottom of the screen, so everything is
-	const Real drop = (Real)( TheDisplay->getHeight() - m_panelOrigin.y );
+	//
+	// Far enough that the top edge of the frame is off the bottom of the screen, so everything is -
+	// except a panel with a cap, which travels only as far as the cap says and keeps the strip above
+	// it on screen.  The selection panel has one: it carries the button that puts the bar back, and
+	// it stops with that button's row standing on the bottom edge.  It takes the same quarter of a
+	// second to travel the shorter distance, so all three still move as one.
+	//
+	const Real drop = ( m_panelDropCap[ panel ] > 0 )
+											? (Real)m_panelDropCap[ panel ]
+											: (Real)( TheDisplay->getHeight() - m_panelOrigin.y );
 	return REAL_TO_INT_FLOOR( m_panelSlide[ panel ] * drop );
 }
 
@@ -1781,11 +1814,15 @@ void ControlBar::applyPanelSlide( void )
 		// Clear of the bottom edge and staying there: stop drawing it at all.  Only what we hid do
 		// we ever un-hide - the context system hides windows of its own all the time (the unused
 		// minimise buttons, a beacon pane, an empty portrait) and a blanket winHide(FALSE) over the
-		// panel put every one of them back on screen.
+		// panel put every one of them back on screen.  Which is why a window that was already hidden
+		// when the panel went down is not counted as ours: hiding it changes nothing and remembering
+		// it puts it on screen the first time the bar is minimised and brought back.  ControlBar.wnd
+		// authors ButtonSmall and ButtonMedium hidden, and that is where the stray "S" and "M" over
+		// the battlefield came from.
 		//
 		if( m_panelHidden[ panel ] )
 		{
-			if( !place.weHid )
+			if( !place.weHid && !child->winIsHidden() )
 			{
 				child->winHide( TRUE );
 				place.weHid = TRUE;
@@ -1835,7 +1872,8 @@ void ControlBar::updatePanelSlide( void )
 			if( m_panelSlide[ p ] >= m_panelSlideTo[ p ] )
 			{
 				m_panelSlide[ p ] = m_panelSlideTo[ p ];
-				m_panelHidden[ p ] = TRUE;			// arrived off screen
+				// arrived - off screen, unless the cap kept a strip of it on
+				m_panelHidden[ p ] = ( m_panelDropCap[ p ] <= 0 );
 			}
 		}
 		else if( m_panelSlide[ p ] > m_panelSlideTo[ p ] )
@@ -1868,7 +1906,7 @@ void ControlBar::showPanel( Int panel, Bool show, Bool immediate )
 	if( immediate )
 	{
 		m_panelSlide[ panel ] = m_panelSlideTo[ panel ];
-		m_panelHidden[ panel ] = !show;
+		m_panelHidden[ panel ] = !show && ( m_panelDropCap[ panel ] <= 0 );
 	}
 
 	m_panelSlideMs = timeGetTime();
@@ -1935,6 +1973,26 @@ void ControlBar::layoutPanels( void )
 	// where the frame they belong to started out - see getPanelOrigin
 	m_panelOrigin.x = 0;
 	m_panelOrigin.y = parentTop;
+
+	//
+	// Two of the three panels go all the way off the bottom.  The selection panel stops with the row
+	// its minimise tab is in standing on the bottom edge: the button that puts the bar back is in
+	// that row, and so is the plate that paints it, so the tab a minimised player clicks is real
+	// artwork and not a button floating over the battlefield.
+	//
+	for( p = 0; p < CB_PANEL_COUNT; p++ )
+		m_panelDropCap[ p ] = 0;
+	if( m_controlBarSchemeManager )
+	{
+		const ControlBarPlate *rightPlate =
+			ControlBarPlateForSide( m_controlBarSchemeManager->getCurrentSide(), CB_PANEL_RIGHT );
+		if( rightPlate == NULL )
+			rightPlate = ControlBarPlateForSide( m_controlBarSchemeManager->getCurrentArtTwinSide(),
+																					 CB_PANEL_RIGHT );
+		if( rightPlate && rightPlate->minTab.height() > 0 )
+			m_panelDropCap[ CB_PANEL_RIGHT ] =
+				REAL_TO_INT_FLOOR( ( CONTROL_BAR_DESIGN_H - rightPlate->minTab.hi.y ) * s );
+	}
 
 	for( GameWindow *child = parent->winGetChild(); child; child = child->winGetNext() )
 	{
@@ -5017,9 +5075,10 @@ void ControlBar::setDefaultControlBarConfig( void )
 	m_contextParent[ CP_MASTER ]->winSetPosition(m_defaultControlBarPosition.x, m_defaultControlBarPosition.y);
 	m_contextParent[ CP_MASTER ]->winHide(FALSE);
 
-	// the two panels the minimised bar stands down
+	// the three panels the minimised bar stands down
 	showPanel( CB_PANEL_LEFT, TRUE );
 	showPanel( CB_PANEL_CENTER, TRUE );
+	showPanel( CB_PANEL_RIGHT, TRUE );
 
 	repopulateBuildTooltipLayout();
 	setUpDownImages();
@@ -5044,11 +5103,11 @@ void ControlBar::setLowControlBarConfig( void )
 	m_currentControlBarStage = CONTROL_BAR_STAGE_LOW;
 
 	//
-	// Minimised is the radar and the middle gone, not the whole bar slid down a tenth of the screen
-	// with its top edge still showing.  Sliding it left a strip of metal, a readable money box and
-	// the top of the radar dish lying along the bottom of the picture, which is neither the bar nor
-	// out of the way.  The selection side stays where it is: it is where the button that puts the
-	// rest back lives, and it is the panel a minimising player is keeping.
+	// Minimised is all three panels gone, not the whole bar slid down a tenth of the screen with its
+	// top edge still showing.  Sliding it left a strip of metal, a readable money box and the top of
+	// the radar dish lying along the bottom of the picture, which is neither the bar nor out of the
+	// way.  The one thing that stays is the button that puts it all back: applyPanelSlide rides it
+	// down with the selection panel and stops it on the bottom edge of the screen.
 	//
 	TheTacticalView->setHeight((Int)(TheDisplay->getHeight()));
 	m_contextParent[ CP_MASTER ]->winSetPosition(m_defaultControlBarPosition.x, m_defaultControlBarPosition.y);
@@ -5056,6 +5115,7 @@ void ControlBar::setLowControlBarConfig( void )
 
 	showPanel( CB_PANEL_LEFT, FALSE );
 	showPanel( CB_PANEL_CENTER, FALSE );
+	showPanel( CB_PANEL_RIGHT, FALSE );
 
 	setUpDownImages();
 
