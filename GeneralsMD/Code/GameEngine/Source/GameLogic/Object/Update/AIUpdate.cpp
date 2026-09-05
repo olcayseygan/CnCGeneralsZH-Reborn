@@ -6147,6 +6147,69 @@ Bool AIUpdateInterface::canAutoAcquireWhileStealthed() const
 /**
  * Return the next object that our mood suggests we should attack.
  */
+/** How far past its own reach a unit on attack move looks for something to stop for. */
+static const Real ATTACK_MOVE_SEARCH_SCALE = 1.5f;
+
+/** Cosine of half the forward arc an aircraft on attack move will turn for.  0.5 is sixty degrees
+	* either side of the nose; written as the cosine because the test below is done squared, which is
+	* what keeps a trig call out of the simulation - see Lib/Trig.h. */
+static const Real AIRCRAFT_FORWARD_ARC_COS = 0.5f;
+
+//-------------------------------------------------------------------------------------------------
+/** An aircraft looks where it is going.
+	*
+	* It cannot stop, it turns in a wide circle, and a target off to one side or behind it is one it
+	* has to come all the way round for - which is how a flight of bombers ends up orbiting a corner
+	* of the map instead of arriving anywhere.  So the long look is forward only: inside the arc the
+	* full attack-move distance, outside it no further than the aircraft can already shoot, which
+	* still lets it take something it happens to be passing. */
+//-------------------------------------------------------------------------------------------------
+class PartitionFilterForwardArc : public PartitionFilter
+{
+private:
+	const Object *m_self;
+	Real m_sideRangeSqr;			///< how far it will look outside the arc
+
+public:
+	PartitionFilterForwardArc( const Object *self, Real sideRange )
+		: m_self( self ), m_sideRangeSqr( sideRange * sideRange )
+	{ }
+
+	virtual Bool allow( Object *other )
+	{
+		if( other == NULL || m_self == NULL )
+			return FALSE;
+
+		const Coord3D *myPos = m_self->getPosition();
+		const Coord3D *hisPos = other->getPosition();
+		const Real dx = hisPos->x - myPos->x;
+		const Real dy = hisPos->y - myPos->y;
+		const Real distSqr = dx * dx + dy * dy;
+
+		// close enough to shoot without turning at all: take it wherever it is
+		if( distSqr <= m_sideRangeSqr )
+			return TRUE;
+		if( distSqr < 0.01f )
+			return TRUE;
+
+		//
+		// dot / dist >= cos(arc), squared on both sides so there is no square root and no cosine in
+		// here at all: the simulation has to give the same answer on every machine in the game, and
+		// the runtime's own maths does not (Lib/Trig.h).  The sign test is what squaring costs.
+		//
+		const Coord3D *myDir = m_self->getUnitDirectionVector2D();
+		const Real dot = myDir->x * dx + myDir->y * dy;
+		if( dot <= 0.0f )
+			return FALSE;			// behind us
+
+		return ( dot * dot ) >= ( AIRCRAFT_FORWARD_ARC_COS * AIRCRAFT_FORWARD_ARC_COS * distSqr );
+	}
+
+#if defined(_DEBUG) || defined(_INTERNAL)
+	virtual const char* debugGetName() { return "PartitionFilterForwardArc"; }
+#endif
+};
+
 Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuringIdle, Bool allowOutOfWeaponRangeTargets )
 {
 	Object *obj = getObject();
@@ -6235,14 +6298,20 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	// Use Guard Outer, which typically corresponds to the total range
 	Real rangeToFindWithin = TheAI->getAdjustedVisionRangeForObject(obj, AI_VISIONFACTOR_OWNERTYPE | AI_VISIONFACTOR_MOOD);
 
-	// A caller that closes with what it finds (attack move) is not limited by what the unit can see:
-	// a unit whose weapon outranges its vision - artillery, rocket infantry, a Scud launcher - found
-	// nothing at all this way and walked past everything it was ordered to kill.
+	//
+	// A caller that closes with what it finds (attack move) measures the search against its own
+	// weapon rather than against its eyes.  The two have nothing to do with each other - artillery
+	// outranges its vision, a scout sees far further than it can shoot - so a unit whose weapon
+	// outranged its sight found nothing this way and walked past everything it was ordered to kill,
+	// while a unit that sees a long way stopped for things it would spend a minute driving to.
+	// Half as far again as it can shoot: far enough to turn and close, near enough that a column
+	// does not scatter after everything on the horizon.
+	//
 	if (allowOutOfWeaponRangeTargets)
 	{
-		Real weaponRange = obj->getLargestWeaponRange();
-		if (weaponRange > rangeToFindWithin)
-			rangeToFindWithin = weaponRange;
+		const Real weaponRange = obj->getLargestWeaponRange();
+		if (weaponRange > 0.0f)
+			rangeToFindWithin = weaponRange * ATTACK_MOVE_SEARCH_SCALE;
 	}
 
 	if (rangeToFindWithin <= 0.0f)
@@ -6331,7 +6400,15 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 		flags |= AI::PREFER_HIGH_THREAT;
 	}
 
-	Object *newVictim = TheAI->findClosestEnemy(obj, rangeToFindWithin, flags, getAttackInfo());
+	//
+	// ... and an aircraft only makes that long look forward - see PartitionFilterForwardArc.
+	//
+	PartitionFilterForwardArc filterArc( obj, obj->getLargestWeaponRange() );
+	PartitionFilter *arc = NULL;
+	if( allowOutOfWeaponRangeTargets && obj->isKindOf( KINDOF_AIRCRAFT ) )
+		arc = &filterArc;
+
+	Object *newVictim = TheAI->findClosestEnemy(obj, rangeToFindWithin, flags, getAttackInfo(), arc);
 
 /*
 DEBUG_LOG(("GNMT frame %d: %s %08lx (con %s %08lx) uses range %f, flags %08lx, %s finds %s %08lx\n",
