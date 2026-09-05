@@ -1475,7 +1475,13 @@ void W3DTreeBuffer::addTree(DrawableID id, Coord3D location, Real scale, Real an
 	m_trees[m_numTrees].firstIndex = 0;
 	m_trees[m_numTrees].bufferNdx = -1;
 
-	m_trees[m_numTrees].swayType = GameClientRandomValue(0, MAX_SWAY_TYPES-1);
+	//
+	// swayType is a vertex shader constant index counted from c8, and c8 itself is the all-zero
+	// "no sway" slot - the ten real ones are c9 to c18.  So the range is 1..MAX_SWAY_TYPES, which
+	// is what updateSway rolls when the breeze changes; this one rolled 0..MAX_SWAY_TYPES-1, and a
+	// tree that drew a zero stood perfectly still.  One tree in ten, until the next breeze change.
+	//
+	m_trees[m_numTrees].swayType = 1+GameClientRandomValue(0, MAX_SWAY_TYPES-1);
 	m_trees[m_numTrees].pushAside = 0;
 	m_trees[m_numTrees].lastFrameUpdated = 0;
 	m_trees[m_numTrees].pushAsideSource = INVALID_ID;
