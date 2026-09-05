@@ -246,8 +246,10 @@ void ThingFactory::reset( void )
 	// they must depend only on the data loaded, not on how many matches this process has played.
 	// m_nextTemplateID kept counting up across resets; it now goes back to just past the templates
 	// that survived.
+	// The assert is compiled out of a shipping build, and the line under it used to dereference
+	// whatever the assert had just complained about.
 	DEBUG_ASSERTCRASH( m_firstTemplate != NULL, ("no templates left after deleting overrides") );
-	m_nextTemplateID = (UnsignedShort)(m_firstTemplate->getTemplateID() + 1);
+	m_nextTemplateID = m_firstTemplate ? (UnsignedShort)(m_firstTemplate->getTemplateID() + 1) : 1;
 }  // end reset
 
 //-------------------------------------------------------------------------------------------------

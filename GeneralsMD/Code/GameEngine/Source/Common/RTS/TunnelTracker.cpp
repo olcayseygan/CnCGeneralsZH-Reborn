@@ -217,7 +217,13 @@ void TunnelTracker::onTunnelCreated( const Object *newTunnel )
 // ------------------------------------------------------------------------
 void TunnelTracker::onTunnelDestroyed( const Object *deadTunnel )
 {
-	m_tunnelCount--;
+	//
+	// m_tunnelCount is unsigned, so a decrement at zero does not go negative, it goes to four
+	// billion - and the branch below then takes the "there is still a tunnel standing" path with
+	// nothing standing.
+	//
+	if( m_tunnelCount > 0 )
+		m_tunnelCount--;
 	m_tunnelIDs.remove( deadTunnel->getID() );
 
 	if( m_tunnelCount == 0 )
@@ -229,7 +235,11 @@ void TunnelTracker::onTunnelDestroyed( const Object *deadTunnel )
 	}
 	else
 	{
-		Object *validTunnel = TheGameLogic->findObjectByID( m_tunnelIDs.front() );
+		// front() on an empty list reads whatever the list's head happens to point at.  The loop
+		// below already copes with a null tunnel, so ask for one only when there is one.
+		Object *validTunnel = m_tunnelIDs.empty()
+													? NULL
+													: TheGameLogic->findObjectByID( m_tunnelIDs.front() );
 		// Otherwise, make sure nobody inside remembers the dead tunnel as the one they entered 
 		// (scripts need to use so there must be something valid here)
 		for(ContainedItemsList::iterator it = m_containList.begin(); it != m_containList.end(); )
