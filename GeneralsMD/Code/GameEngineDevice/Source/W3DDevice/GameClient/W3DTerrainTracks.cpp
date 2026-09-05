@@ -826,6 +826,12 @@ Try improving the fit to vertical surfaces like cliffs.
 	shadeG*=255.0f;
 	shadeB*=255.0f;
 
+	// clamp to a byte, same reason as the scorch marks in BaseHeightMap: the red channel is shifted
+	// sixteen bits up and a brightly lit map pushes it past 255, into the alpha the fade writes below
+	if (shadeR > 255.0f) shadeR = 255.0f;	if (shadeR < 0.0f) shadeR = 0.0f;
+	if (shadeG > 255.0f) shadeG = 255.0f;	if (shadeG < 0.0f) shadeG = 0.0f;
+	if (shadeB > 255.0f) shadeB = 255.0f;	if (shadeB < 0.0f) shadeB = 0.0f;
+
 	diffuseLight = REAL_TO_INT(shadeB) | (REAL_TO_INT(shadeG) << 8) | (REAL_TO_INT(shadeR) << 16);
 	Real numFadedEdges=m_maxTankTrackEdges-m_maxTankTrackOpaqueEdges;
 

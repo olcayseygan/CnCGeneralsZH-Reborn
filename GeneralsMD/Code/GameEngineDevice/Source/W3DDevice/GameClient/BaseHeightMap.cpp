@@ -1952,6 +1952,14 @@ void BaseHeightMapRenderObjClass::updateScorches(void)
 	shadeR*=255.0f;
 	shadeG*=255.0f;
 	shadeB*=255.0f;
+	//
+	// Ambient plus half the diffuse can be over 1.0 - a map lit brightly is enough - and nothing
+	// held these to a byte.  The red channel is shifted up sixteen bits, so anything past 255 ran
+	// straight into the alpha byte and the scorch came out the wrong colour and the wrong opacity.
+	//
+	if (shadeR > 255.0f) shadeR = 255.0f;	if (shadeR < 0.0f) shadeR = 0.0f;
+	if (shadeG > 255.0f) shadeG = 255.0f;	if (shadeG < 0.0f) shadeG = 0.0f;
+	if (shadeB > 255.0f) shadeB = 255.0f;	if (shadeB < 0.0f) shadeB = 0.0f;
 	Int diffuse=REAL_TO_INT(shadeB) | (REAL_TO_INT(shadeG) << 8) | (REAL_TO_INT(shadeR) << 16) | ((int)255 << 24);
 	m_scorchesInBuffer = 0;
 	for (curScorch=m_numScorches-1; curScorch>=0; curScorch--) {
