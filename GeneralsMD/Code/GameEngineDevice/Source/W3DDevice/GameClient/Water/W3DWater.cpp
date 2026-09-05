@@ -194,6 +194,39 @@ void doSkyBoxSet(Bool startDraw)
 					
 static Bool wireframeForDebug = 0;
 
+//
+// The river used to get its shroud from a second pass that redrew the whole quad through
+// ST_SHROUD_TEXTURE.  That pass multiplies the frame buffer by the shroud and knows nothing about
+// the river's own edge alpha (m_riverAlphaEdge, stage 3), so along the banks - where the river is
+// nearly transparent and the terrain underneath has already been shrouded once by the terrain pass
+// - the shroud landed twice and the shore came out as a dark stripe.  In full black shroud the
+// opposite showed: the river's alpha blend let a little brightness through where there should be
+// none.
+//
+// So the shroud goes into the vertex colour instead, and the second pass goes away.  Both the
+// colour and the alpha are scaled: the pixel shader multiplies the water texture by the colour and
+// the additive terms (sparkles, edge glow) by the alpha, so a fully shrouded river is black rather
+// than transparent.  One sample per river vertex is coarser than per-pixel, but the shroud is a
+// low-resolution grid to begin with and a river carries a vertex pair per waypoint.
+//
+static Int applyShroudToRiverDiffuse(W3DShroud *shroud, Real x, Real y, Int diffuse)
+{
+	if (shroud == NULL)
+		return diffuse;
+
+	const Int cellX = REAL_TO_INT_FLOOR( x / shroud->getCellWidth() );
+	const Int cellY = REAL_TO_INT_FLOOR( y / shroud->getCellHeight() );
+	const Int level = shroud->getShroudLevel( cellX, cellY );	// 0 = black, 255 = clear
+
+	if (level >= 255)
+		return diffuse;
+
+	return ((((diffuse >> 24) & 0xff) * level / 255) << 24) |
+				 ((((diffuse >> 16) & 0xff) * level / 255) << 16) |
+				 ((((diffuse >>  8) & 0xff) * level / 255) <<  8) |
+				 (  ((diffuse        & 0xff) * level / 255)       );
+}
+
 void WaterRenderObjClass::setupJbaWaterShader(void) 
 {
 	if (!TheWaterTransparency->m_additiveBlend)
@@ -920,9 +953,11 @@ void WaterRenderObjClass::ReAcquireResources(void)
 			tex t1	\n\
 			tex t2	\n\
 			tex t3\n\
-			mul r0,v0,t0 ; blend vertex color into t0. \n\
+			mul r0.rgb, v0, t0 ; blend vertex color into t0. \n\
+			mov r0.a, t0 ; the vertex alpha now carries the shroud, and must not fade the water itself. \n\
 			mul r1, t1, t2 ; mul\n\
-			add r0.rgb, r0, t3\n\
+			add r1.rgb, r1, t3\n\
+			mul r1.rgb, r1, v0.a ; sparkles and the edge glow do get darkened by the shroud. \n\
 			+mul r0.a, r0, t3\n\
 			add r0.rgb, r0, r1\n";
 		hr = D3DXAssembleShader( shader, strlen(shader), 0, NULL, &compiledShader, NULL);
@@ -2885,6 +2920,8 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 
 		Real constA=3*m_riverVOrigin;
 
+		W3DShroud *shroud = TheTerrainRenderObject ? TheTerrainRenderObject->getShroud() : NULL;
+
 		for (i=0; i<(pTrig->getNumPoints()/2); i++)
 		{
 			Real x,y;
@@ -2905,8 +2942,8 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 			vb->y=y;
 
 			vb->z=innerPt.z;
-			vb->diffuse= diffuse;
-	
+			vb->diffuse= applyShroudToRiverDiffuse( shroud, x, y, diffuse );
+
 			Real wobbleConst=-m_riverVOrigin+vScale*(Real)i + WWMath::Fast_Sin(2*PI*(vScale*(Real)i) - constA)/22.0f;
  			//old slower version
 			//vb->v1=-m_riverVOrigin+vScale*(Real)i + wobble(vScale*i, m_riverVOrigin, doWobble);
@@ -2927,7 +2964,7 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 			vb->x=x;
 			vb->y=y;
 			vb->z=outerPt.z;
-			vb->diffuse= diffuse;
+			vb->diffuse= applyShroudToRiverDiffuse( shroud, x, y, diffuse );
  			//old slower version
 			//vb->v1=-m_riverVOrigin+vScale*(Real)i + wobble(vScale*i, m_riverVOrigin, doWobble);
 			vb->v1=wobbleConst;
@@ -2979,19 +3016,8 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 	if (TheWaterTransparency->m_additiveBlend)
 		DX8Wrapper::Set_DX8_Render_State(D3DRS_SRCBLEND, D3DBLEND_ONE );
 
-	//do second pass to apply the shroud on water plane
-	if (TheTerrainRenderObject->getShroud())
-	{
-		W3DShaderManager::setTexture(0,TheTerrainRenderObject->getShroud()->getShroudTexture());
-		W3DShaderManager::setShader(W3DShaderManager::ST_SHROUD_TEXTURE, 0);
-		DX8Wrapper::_Get_D3D_Device8()->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-		//Shroud shader uses z-compare of EQUAL which wouldn't work on water because it doesn't
-		//write to the zbuffer.  Change to LESSEQUAL.
-		DX8Wrapper::_Get_D3D_Device8()->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
-		DX8Wrapper::Draw_Triangles(	0,rectangleCount*2, 0,	(rectangleCount+1)*2);
-		DX8Wrapper::_Get_D3D_Device8()->SetRenderState(D3DRS_ZFUNC, D3DCMP_EQUAL);
-		W3DShaderManager::resetShader(W3DShaderManager::ST_SHROUD_TEXTURE);
-	}
+	// the shroud is in the vertex colour now - see applyShroudToRiverDiffuse.  The second pass that
+	// used to apply it here darkened the banks twice.
 	DX8Wrapper::_Get_D3D_Device8()->SetRenderState(D3DRS_CULLMODE, cull);
 
 
