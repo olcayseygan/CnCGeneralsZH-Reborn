@@ -180,6 +180,12 @@ BattlePlanUpdate::~BattlePlanUpdate( void )
 	TheAudio->removeAudioEvent( m_holdTheLineUnpack.getPlayingHandle() );
 	TheAudio->removeAudioEvent( m_holdTheLinePack.getPlayingHandle() );
 
+	// newInstance'd in the constructor and never given back: one per Strategy Center ever built.
+	if( m_bonuses )
+	{
+		m_bonuses->deleteInstance();
+		m_bonuses = NULL;
+	}
 }
 
 // ------------------------------------------------------------------------------------------------
