@@ -606,6 +606,7 @@ PushButtonData * getNewPushButtonData( void )
 	p->drawCount = 0;
 	p->drawSeconds = 0;
 	p->drawCost = 0;
+	p->drawPower = 0;
 	p->barPercent = -1;
 	p->barColor = GAME_COLOR_UNDEFINED;
 	p->overlayImage = NULL;
@@ -755,6 +756,29 @@ void GadgetButtonSetCost( GameWindow *g, Int cost )
 			return;
 	}
 	pData->drawCost = cost;
+	g->winSetUserData(pData);
+}
+
+// GadgetButtonSetPower =======================================================
+/** Set the power figure drawn in the button's bottom right corner, 0 for none.
+	* Negative is what the structure draws off the grid, positive what it puts on
+	* it - the sign the game's own templates use.  Money and time are already in
+	* the other three corners; power is the third thing a base has to spend and
+	* the only one you had to remember from the tooltip. */
+//=============================================================================
+void GadgetButtonSetPower( GameWindow *g, Int power )
+{
+	if( g == NULL )
+		return;
+
+	PushButtonData *pData = (PushButtonData *)g->winGetUserData();
+	if(!pData)
+	{
+		pData = getNewPushButtonData();
+		if(!pData)
+			return;
+	}
+	pData->drawPower = power;
 	g->winSetUserData(pData);
 }
 

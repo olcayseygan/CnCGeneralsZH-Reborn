@@ -699,8 +699,30 @@ void W3DCommandBarBackgroundDraw( GameWindow *window, WinInstanceData *instData 
 	if( man == NULL || TheDisplay == NULL )
 		return;
 
+	//
+	// The plates are drawn from the design rectangles rather than from a window, so on their own
+	// they stand still while the bar moves: minimising it drops the frame a tenth of the screen and
+	// the intro slides the frame up from below, and both left the painting hanging where it was.
+	// This window is a child of that frame, so the frame's screen position now against where
+	// layoutPanels put it is exactly how far the whole bar has travelled.
+	//
+	ICoord2D offset;
+	offset.x = offset.y = 0;
+	GameWindow *frame = window ? window->winGetParent() : NULL;
+	if( frame )
+	{
+		ICoord2D now;
+		frame->winGetScreenPosition( &now.x, &now.y );
+		offset.x = now.x - TheControlBar->getPanelOrigin()->x;
+		offset.y = now.y - TheControlBar->getPanelOrigin()->y;
+	}
+
 	for( Int p = 0; p < ControlBar::CB_PANEL_COUNT; p++ )
 	{
+		// a panel the minimised bar has stood down paints nothing at all
+		if( TheControlBar->isPanelHidden( p ) )
+			continue;
+
 		const ControlBarPlate *plate = ControlBarPlateForSide( man->getCurrentSide(), p );
 		if( plate == NULL )
 			plate = ControlBarPlateForSide( man->getCurrentArtTwinSide(), p );
@@ -712,9 +734,13 @@ void W3DCommandBarBackgroundDraw( GameWindow *window, WinInstanceData *instData 
 																			 TheDisplay->getHeight(), &rect ) == FALSE )
 			continue;
 
+		// ... and a panel on its way off the bottom takes its painting down with it
+		const Int slide = TheControlBar->getPanelSlideOffset( p );
+
 		const Image *image = plateImage( plate );
 		if( image )
-			TheDisplay->drawImage( image, rect.lo.x, rect.lo.y, rect.hi.x, rect.hi.y );
+			TheDisplay->drawImage( image, rect.lo.x + offset.x, rect.lo.y + offset.y + slide,
+														 rect.hi.x + offset.x, rect.hi.y + offset.y + slide );
 	}
 }
 

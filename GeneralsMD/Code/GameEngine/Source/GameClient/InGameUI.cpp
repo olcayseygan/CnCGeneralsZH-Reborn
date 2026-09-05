@@ -124,13 +124,15 @@ enum
 
 //-------------------------------------------------------------------------------------------------
 /** Every number above is an 800x600 one, the resolution the command bar right below the strip was
-	* drawn at - and that bar is stretched to the screen while these are not, so on a 2560 wide
-	* screen the strip came out a third of the size of the row of buttons it belongs to.  Every one
-	* of them goes through here. */
+	* drawn at, so every one of them goes through here to become pixels.
+	*
+	* The scale is the command bar's own - one factor for both axes - and not the display over 800
+	* wide.  The two are the same at 4:3 and a third apart at 16:9, and the strip stands on the bar:
+	* measured the wide way its gaps grew away from the trays they space out. */
 //-------------------------------------------------------------------------------------------------
 static Int stripPixels( Int nominal )
 {
-	return REAL_TO_INT_CEIL( nominal * TheUIScale() );
+	return REAL_TO_INT_CEIL( nominal * ControlBarUniformScale() );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2208,8 +2210,17 @@ void InGameUI::update( void )
 			lastMoney = currentMoney;
 
 		}  // end if
-		moneyWin->winHide(FALSE);
-		powerWin->winHide(FALSE);
+
+		//
+		// These two are put back on screen every frame, which is how they survive the context
+		// switching that hides everything else on the bar.  It also used to beat the minimised bar:
+		// the radar and the whole middle panel went away and the money still sat there over the
+		// battlefield, plate and all gone from under it.  The bar's own stage has the last word.
+		//
+		const Bool centreUp = ( TheControlBar == NULL ||
+														!TheControlBar->isPanelHidden( ControlBar::CB_PANEL_CENTER ) );
+		moneyWin->winHide( !centreUp );
+		powerWin->winHide( !centreUp );
 	}
 	else
 	{

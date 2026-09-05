@@ -7966,6 +7966,54 @@ TEST(every_plate_that_touches_a_design_edge_touches_the_screen_edge)
 	CHECK( rect.hi.x < 1920 );
 }
 
+/* The command bar is drawn at one scale for both axes and the things that stand beside it - the
+	 production queue, the superweapon countdowns, the generals' power bar and the rank screen - are
+	 drawn at ControlBarUniformScale.  They used to be measured the display's width over 800, which
+	 is a third bigger at 16:9 than the bar they sit on, so a queue cameo came out bigger than the
+	 command button it is a picture of.  One scale, and it is the bar's own. */
+TEST(the_hud_is_measured_at_the_command_bars_own_scale)
+{
+	static const struct { Int w, h; } screens[] =
+	{
+		{ 800, 600 }, { 1024, 768 }, { 1280, 720 }, { 1920, 1080 }, { 2560, 1080 }, { 3840, 2160 },
+	};
+
+	// a design rectangle 100 units wide and 100 tall, so the width and height of what comes back
+	// out of the panel transform *is* the scale it was put through
+	IRegion2D square;
+	square.lo.x = 300;
+	square.lo.y = 480;
+	square.hi.x = 400;
+	square.hi.y = 580;
+
+	for( Int i = 0; i < (Int)( sizeof( screens ) / sizeof( screens[ 0 ] ) ); i++ )
+	{
+		const Real s = ControlBarUniformScaleFor( screens[ i ].w, screens[ i ].h );
+
+		// never wider than either axis would allow: that is what "not stretched" means
+		CHECK( s <= (Real)screens[ i ].w / 800.0f + 0.001f );
+		CHECK( s <= (Real)screens[ i ].h / 600.0f + 0.001f );
+
+		// and it is the very number the command bar's own panels are laid out at
+		IRegion2D got;
+		CHECK( ControlBarPanelDesignToScreen( ControlBar::CB_PANEL_CENTER, &square,
+																					screens[ i ].w, screens[ i ].h, &got ) );
+		CHECK_NEAR( (Real)got.width(), 100.0f * s, 2.0f );
+		CHECK_NEAR( (Real)got.height(), 100.0f * s, 2.0f );
+
+		// square in, square out, to the rounding - the loader's separate x and y scales are what made
+		// a cameo a third wider than it is tall
+		CHECK( abs( got.width() - got.height() ) <= 1 );
+	}
+
+	// 800x600 is the resolution everything was authored at, so nothing is scaled at all there
+	CHECK_NEAR( ControlBarUniformScaleFor( 800, 600 ), 1.0f, 0.001f );
+
+	// and nothing shrinks below it, however small a screen somebody asks for
+	CHECK_NEAR( ControlBarUniformScaleFor( 640, 480 ), 1.0f, 0.001f );
+	CHECK_NEAR( ControlBarUniformScaleFor( 0, 0 ), 1.0f, 0.001f );
+}
+
 /* A build order is a message, and the structure it orders does not exist until the logic runs it -
 	 on a network game, however long the link takes.  Until then the client remembers the ground it
 	 spent, so a shift-held run of clicks does not put two structures on the same square.  What it
@@ -8270,7 +8318,9 @@ TEST(window_mode_survives_a_round_trip_through_options_ini)
 	const OptionDef *mode = findOptionDef( "WindowMode" );
 	CHECK( mode != NULL );
 	CHECK_EQ( (Int)mode->kind, (Int)OPTION_ENUM );
-	CHECK_EQ( (Int)mode->apply, (Int)APPLY_RESTART );
+	// changing it while the game is up restyles the window and rebuilds the device; it is only the
+	// style the window is *born* with that WinMain reads out of Options.ini before the engine exists
+	CHECK_EQ( (Int)mode->apply, (Int)APPLY_DEVICE_RESET );
 	CHECK_EQ( mode->hi, (Int)WINDOW_MODE_COUNT - 1 );
 
 	mode->set( WINDOW_MODE_BORDERLESS );

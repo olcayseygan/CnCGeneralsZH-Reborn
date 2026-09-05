@@ -586,10 +586,162 @@ void Reset_D3D_Device(bool active)
 	}
 }
 
+//=============================================================================
+/** Dress the application window for one WindowModeType, while the game is running.
+	*
+	* WinMain picks this style once, before the engine exists, out of the command line and
+	* Options.ini - which is why changing the setting in the options screen only ever showed up on
+	* the next run.  The rules are WinMain's own (initializeAppWindows): a frame and a caption for a
+	* plain window, neither for the two that own the screen, and a system menu on all of them so
+	* alt+F4 still closes it.
+	*
+	* ApplicationIsBorderless has to travel with it: WndProc reads it on every WM_SIZE to keep a
+	* borderless window pinned at the origin. */
+//=============================================================================
+static void applyWindowFrame( Int mode )
+{
+	extern HWND ApplicationHWnd;
+	extern Bool ApplicationIsBorderless;
+
+	// a headless run has no picture at all, so there is nothing for any of the three to mean
+	if( ApplicationHWnd == NULL || ( TheGlobalData && TheGlobalData->m_headless ) )
+		return;
+
+	ApplicationIsBorderless = ( mode == WINDOW_MODE_BORDERLESS );
+
+	DWORD style = WS_POPUP | WS_VISIBLE | WS_SYSMENU;
+	if( mode == WINDOW_MODE_WINDOWED )
+		style |= WS_DLGFRAME | WS_CAPTION;
+
+	::SetWindowLong( ApplicationHWnd, GWL_STYLE, style );
+
+	//
+	// The resize that follows keeps the top left corner where it is (SWP_NOMOVE), so a window that
+	// is about to cover the display is put at the origin now - otherwise it hangs off the bottom
+	// right by however far down the screen it happened to be sitting.
+	//
+	const UINT move = ( mode == WINDOW_MODE_WINDOWED ) ? SWP_NOMOVE : 0;
+	::SetWindowPos( ApplicationHWnd,
+									( mode == WINDOW_MODE_WINDOWED ) ? HWND_TOP : HWND_TOPMOST,
+									0, 0, 0, 0, SWP_NOSIZE | SWP_FRAMECHANGED | move );
+}
+
+//=============================================================================
+/** Give the window a client area exactly this big, wearing whatever frame it now has.  A plain
+	* window goes back to the middle of the screen, where one is born; a borderless one covers the
+	* display from the origin. Fullscreen is not our business - D3D owns that window. */
+//=============================================================================
+static void sizeWindowToClient( Int mode, Int width, Int height )
+{
+	extern HWND ApplicationHWnd;
+
+	if( ApplicationHWnd == NULL || ( TheGlobalData && TheGlobalData->m_headless ) )
+		return;
+	if( mode == WINDOW_MODE_FULLSCREEN )
+		return;
+
+	RECT rect;
+	rect.left = 0;
+	rect.top = 0;
+	rect.right = width;
+	rect.bottom = height;
+	::AdjustWindowRect( &rect, ::GetWindowLong( ApplicationHWnd, GWL_STYLE ), FALSE );
+
+	const Int outerW = rect.right - rect.left;
+	const Int outerH = rect.bottom - rect.top;
+
+	Int x = 0, y = 0;
+	if( mode == WINDOW_MODE_WINDOWED )
+	{
+		x = ( ::GetSystemMetrics( SM_CXSCREEN ) - outerW ) / 2;
+		y = ( ::GetSystemMetrics( SM_CYSCREEN ) - outerH ) / 2;
+	}
+
+	::SetWindowPos( ApplicationHWnd,
+									( mode == WINDOW_MODE_WINDOWED ) ? HWND_TOP : HWND_TOPMOST,
+									x, y, outerW, outerH, SWP_NOACTIVATE );
+}
+
 /** Set resolution of display */
 //=============================================================================
 Bool W3DDisplay::setDisplayMode( UnsignedInt xres, UnsignedInt yres, UnsignedInt bitdepth, Bool windowed )
 {
+	extern Bool ApplicationIsBorderless;
+
+	//
+	// Which of the three the window is wearing, and which it is being asked for.  The test cannot be
+	// on the windowed flag alone: borderless and windowed are both windowed devices and differ only
+	// in the frame, so a switch between those two would look like no change at all and the caption
+	// would stay on a window covering the display.
+	//
+	const Bool wasWindowed = getWindowed();
+	const Int wasMode = wasWindowed
+											? ( ApplicationIsBorderless ? WINDOW_MODE_BORDERLESS : WINDOW_MODE_WINDOWED )
+											: WINDOW_MODE_FULLSCREEN;
+	const Int mode = windowed
+									 ? ( ( TheGlobalData && TheGlobalData->m_windowMode == WINDOW_MODE_BORDERLESS )
+											 ? WINDOW_MODE_BORDERLESS : WINDOW_MODE_WINDOWED )
+									 : WINDOW_MODE_FULLSCREEN;
+
+	//
+	// Windowed against fullscreen is a different device rather than a resize, and
+	// Set_Device_Resolution says so itself - "TODO: support changing windowed status" - by quietly
+	// resetting the old one and returning success.  So the mode dropdown used to take a restart.
+	// Set_Render_Device with reset_device is the call that rebuilds the device, the same one the
+	// alt-tab handler above uses; the window's frame goes on first, because the resize inside it
+	// measures whatever frame the window is wearing.
+	//
+	if( mode != wasMode )
+	{
+		//
+		// Which way round the frame and the device go depends on which way we are travelling.
+		//
+		// Into fullscreen, the frame comes off first: the resize inside Set_Render_Device measures
+		// whatever frame the window is wearing.  Coming *out* of fullscreen it is the other way
+		// round, and this is not a preference.  While the device still owns the display, hanging a
+		// caption on its window loses the device, and Reset_Device answers a lost device by
+		// returning false without trying - so the switch failed, the fallback put fullscreen back,
+		// and the mode dropdown looked like it did nothing at all in that one direction.
+		//
+		const Bool leavingFullscreen = ( wasMode == WINDOW_MODE_FULLSCREEN );
+
+		if( !leavingFullscreen )
+			applyWindowFrame( mode );
+
+		Bool ok = ( WW3D_ERROR_OK == WW3D::Set_Render_Device( WW3D::Get_Render_Device(), xres, yres,
+																												 bitdepth, windowed, true, true, true ) );
+		if( ok == FALSE )
+		{
+			// a device that was lost for a moment cannot be reset until it is not; one more go
+			ok = ( WW3D_ERROR_OK == WW3D::Set_Render_Device( WW3D::Get_Render_Device(), xres, yres,
+																											 bitdepth, windowed, true, true, true ) );
+		}
+
+		if( ok )
+		{
+			if( leavingFullscreen )
+				applyWindowFrame( mode );
+
+			sizeWindowToClient( mode, xres, yres );
+
+			Render2DClass::Set_Screen_Resolution( RectClass( 0, 0, xres, yres ) );
+			Display::setDisplayMode( xres, yres, bitdepth, windowed );
+
+			DEBUG_LOG(( "Window mode %d -> %d at %dx%d\n", wasMode, mode, xres, yres ));
+			return TRUE;
+		}
+
+		// the device is still the old one, so put the frame back on the window that goes with it
+		DEBUG_LOG(( "Window mode %d -> %d refused by the device; staying put\n", wasMode, mode ));
+		applyWindowFrame( wasMode );
+		WW3D::Set_Render_Device( WW3D::Get_Render_Device(), getWidth(), getHeight(), getBitDepth(),
+														 wasWindowed, true, true, true );
+		sizeWindowToClient( wasMode, getWidth(), getHeight() );
+		Render2DClass::Set_Screen_Resolution( RectClass( 0, 0, getWidth(), getHeight() ) );
+		Display::setDisplayMode( getWidth(), getHeight(), getBitDepth(), wasWindowed );
+		return FALSE;
+	}
+
 	if (WW3D_ERROR_OK == WW3D::Set_Device_Resolution(xres,yres,bitdepth,windowed,true))
 	{
 		Render2DClass::Set_Screen_Resolution(RectClass(0, 0, xres, yres));

@@ -888,10 +888,28 @@ public:
 	/// the whole panel, art included - this is what blocks a click from reaching the world
 	const IRegion2D *getPanelRect( Int which ) const { return &m_panelRect[ which ]; }
 
+	/** Where ControlBarParent stood when layoutPanels last ran.  Everything the panels hold is a
+		* child of that window and travels with it - the minimise stage drops it a tenth of the
+		* screen, the intro slides it up from below - but the plate art is drawn from the design
+		* rectangles rather than from a window, so it has to be told by how much.  Draw offset is
+		* the frame's screen position now, minus this. */
+	const ICoord2D *getPanelOrigin( void ) const { return &m_panelOrigin; }
+
 	/** Re-anchor the three panels at one uniform scale.  Idempotent, and safe to call again after
 		* something else has moved a window - ControlBarScheme::init does, every time a scheme is
 		* set - because it remembers both the authored rectangle and the one it last handed out. */
 	void layoutPanels( void );
+
+	/** Send one whole panel off the bottom of the screen, or bring it back.  It slides: the panel is
+		* a picture of a thing, and a thing that is going away should be seen going.  'immediate' puts
+		* it where it is going this instant, which is what a rebuild wants. */
+	void showPanel( Int panel, Bool show, Bool immediate = FALSE );
+
+	/// is that panel all the way off screen?  the plate art asks before it paints
+	Bool isPanelHidden( Int panel ) const { return m_panelHidden[ panel ]; }
+
+	/// how far down that panel has slid, in pixels - the plate art travels with its windows
+	Int getPanelSlideOffset( Int panel ) const;
 
 protected:
 	/// place one window and its descendants inside 'panel'; see layoutPanels
@@ -1038,6 +1056,14 @@ protected:
 	ControlBarStages m_currentControlBarStage;
 
 	IRegion2D m_panelRect[ CB_PANEL_COUNT ];				///< screen rect of each panel, filled by layoutPanels()
+	ICoord2D m_panelOrigin;													///< where the frame was put, so the plates can follow it
+	Bool m_panelHidden[ CB_PANEL_COUNT ];						///< minimised: the radar and the middle stand down
+	Real m_panelSlide[ CB_PANEL_COUNT ];						///< 0 home, 1 clear of the bottom edge
+	Real m_panelSlideTo[ CB_PANEL_COUNT ];					///< where each one is heading
+	UnsignedInt m_panelSlideMs;											///< wall clock of the last slide step
+
+	void updatePanelSlide( void );									///< step the slide and put the windows where it says
+	void applyPanelSlide( void );										///< the placing half of it, on its own so a rebuild can call it
 
 	Bool m_UIDirty;																///< the context UI must be re-evaluated
 
@@ -1247,6 +1273,11 @@ private:
 
 
 	Bool m_genStarFlash;
+
+	/** Is the promotion screen open?  Not the same question as "is its window hidden": the fade it
+		* opens with drives that window's hidden flag itself, several frames either way, so the window
+		* answers no while the screen is opening and yes for a frame after it was told to close. */
+	Bool m_purchaseScienceOpen;
 	Int m_lastFlashedAtPointValue;
 	
 	ICoord2D m_controlBarForegroundMarkerPos;
@@ -1300,6 +1331,27 @@ extern const ControlBarPlate *ControlBarPlateForSide( const AsciiString& side, I
 extern Bool ControlBarPanelDesignToScreen( Int panel, const IRegion2D *design,
 																					 Int displayWidth, Int displayHeight,
 																					 IRegion2D *rectOut );
+
+/** The one scale the whole HUD is drawn at: the display over the 800x600 everything was authored
+	* at, the smaller of the two axes so nothing is distorted.  The .wnd loader multiplies x and y
+	* separately, which on a 16:9 screen is a 1.33x horizontal smear; anything that wants to sit
+	* beside the command bar without being smeared measures itself with this instead.  Never below
+	* 1 - nothing shrinks under 800 wide. */
+extern Real ControlBarUniformScale( void );
+extern Real ControlBarUniformScaleFor( Int displayWidth, Int displayHeight );	///< ...for a screen you name
+
+/** Undo the .wnd loader's separate-axis stretch over a whole layout: every window under 'root' is
+	* recovered to its authored 800x600 rectangle and put back at ControlBarUniformScale(), anchored
+	* at the given fraction of the screen (0 = left/top edge, 1 = right/bottom, 0.5 = centred) with
+	* the matching fraction of the design space as its fixed point.  This is layoutPanels for a
+	* layout that is one piece rather than three: the generals' power bar hangs off the right edge
+	* with (1,1) and the science screen is centred at the top with (0.5,0).
+	*
+	* Call it once, on a layout straight out of winCreateLayout.  It reads the authored rectangle
+	* back out of where the loader put each window, so a second call would divide a scale out that
+	* is no longer there.  layoutPanels is the idempotent one, and it is idempotent because the
+	* scheme rewrites the command bar's windows behind it; nothing rewrites these. */
+extern void ControlBarLayoutUniform( GameWindow *root, Real anchorFracX, Real anchorFracY );
 
 //-------------------------------------------------------------------------------------------------
 /** Logic frames as the whole seconds they will really take at the current logic rate, rounded up

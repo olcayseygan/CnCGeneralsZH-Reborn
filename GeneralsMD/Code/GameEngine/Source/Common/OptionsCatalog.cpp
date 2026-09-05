@@ -134,10 +134,11 @@ const OptionDef TheOptionCatalog[] =
 
 	// Fullscreen, borderless or windowed.  The old Windowed flag in GameData.ini seeds this and is
 	// then derived back from it, so the device layer keeps reading the boolean it always read.
-	// APPLY_RESTART is not laziness: the window style is settled by CreateWindow in WinMain, which
-	// runs before the engine exists and reads this key itself through EarlyOptions.h.
+	// The window's style at startup is still settled by CreateWindow in WinMain, which runs before
+	// the engine exists and reads this key itself through EarlyOptions.h; changing it while the game
+	// is up restyles that window and rebuilds the device (W3DDisplay::setDisplayMode).
 	{ "WindowMode",								OPT_WND( "ComboBoxWindowMode" ), "GUI:WindowMode",
-		OPTION_ENUM, APPLY_RESTART, 0, WINDOW_MODE_COUNT - 1,
+		OPTION_ENUM, APPLY_DEVICE_RESET, 0, WINDOW_MODE_COUNT - 1,
 		get_m_windowMode, set_m_windowMode },
 
 	// Multisampling, as an index into 0/2/4/8/16 rather than a sample count - the device offers

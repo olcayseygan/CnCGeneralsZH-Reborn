@@ -1098,6 +1098,7 @@ ControlBar::ControlBar( void )
 	m_currContext = CB_CONTEXT_NONE;
 	m_defaultControlBarPosition.x = m_defaultControlBarPosition.y = 0;
 	m_genStarFlash = FALSE;
+	m_purchaseScienceOpen = FALSE;
   m_genStarOff = NULL;
 	m_genStarOn  = NULL;
 	m_UIDirty    = FALSE;
@@ -1111,7 +1112,12 @@ ControlBar::ControlBar( void )
 	{
 		m_panelRect[ i ].lo.x = m_panelRect[ i ].lo.y = 0;
 		m_panelRect[ i ].hi.x = m_panelRect[ i ].hi.y = 0;
+		m_panelHidden[ i ] = FALSE;
+		m_panelSlide[ i ] = 0.0f;
+		m_panelSlideTo[ i ] = 0.0f;
 	}
+	m_panelSlideMs = 0;
+	m_panelOrigin.x = m_panelOrigin.y = 0;
 	for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
 	{
 		m_commandWindows[ i ] = NULL;
@@ -1325,6 +1331,106 @@ static const Real thePanelAnchorFraction[ ControlBar::CB_PANEL_COUNT ] = { 0.0f,
 static const Real thePanelAnchorDesignX[ ControlBar::CB_PANEL_COUNT ] = { 0.0f, 400.0f, 800.0f };
 
 //-------------------------------------------------------------------------------------------------
+/** One scale for both axes, the smaller of the two, so nothing anywhere in the HUD is distorted.
+	* Everything that used to work this out for itself now asks here. */
+//-------------------------------------------------------------------------------------------------
+Real ControlBarUniformScaleFor( Int displayWidth, Int displayHeight )
+{
+	if( displayWidth <= 0 || displayHeight <= 0 )
+		return 1.0f;
+
+	const Real loadScaleX = (Real)displayWidth / CONTROL_BAR_DESIGN_W;
+	const Real loadScaleY = (Real)displayHeight / CONTROL_BAR_DESIGN_H;
+	const Real s = loadScaleX < loadScaleY ? loadScaleX : loadScaleY;
+
+	return s < 1.0f ? 1.0f : s;
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ControlBarUniformScale( void )
+{
+	if( TheDisplay == NULL )
+		return 1.0f;
+
+	return ControlBarUniformScaleFor( TheDisplay->getWidth(), TheDisplay->getHeight() );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** One window of a layout being taken out of the loader's stretched space, and everything under it.
+	* Positions are relative to the parent, so both the parent's old and its new screen origin travel
+	* down the recursion - the same walk placeInPanel does, without the panels and the plate art. */
+//-------------------------------------------------------------------------------------------------
+static void layoutUniformWindow( GameWindow *win, Real originX, Real originY, Real s,
+																 Real loadScaleX, Real loadScaleY,
+																 Int oldParentX, Int oldParentY,
+																 Int newParentX, Int newParentY )
+{
+	ICoord2D rel, size;
+	win->winGetPosition( &rel.x, &rel.y );
+	win->winGetSize( &size.x, &size.y );
+
+	const Int oldX = oldParentX + rel.x;
+	const Int oldY = oldParentY + rel.y;
+
+	// what the window was authored at, recovered by dividing the loader's own two scales back out
+	const Real designX = oldX / loadScaleX;
+	const Real designY = oldY / loadScaleY;
+	const Real designW = size.x / loadScaleX;
+	const Real designH = size.y / loadScaleY;
+
+	const Int newX = REAL_TO_INT_FLOOR( originX + designX * s );
+	const Int newY = REAL_TO_INT_FLOOR( originY + designY * s );
+
+	win->winSetPosition( newX - newParentX, newY - newParentY );
+	win->winSetSize( REAL_TO_INT_CEIL( designW * s ), REAL_TO_INT_CEIL( designH * s ) );
+
+	for( GameWindow *child = win->winGetChild(); child; child = child->winGetNext() )
+		layoutUniformWindow( child, originX, originY, s, loadScaleX, loadScaleY,
+												 oldX, oldY, newX, newY );
+}
+
+//-------------------------------------------------------------------------------------------------
+void ControlBarLayoutUniform( GameWindow *root, Real anchorFracX, Real anchorFracY )
+{
+	if( root == NULL || TheDisplay == NULL )
+		return;
+
+	const Real dispW = (Real)TheDisplay->getWidth();
+	const Real dispH = (Real)TheDisplay->getHeight();
+	if( dispW <= 0.0f || dispH <= 0.0f )
+		return;
+
+	// what the loader already multiplied every coordinate by, so it can be divided back out
+	const Real loadScaleX = dispW / CONTROL_BAR_DESIGN_W;
+	const Real loadScaleY = dispH / CONTROL_BAR_DESIGN_H;
+	const Real s = ControlBarUniformScale();
+
+	//
+	// The anchor is a point that does not move: the same fraction of the screen and of the design
+	// space.  (1,1) keeps the bottom right corner where it was however wide the screen is, which is
+	// what a bar hanging off the right edge above the command bar wants.
+	//
+	const Real originX = dispW * anchorFracX - CONTROL_BAR_DESIGN_W * anchorFracX * s;
+	const Real originY = dispH * anchorFracY - CONTROL_BAR_DESIGN_H * anchorFracY * s;
+
+	ICoord2D rootOrigin;
+	root->winGetScreenPosition( &rootOrigin.x, &rootOrigin.y );
+
+	//
+	// The root's own position is already absolute, so its "parent" is the screen at both ends of the
+	// walk - what it was, and what it becomes, are both the origin.
+	//
+	GameWindow *parent = root->winGetParent();
+	ICoord2D parentPos;
+	parentPos.x = parentPos.y = 0;
+	if( parent )
+		parent->winGetScreenPosition( &parentPos.x, &parentPos.y );
+
+	layoutUniformWindow( root, originX, originY, s, loadScaleX, loadScaleY,
+											 parentPos.x, parentPos.y, parentPos.x, parentPos.y );
+}
+
+//-------------------------------------------------------------------------------------------------
 Bool ControlBarPanelDesignToScreen( Int panel, const IRegion2D *design,
 																		Int displayWidth, Int displayHeight, IRegion2D *rectOut )
 {
@@ -1340,7 +1446,8 @@ Bool ControlBarPanelDesignToScreen( Int panel, const IRegion2D *design,
 	// One scale for both axes, the smaller of the two so the three panels always fit side by side.
 	// At 4:3 that is exactly what the .wnd loader would have used and the panels still meet; at
 	// anything wider they shrink together and leave the middle of the screen bottom open instead of
-	// stretching to fill it.
+	// stretching to fill it.  ControlBarUniformScale() is this same number for the display that is
+	// actually up; here the size is a parameter, because the tests ask about screens we are not on.
 	//
 	const Real loadScaleX = dispW / CONTROL_BAR_DESIGN_W;
 	const Real loadScaleY = dispH / CONTROL_BAR_DESIGN_H;
@@ -1380,6 +1487,8 @@ Bool ControlBarPanelDesignToScreen( Int panel, const IRegion2D *design,
 struct ControlBarPanelPlacement
 {
 	Bool known;
+	Int panel;						///< which of the three it was put in, so a panel can be hidden as a unit
+	Bool weHid;						///< TRUE while the minimised bar is what is hiding it, and not the context
 	Real designX, designY, designW, designH;
 	Int placedX, placedY, placedW, placedH;
 };
@@ -1521,7 +1630,7 @@ void ControlBar::placeInPanel( GameWindow *win, Int panel,
 	const Real dispH = (Real)TheDisplay->getHeight();
 	const Real loadScaleX = dispW / CONTROL_BAR_DESIGN_W;
 	const Real loadScaleY = dispH / CONTROL_BAR_DESIGN_H;
-	const Real s = loadScaleX < loadScaleY ? loadScaleX : loadScaleY;
+	const Real s = ControlBarUniformScale();
 	const Real originX = dispW * thePanelAnchorFraction[ panel ]
 											 - thePanelAnchorDesignX[ panel ] * s;
 
@@ -1595,6 +1704,8 @@ void ControlBar::placeInPanel( GameWindow *win, Int panel,
 	win->winSetSize( newW, newH );
 
 	place.known = TRUE;
+	place.panel = panel;
+	place.weHid = FALSE;
 	place.placedX = newX;
 	place.placedY = newY;
 	place.placedW = newW;
@@ -1605,6 +1716,166 @@ void ControlBar::placeInPanel( GameWindow *win, Int panel,
 
 }  // end placeInPanel
 
+/// how long a panel takes to leave or return, in milliseconds
+static const Real PANEL_SLIDE_MS = 220.0f;
+
+//-------------------------------------------------------------------------------------------------
+/** The three marker windows draw nothing of their own - they are five pixels square and exist only
+	* to hang a draw callback on, and one of those callbacks paints all three plates.  They are
+	* authored over the radar, so taking the left panel away by its windows would take the painting
+	* off the panel that is staying too. */
+//-------------------------------------------------------------------------------------------------
+static Bool isPlateMarker( GameWindow *win )
+{
+	const char *shortName = shortWindowName( win );
+	return strcmp( shortName, "BackgroundMarker" ) == 0 ||
+				 strcmp( shortName, "ForegroundMarker" ) == 0 ||
+				 strcmp( shortName, "OnTopDraw" ) == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+Int ControlBar::getPanelSlideOffset( Int panel ) const
+{
+	if( panel < 0 || panel >= CB_PANEL_COUNT || TheDisplay == NULL )
+		return 0;
+	if( m_panelSlide[ panel ] <= 0.0f )
+		return 0;
+
+	// far enough that the top edge of the frame is off the bottom of the screen, so everything is
+	const Real drop = (Real)( TheDisplay->getHeight() - m_panelOrigin.y );
+	return REAL_TO_INT_FLOOR( m_panelSlide[ panel ] * drop );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Put every window where its panel's slide says it should be.
+	*
+	* layoutPanels has already recorded which panel each direct child of the frame went into and the
+	* screen position it was given, so this is that position plus however far the panel has travelled.
+	* What is inside those children keeps whatever the context system last decided, and comes back
+	* saying the same thing - they move as one piece and are never individually touched. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::applyPanelSlide( void )
+{
+	GameWindow *parent = m_contextParent[ CP_MASTER ];
+	if( parent == NULL )
+		return;
+
+	Int offset[ CB_PANEL_COUNT ];
+	for( Int p = 0; p < CB_PANEL_COUNT; p++ )
+		offset[ p ] = getPanelSlideOffset( p );
+
+	for( GameWindow *child = parent->winGetChild(); child; child = child->winGetNext() )
+	{
+		ControlBarPanelPlacementMap::iterator it = theControlBarPlacement.find( child );
+		if( it == theControlBarPlacement.end() || it->second.known == FALSE )
+			continue;
+		if( isPlateMarker( child ) )
+			continue;
+
+		ControlBarPanelPlacement &place = it->second;
+		const Int panel = place.panel;
+		if( panel < 0 || panel >= CB_PANEL_COUNT )
+			continue;
+
+		//
+		// Clear of the bottom edge and staying there: stop drawing it at all.  Only what we hid do
+		// we ever un-hide - the context system hides windows of its own all the time (the unused
+		// minimise buttons, a beacon pane, an empty portrait) and a blanket winHide(FALSE) over the
+		// panel put every one of them back on screen.
+		//
+		if( m_panelHidden[ panel ] )
+		{
+			if( !place.weHid )
+			{
+				child->winHide( TRUE );
+				place.weHid = TRUE;
+			}
+			continue;
+		}
+
+		if( place.weHid )
+		{
+			child->winHide( FALSE );
+			place.weHid = FALSE;
+		}
+
+		ICoord2D pos;
+		child->winGetPosition( &pos.x, &pos.y );
+		const Int wantY = place.placedY - m_panelOrigin.y + offset[ panel ];
+		if( pos.y != wantY )
+			child->winSetPosition( pos.x, wantY );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Step the slide.  Wall clock rather than logic frames: this is a piece of the interface moving,
+	* and it should take the same quarter of a second whatever the game is doing. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::updatePanelSlide( void )
+{
+	const UnsignedInt now = timeGetTime();
+	const UnsignedInt sinceMs = ( m_panelSlideMs == 0 || now < m_panelSlideMs ) ? 0 : now - m_panelSlideMs;
+	m_panelSlideMs = now;
+
+	Bool moving = FALSE;
+	for( Int p = 0; p < CB_PANEL_COUNT; p++ )
+		if( m_panelSlide[ p ] != m_panelSlideTo[ p ] )
+			moving = TRUE;
+
+	if( !moving )
+		return;
+
+	const Real step = ( sinceMs > 0 ) ? (Real)sinceMs / PANEL_SLIDE_MS : 0.0f;
+
+	for( Int p = 0; p < CB_PANEL_COUNT; p++ )
+	{
+		if( m_panelSlide[ p ] < m_panelSlideTo[ p ] )
+		{
+			m_panelSlide[ p ] += step;
+			if( m_panelSlide[ p ] >= m_panelSlideTo[ p ] )
+			{
+				m_panelSlide[ p ] = m_panelSlideTo[ p ];
+				m_panelHidden[ p ] = TRUE;			// arrived off screen
+			}
+		}
+		else if( m_panelSlide[ p ] > m_panelSlideTo[ p ] )
+		{
+			m_panelSlide[ p ] -= step;
+			if( m_panelSlide[ p ] <= m_panelSlideTo[ p ] )
+				m_panelSlide[ p ] = m_panelSlideTo[ p ];
+		}
+	}
+
+	applyPanelSlide();
+
+}  // end updatePanelSlide
+
+//-------------------------------------------------------------------------------------------------
+/** Send one whole panel off the bottom of the screen, or bring it back. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::showPanel( Int panel, Bool show, Bool immediate )
+{
+	if( panel < 0 || panel >= CB_PANEL_COUNT )
+		return;
+
+	m_panelSlideTo[ panel ] = show ? 0.0f : 1.0f;
+
+	// coming back it is on screen from the first frame of the slide, going it is on screen until the
+	// last: only a panel that has arrived at the bottom is hidden
+	if( show )
+		m_panelHidden[ panel ] = FALSE;
+
+	if( immediate )
+	{
+		m_panelSlide[ panel ] = m_panelSlideTo[ panel ];
+		m_panelHidden[ panel ] = !show;
+	}
+
+	m_panelSlideMs = timeGetTime();
+	applyPanelSlide();
+
+}  // end showPanel
+
 //-------------------------------------------------------------------------------------------------
 /** Re-anchor the control bar as three panels at one uniform scale. */
 //-------------------------------------------------------------------------------------------------
@@ -1614,19 +1885,35 @@ void ControlBar::layoutPanels( void )
 	if( parent == NULL || TheDisplay == NULL )
 		return;
 
+	//
+	// A panel that is away, or on its way, is not where this function last put it - and this
+	// function reads a window's position to work out what it was authored at.  So the slide is
+	// taken off first and put back at the end, and a bar that was minimised when the side changed
+	// is minimised again without the trip down.
+	//
+	Bool wasAway[ CB_PANEL_COUNT ];
+	Int q;
+	for( q = 0; q < CB_PANEL_COUNT; q++ )
+	{
+		wasAway[ q ] = ( m_panelSlideTo[ q ] > 0.0f );
+		m_panelSlide[ q ] = 0.0f;
+		m_panelSlideTo[ q ] = 0.0f;
+		m_panelHidden[ q ] = FALSE;
+	}
+	applyPanelSlide();
+
 	const Real dispW = (Real)TheDisplay->getWidth();
 	const Real dispH = (Real)TheDisplay->getHeight();
 
-	// what the .wnd loader already multiplied every coordinate by, so we can divide it back out
+	// what the .wnd loader already multiplied every x coordinate by, so we can divide it back out
 	const Real loadScaleX = dispW / CONTROL_BAR_DESIGN_W;
-	const Real loadScaleY = dispH / CONTROL_BAR_DESIGN_H;
 
 	//
 	// One scale for both axes, the smaller of the two so the three panels always fit side by side.
 	// At 4:3 that is exactly the old scale and the panels still meet; at anything wider they shrink
 	// together and leave the middle of the screen bottom open instead of stretching to fill it.
 	//
-	const Real s = loadScaleX < loadScaleY ? loadScaleX : loadScaleY;
+	const Real s = ControlBarUniformScale();
 
 	Int p;
 	for( p = 0; p < CB_PANEL_COUNT; p++ )
@@ -1643,6 +1930,11 @@ void ControlBar::layoutPanels( void )
 		REAL_TO_INT_FLOOR( dispH - ( CONTROL_BAR_DESIGN_H - CONTROL_BAR_DESIGN_TOP ) * s );
 	parent->winSetPosition( 0, parentTop );
 	parent->winSetSize( REAL_TO_INT_CEIL( dispW ), REAL_TO_INT_CEIL( dispH ) - parentTop );
+
+	// the plates are drawn from design rectangles rather than from a window, so they need to be told
+	// where the frame they belong to started out - see getPanelOrigin
+	m_panelOrigin.x = 0;
+	m_panelOrigin.y = parentTop;
 
 	for( GameWindow *child = parent->winGetChild(); child; child = child->winGetNext() )
 	{
@@ -1662,6 +1954,11 @@ void ControlBar::layoutPanels( void )
 		placeInPanel( child, panelForWindow( shortWindowName( child ), designCenterX ),
 									barOrigin.x, barOrigin.y, 0, parentTop );
 	}
+
+	// whatever was away before is away again, without being watched leaving a second time
+	for( q = 0; q < CB_PANEL_COUNT; q++ )
+		if( wasAway[ q ] )
+			showPanel( q, FALSE, TRUE );
 
 }  // end layoutPanels
 
@@ -1714,6 +2011,15 @@ void ControlBar::init( void )
 		
 		m_scienceLayout = TheWindowManager->winCreateLayout("GeneralsExpPoints.wnd");
 		m_scienceLayout->hide(TRUE);
+
+		//
+		// The rank screen is one painting with the science cameos placed on it, authored at
+		// 210..604 x 3..434.  Stretched separately in x and y it is a third too wide on a 16:9
+		// screen and every round rank badge on it is an oval.  Centred at the top, at the command
+		// bar's own uniform scale, it is the picture that was drawn.
+		//
+		ControlBarLayoutUniform( m_scienceLayout->getFirstWindow(), 0.5f, 0.0f );
+
 		id = TheNameKeyGenerator->nameToKey( "GeneralsExpPoints.wnd:GenExpParent" );
 
 		m_contextParent[ CP_PURCHASE_SCIENCE ] = TheWindowManager->winGetWindowFromId( NULL, id );//m_scienceLayout->getFirstWindow();
@@ -2106,6 +2412,9 @@ void ControlBar::update( void )
 			clearSpecialPowerShortcutRow();
 	}
 
+	// the minimised panels going or coming back
+	updatePanelSlide();
+
 	if(m_controlBarSchemeManager)
 		m_controlBarSchemeManager->update();
 
@@ -2221,7 +2530,7 @@ void ControlBar::update( void )
 		}
 	}
 	
-	if(!m_contextParent[ CP_PURCHASE_SCIENCE ]->winIsHidden())
+	if( isPurchaseScienceVisible() )
 	{
 		updateContextPurchaseScience();
 		updatePurchaseScienceHotKeys();
@@ -2503,28 +2812,28 @@ void ControlBar::evaluateContextUI( void )
 	m_UIDirty = FALSE;
 	
 	// if our purchase science window is up, we will want to update it by repopulating it.
-	if(!m_contextParent[ CP_PURCHASE_SCIENCE ]->winIsHidden())
-		showPurchaseScience();
+	if( isPurchaseScienceVisible() )
+		populatePurchaseScience( ThePlayerList->getLocalPlayer() );
 
 	// erase any current state of the GUI by switching out to the empty context
 	switchToContext( CB_CONTEXT_NONE, NULL );
-	m_standInBuilderID = INVALID_DRAWABLE_ID;
 
 	//
 	// nothing selected: one of the player's builders stands in and its command bar shows, so
 	// a structure can be placed without selecting a dozer first - the logic then sends the
-	// idle builder nearest the site (MSG_DOZER_CONSTRUCT)
+	// idle builder nearest the site (MSG_DOZER_CONSTRUCT).  m_standInBuilderID is not cleared
+	// first: findStandInBuilder reads it to keep the builder it is already showing.
 	//
 	if( TheInGameUI->getSelectCount() == 0 )
 	{
 		Drawable *builder = findStandInBuilder( FALSE );
+		m_standInBuilderID = builder ? builder->getID() : INVALID_DRAWABLE_ID;
 		if( builder )
-		{
 			switchToContext( CB_CONTEXT_COMMAND, builder );
-			m_standInBuilderID = builder->getID();
-		}
 		return;
 	}
+
+	m_standInBuilderID = INVALID_DRAWABLE_ID;
 
 	// get the list of drawable IDs from the in game UI
 	const DrawableList *selectedDrawables = TheInGameUI->getAllSelectedDrawables();
@@ -3074,6 +3383,28 @@ Drawable *ControlBar::findStandInBuilder( Bool freeOnly )
 	if( player == NULL )
 		return NULL;
 
+	//
+	// The builder already standing in keeps the bar for as long as it is still a builder.  The
+	// sweep below answers "the first idle one", and idleness changes on its own: a dozer somewhere
+	// across the base finishing a building goes idle and used to take the bar off the one you were
+	// working with.  That drops a half-typed chord and takes the structure off your cursor, in the
+	// middle of placing it, because something happened somewhere else.
+	//
+	if( m_standInBuilderID != INVALID_DRAWABLE_ID && TheGameClient )
+	{
+		Drawable *held = TheGameClient->findDrawableByID( m_standInBuilderID );
+		Object *obj = held ? held->getObject() : NULL;
+		if( obj && obj->getControllingPlayer() == player )
+		{
+			StandInBuilderSearch check;
+			check.idle = NULL;
+			check.any = NULL;
+			findStandInBuilderProc( obj, &check );
+			if( check.any && ( !freeOnly || check.idle ) )
+				return held;
+		}
+	}
+
 	StandInBuilderSearch s;
 	s.idle = NULL;
 	s.any = NULL;
@@ -3233,6 +3564,10 @@ const ControlBar::BorrowedTray *ControlBar::borrowTray( const PlayerTemplate *pt
 	if( layout == NULL )
 		return NULL;					// a mod naming a layout it does not ship: remembered as having no tray
 	layout->hide( TRUE );
+
+	// the size read off it below is the size the strips draw a tray at, so it has to come out of the
+	// same un-stretched space the bar itself is put in - see initSpecialPowershortcutBar
+	ControlBarLayoutUniform( layout->getFirstWindow(), 1.0f, 1.0f );
 
 	AsciiString parentName = layoutName;
 	parentName.concat( ":ButtonParent1" );
@@ -3863,6 +4198,7 @@ void ControlBar::setControlCommand( GameWindow *button, const CommandButton *com
 	GadgetButtonSetCount( button, 0 );
 	GadgetButtonSetSeconds( button, 0 );
 	GadgetButtonSetCost( button, 0 );
+	GadgetButtonSetPower( button, 0 );
 
 	setCommandBarBorder(button, commandButton->getCommandButtonMappedBorderType());
 	
@@ -4366,13 +4702,14 @@ void ControlBar::updatePurchaseScience( void )
 
 void ControlBar::showPurchaseScience( void )
 {
-	
+
 	if(TheScriptEngine->isGameEnding())
 		return;
 	populatePurchaseScience(ThePlayerList->getLocalPlayer());
 	m_genStarFlash = FALSE;
-	if(!m_contextParent[ CP_PURCHASE_SCIENCE ]->winIsHidden())
+	if( m_purchaseScienceOpen )
 		return;
+	m_purchaseScienceOpen = TRUE;
 	//switchToContext(CB_CONTEXT_PURCHASE_SCIENCE, NULL);
 	m_contextParent[ CP_PURCHASE_SCIENCE ]->winHide(FALSE);
 	if (TheGlobalData->m_animateWindows)
@@ -4385,8 +4722,17 @@ void ControlBar::hidePurchaseScience( void )
 {
 	clearPurchaseScienceColumn();
 
-	if(m_contextParent[ CP_PURCHASE_SCIENCE ]->winIsHidden())
-		return;
+	m_purchaseScienceOpen = FALSE;
+
+	//
+	// The fade drives winHide on this window itself, frame by frame, and it holds the window hidden
+	// for its first few frames.  So the screen's own hidden flag is not the question "is it open" -
+	// a second press of the key while the fade was still running read the window as hidden and
+	// opened it again, and a press after that was undone the moment the fade's next frame put the
+	// window back.  We keep the answer ourselves, and the fade is taken off before we close.
+	//
+	if( TheTransitionHandler )
+		TheTransitionHandler->remove( "GenExpFade" );
 
 	if( m_contextParent[ CP_PURCHASE_SCIENCE ] )
 	{
@@ -4410,7 +4756,7 @@ void ControlBar::hidePurchaseScience( void )
 
 Bool ControlBar::isPurchaseScienceVisible( void )
 {
-	return m_contextParent[ CP_PURCHASE_SCIENCE ] && !m_contextParent[ CP_PURCHASE_SCIENCE ]->winIsHidden();
+	return m_purchaseScienceOpen && m_contextParent[ CP_PURCHASE_SCIENCE ] != NULL;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4618,10 +4964,10 @@ void ControlBar::pressPurchaseScienceColumn( Int column )
 
 void ControlBar::togglePurchaseScience( void )
 {
-	if(m_contextParent[ CP_PURCHASE_SCIENCE ]->winIsHidden())
-		showPurchaseScience();
-	else
+	if( isPurchaseScienceVisible() )
 		hidePurchaseScience();
+	else
+		showPurchaseScience();
 }
 
 void ControlBar::toggleControlBarStage( void )
@@ -4667,9 +5013,14 @@ void ControlBar::setDefaultControlBarConfig( void )
 	// bar - that shrank the viewport in the middle of a match and slid the picture, for good:
 	// nothing put the height back once ShowControlBar had run at the start of the game.
 	//
-	TheTacticalView->setHeight((Int)(TheDisplay->getHeight())); 
+	TheTacticalView->setHeight((Int)(TheDisplay->getHeight()));
 	m_contextParent[ CP_MASTER ]->winSetPosition(m_defaultControlBarPosition.x, m_defaultControlBarPosition.y);
 	m_contextParent[ CP_MASTER ]->winHide(FALSE);
+
+	// the two panels the minimised bar stands down
+	showPanel( CB_PANEL_LEFT, TRUE );
+	showPanel( CB_PANEL_CENTER, TRUE );
+
 	repopulateBuildTooltipLayout();
 	setUpDownImages();
 
@@ -4689,14 +5040,23 @@ void ControlBar::setSquishedControlBarConfig( void )
 
 void ControlBar::setLowControlBarConfig( void )
 {
-	
+
 	m_currentControlBarStage = CONTROL_BAR_STAGE_LOW;
-	ICoord2D pos;
-	pos.x = m_defaultControlBarPosition.x;
-	pos.y = TheDisplay->getHeight() - .1 * TheDisplay->getHeight();
-	TheTacticalView->setHeight((Int)(TheDisplay->getHeight())); 
-	m_contextParent[ CP_MASTER ]->winSetPosition(pos.x, pos.y);
+
+	//
+	// Minimised is the radar and the middle gone, not the whole bar slid down a tenth of the screen
+	// with its top edge still showing.  Sliding it left a strip of metal, a readable money box and
+	// the top of the radar dish lying along the bottom of the picture, which is neither the bar nor
+	// out of the way.  The selection side stays where it is: it is where the button that puts the
+	// rest back lives, and it is the panel a minimising player is keeping.
+	//
+	TheTacticalView->setHeight((Int)(TheDisplay->getHeight()));
+	m_contextParent[ CP_MASTER ]->winSetPosition(m_defaultControlBarPosition.x, m_defaultControlBarPosition.y);
 	m_contextParent[ CP_MASTER ]->winHide(FALSE);
+
+	showPanel( CB_PANEL_LEFT, FALSE );
+	showPanel( CB_PANEL_CENTER, FALSE );
+
 	setUpDownImages();
 
 }
@@ -4886,6 +5246,15 @@ void ControlBar::initSpecialPowershortcutBar( Player *player)
 	tempName.concat(":GenPowersShortcutBarParent");
 	NameKeyType id = TheNameKeyGenerator->nameToKey( tempName );
 	m_specialPowerShortcutParent = TheWindowManager->winGetWindowFromId( NULL, id );//m_scienceLayout->getFirstWindow();
+
+	//
+	// The bar is authored at 752..800 x 3..429 and the loader stretches x and y by different
+	// amounts, so on a 16:9 screen every slot came out a third wider than it is tall - and both
+	// strips measure their cameos off these slots, so the whole HUD inherited the smear.  Put it
+	// back at the command bar's own uniform scale, pinned to the bottom right corner, which is
+	// where it was authored and where the bar's right hand panel now sits.
+	//
+	ControlBarLayoutUniform( m_specialPowerShortcutParent, 1.0f, 1.0f );
 
 	tempName = layoutName;
 	tempName.concat(":ButtonCommand%d");

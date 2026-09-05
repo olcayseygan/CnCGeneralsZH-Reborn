@@ -85,6 +85,7 @@ void GadgetButtonSetBorder( GameWindow *g, Color color, Bool drawBorder = TRUE )
 void GadgetButtonSetCount( GameWindow *g, Int count );
 void GadgetButtonSetSeconds( GameWindow *g, Int seconds );
 void GadgetButtonSetCost( GameWindow *g, Int cost );
+void GadgetButtonSetPower( GameWindow *g, Int power );
 void GadgetButtonSetBar( GameWindow *g, Int percent, Color color );
 void GadgetButtonSetData(GameWindow *g, void *data);
 void *GadgetButtonGetData(GameWindow *g);

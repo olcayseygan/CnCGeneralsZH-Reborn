@@ -838,6 +838,16 @@ void ControlBar::updateContextCommand( void )
 				// price, so a faction discount or a general's promotion shows in it.
 				//
 				GadgetButtonSetCost( win, tmpl->calcCostToBuild( localPlayer ) );
+
+				//
+				// ... and what it does to the power grid, in the fourth corner.  Money and time are
+				// the two numbers already on the button and power is the third thing a base spends;
+				// it was the only one you had to hover for, which is the wrong way round for the
+				// building you are putting up because the lights went out.  Structures only - a unit
+				// has no power line, and the bottom right corner is the queue count's on a unit.
+				//
+				if( command->getCommandType() == GUI_COMMAND_DOZER_CONSTRUCT )
+					GadgetButtonSetPower( win, tmpl->getEnergyProduction() );
 			}
 		}
 

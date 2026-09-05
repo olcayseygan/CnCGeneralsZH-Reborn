@@ -83,14 +83,29 @@ void W3DGadgetPushButtonImageDrawOne(GameWindow *window, WinInstanceData *instDa
 
 // PRIVATE FUNCTIONS //////////////////////////////////////////////////////////
 
+/** The command bar's own scale, from ControlBar.cpp.  Declared rather than included: ControlBar.h
+	* drags in the whole command-set machinery for one function that takes nothing and returns a
+	* float. */
+extern Real ControlBarUniformScale( void );
+
+/** Point size a corner marking wears on a command button at 800x600, which is the resolution the
+	* command bar and its 50x44 buttons were drawn for.  Everything else is this times the scale the
+	* bar itself is laid out at. */
+static const Real BADGE_DESIGN_POINTS = 7.0f;
+
 // getBadgeFont ===============================================================
 /** The font the corner markings wear.
 	*
-	* A hotkey letter, a price, a countdown and a queue count are labels on a picture,
-	* not text to be read at length: at the window's own point size four of them crowd
-	* a button that is barely thirty pixels wide, and the button stops reading as its
-	* own art.  One step down from whatever font the button was given, so the markings
-	* still follow the wnd file and the resolution exactly as the button does. */
+	* A hotkey letter, a price, a countdown and a queue count are labels on a picture, not text to
+	* be read at length: four of them crowd a button that is barely thirty pixels wide, and the
+	* button stops reading as its own art.
+	*
+	* They have to keep the same size against that picture at every resolution, and the window's own
+	* font does not do that.  The layout loader sizes a font by the screen's *width* over 800 (damped
+	* by ResolutionFontAdjustment), while the command bar is laid out at the smaller of width over
+	* 800 and height over 600 - so the wider the screen against its height, the faster the lettering
+	* grew away from the buttons it sits on.  At 2560x1080 the markings came out half again too big.
+	* One design size, times the bar's own scale, and a cameo looks the same on every monitor. */
 //=============================================================================
 static GameFont *getBadgeFont( GameWindow *window )
 {
@@ -98,10 +113,11 @@ static GameFont *getBadgeFont( GameWindow *window )
 	if( font == NULL )
 		return NULL;
 
-	Int pointSize = font->pointSize * 5 / 6;
+	Int pointSize = REAL_TO_INT_FLOOR( BADGE_DESIGN_POINTS * ControlBarUniformScale() );
 	if( pointSize < 6 )
 		pointSize = 6;
-	if( pointSize >= font->pointSize )
+
+	if( pointSize == font->pointSize )
 		return font;
 
 	return TheFontLibrary->getFont( font->nameString, pointSize, font->bold );
@@ -309,6 +325,55 @@ static void drawCostBadge( GameWindow *window, Int cost )
 
 }  // end drawCostBadge
 
+// drawPowerBadge =============================================================
+/** Draw what this structure does to the power grid in the button's bottom right
+	* corner: "-5" for what it draws, "+10" for what a plant puts back.  Money and
+	* build time are already in the other corners; power is the third thing a base
+	* spends, and it was the one figure you had to hover a button to find - which
+	* is exactly the wrong way round for the building you put up to fix a brownout. */
+//=============================================================================
+static void drawPowerBadge( GameWindow *window, Int power )
+{
+	static DisplayString *label = NULL;
+	ICoord2D origin, size, textPos;
+	Int width, height;
+
+	if( label == NULL )
+	{
+		label = TheDisplayStringManager->newDisplayString();
+		if( label == NULL )
+			return;
+	}
+
+	// the game's own sign: a template's EnergyProduction is negative when it consumes
+	const Int draws = -power;
+
+	UnicodeString text;
+	text.format( draws > 0 ? L"-%d" : L"+%d", draws > 0 ? draws : -draws );
+	label->setText( text );
+
+	GameFont *font = getBadgeFont( window );
+	if( font != NULL && label->getFont() != font )
+		label->setFont( font );
+
+	window->winGetScreenPosition( &origin.x, &origin.y );
+	window->winGetSize( &size.x, &size.y );
+	label->getSize( &width, &height );
+
+	const Int plateWidth = width + 4;
+	textPos.x = origin.x + size.x - plateWidth + 2;
+	textPos.y = origin.y + size.y - height;
+
+	// same translucent plate the other badges wear - button art can be any colour
+	TheDisplay->drawFillRect( textPos.x - 2, textPos.y, plateWidth, height,
+														GameMakeColor( 0, 0, 0, 160 ) );
+	label->draw( textPos.x, textPos.y,
+							 draws > 0 ? GameMakeColor( 255, 170, 90, 255 )		// spends it
+												 : GameMakeColor( 130, 220, 255, 255 ),	// supplies it
+							 GameMakeColor( 0, 0, 0, 255 ) );
+
+}  // end drawPowerBadge
+
 // drawButtonBar ==============================================================
 /** Draw a thin progress bar along the button's bottom edge (experience) */
 //=============================================================================
@@ -465,8 +530,11 @@ void W3DGadgetPushButtonDraw( GameWindow *window, WinInstanceData *instData )
 			TheDisplay->drawOpenRect(origin.x -1, origin.y - 1, size.x + 2, size.y + 2,1 , pData->colorBorder);
 		}
 
+		// both live in the bottom right corner; a queue count is about this one order and wins
 		if( pData->drawCount > 0 )
 			drawCountBadge( window, pData->drawCount );
+		else if( pData->drawPower != 0 )
+			drawPowerBadge( window, pData->drawPower );
 
 		if( pData->drawSeconds > 0 )
 			drawSecondsBadge( window, pData->drawSeconds );
@@ -650,8 +718,11 @@ void W3DGadgetPushButtonImageDrawOne( GameWindow *window,
 
 		}
 
+		// both live in the bottom right corner; a queue count is about this one order and wins
 		if( pData->drawCount > 0 )
 			drawCountBadge( window, pData->drawCount );
+		else if( pData->drawPower != 0 )
+			drawPowerBadge( window, pData->drawPower );
 
 		if( pData->drawSeconds > 0 )
 			drawSecondsBadge( window, pData->drawSeconds );
@@ -922,8 +993,11 @@ void W3DGadgetPushButtonImageDrawThree(GameWindow *window, WinInstanceData *inst
 			TheDisplay->drawOpenRect(start.x - 1, start.y - 1, size.x + 2, size.y + 2, 1, pData->colorBorder);
 		}
 
+		// both live in the bottom right corner; a queue count is about this one order and wins
 		if( pData->drawCount > 0 )
 			drawCountBadge( window, pData->drawCount );
+		else if( pData->drawPower != 0 )
+			drawPowerBadge( window, pData->drawPower );
 
 		if( pData->drawSeconds > 0 )
 			drawSecondsBadge( window, pData->drawSeconds );

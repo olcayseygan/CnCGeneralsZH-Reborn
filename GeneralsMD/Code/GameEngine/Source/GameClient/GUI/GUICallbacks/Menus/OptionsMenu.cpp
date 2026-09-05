@@ -230,6 +230,7 @@ WindowLayout *OptionsLayout = NULL;
 // and the one function that decides which one you are looking at.
 //-------------------------------------------------------------------------------------------------
 enum { OPTIONS_PAGE_COUNT = 5 };
+enum { OPTIONS_PAGE_CONTROLS = 2 };		///< the page the keyboard button is drawn over
 
 static const char *TheOptionsPageNames[ OPTIONS_PAGE_COUNT ] =
 {
@@ -271,6 +272,22 @@ static void showOptionsPage( Int which )
 			optionsPage[ i ]->winHide( i != which );
 		if( optionsTab[ i ] )
 			optionsTab[ i ]->winEnable( i != which );
+	}
+
+	//
+	// The keyboard button belongs on the controls page and is drawn over it, but it is not one of
+	// its children - it predates the pages and lives on the old flat panel with the rest of the
+	// leftovers - so it is shown and hidden by hand rather than with its page.
+	//
+	GameWindow *keys = TheWindowManager->winGetWindowFromId(
+		NULL, TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:ButtonKeyboardOptions" ) ) );
+	if( keys )
+	{
+		keys->winHide( which != OPTIONS_PAGE_CONTROLS );
+
+		// the page's own panel is painted over that old one, so the button has to come up through it
+		if( which == OPTIONS_PAGE_CONTROLS )
+			keys->winBringToTop();
 	}
 }
 
@@ -1099,14 +1116,47 @@ static void readCatalogWidgets( void )
 	}
 }
 
+//-------------------------------------------------------------------------------------------------
+/** Borderless fullscreen takes the desktop's resolution and nothing else, so while it is the
+	* selected mode the resolution list has no say and says so by going grey.  Fullscreen and
+	* windowed both hand it back.  Read off the control rather than off GlobalData, so it follows the
+	* dropdown while the screen is open instead of waiting for Accept. */
+//-------------------------------------------------------------------------------------------------
+static void updateResolutionEnabled( void )
+{
+	if( comboBoxResolution == NULL )
+		return;
+
+	const OptionDef *mode = findOptionDef( "WindowMode" );
+	GameWindow *modeWidget = mode ? findOptionWidget( *mode ) : NULL;
+
+	Int selected = -1;
+	if( modeWidget )
+		GadgetComboBoxGetSelectedPos( modeWidget, &selected );
+
+	const Int value = ( selected >= 0 && mode ) ? mode->lo + selected : TheGlobalData->m_windowMode;
+	comboBoxResolution->winEnable( value != WINDOW_MODE_BORDERLESS );
+}
+
 static void saveOptions( void )
 {
 	Int index;
 	Int val;
 
+	// which of the three the window is wearing right now, before the controls overwrite it
+	const Int oldWindowMode = TheGlobalData->m_windowMode;
+
 	//-------------------------------------------------------------------------------------------------
 	// The catalog's controls, read back into GlobalData before the pass below writes GlobalData out.
 	readCatalogWidgets();
+
+	//
+	// A catalog row writes its own GlobalData field and nothing else, so the window mode is a raw
+	// number until this runs: applyWindowMode is what turns it into the windowed flag the device
+	// layer reads, and into the desktop resolution and edge scrolling that borderless means.  The
+	// resolution block further down then hands all of it to the display in one change.
+	//
+	applyWindowMode();
 
 	//-------------------------------------------------------------------------------------------------
 	// Everything in TheOptionCatalog, written back from GlobalData in one pass.  A catalog setting
@@ -1249,39 +1299,65 @@ static void saveOptions( void )
 	        (*pref)["StaticGameLOD"] = TheGameLODManager->getStaticGameLODLevelName(TheGameLODManager->getStaticLODLevel());
 
 	//-------------------------------------------------------------------------------------------------
-	// Resolution
+	// Resolution and window mode.
+	//
+	// One device change rather than two: the mode decides whether the device is windowed, and
+	// borderless decides the resolution as well - applyWindowMode above has already put the desktop
+	// size in GlobalData, and the dropdown has no say over a window that covers the display.
+	//
 	GadgetComboBoxGetSelectedPos( comboBoxResolution, &index );
 	Int xres, yres, bitDepth;
-	
+
 	oldDispSettings.xRes = TheDisplay->getWidth();
 	oldDispSettings.yRes = TheDisplay->getHeight();
 	oldDispSettings.bitDepth = TheDisplay->getBitDepth();
 	oldDispSettings.windowed = TheDisplay->getWindowed();
-	
-	if (index < TheDisplay->getDisplayModeCount() && index >= 0)
-	{
-		TheDisplay->getDisplayModeDescription(index,&xres,&yres,&bitDepth);
-		if (TheGlobalData->m_xResolution != xres || TheGlobalData->m_yResolution != yres)
-		{
-			
-			if (TheDisplay->setDisplayMode(xres,yres,bitDepth,TheDisplay->getWindowed()))
-			{
-				dispChanged = TRUE;
-				TheWritableGlobalData->m_xResolution = xres;
-				TheWritableGlobalData->m_yResolution = yres;
 
-				TheHeaderTemplateManager->headerNotifyResolutionChange();
-				TheMouse->mouseNotifyResolutionChange();
-				
+	xres = TheGlobalData->m_xResolution;
+	yres = TheGlobalData->m_yResolution;
+	bitDepth = TheDisplay->getBitDepth();
+	if( TheGlobalData->m_windowMode != WINDOW_MODE_BORDERLESS
+			&& index >= 0 && index < TheDisplay->getDisplayModeCount() )
+		TheDisplay->getDisplayModeDescription( index, &xres, &yres, &bitDepth );
+
+	//
+	// Not the windowed flag: borderless and windowed are both windowed devices, and a switch between
+	// those two is a change of frame with the same flag on both sides of it.
+	//
+	const Bool sizeChanged = ( oldDispSettings.xRes != xres || oldDispSettings.yRes != yres );
+	const Bool modeChanged = ( oldWindowMode != TheGlobalData->m_windowMode );
+
+	if( sizeChanged || modeChanged )
+	{
+		if (TheDisplay->setDisplayMode(xres,yres,bitDepth,TheGlobalData->m_windowed))
+		{
+			TheWritableGlobalData->m_xResolution = xres;
+			TheWritableGlobalData->m_yResolution = yres;
+
+			TheHeaderTemplateManager->headerNotifyResolutionChange();
+			TheMouse->mouseNotifyResolutionChange();
+
+			AsciiString prefString;
+			prefString.format("%d %d", xres, yres );
+			(*pref)["Resolution"] = prefString;
+
+			//
+			// Every window on screen was laid out against the old size, so the shell is rebuilt from
+			// the layouts.  A mode change that keeps the resolution - fullscreen to borderless on a
+			// screen the game was already filling - changes no rectangle, so it does not pay for a
+			// trip back to the main menu.
+			//
+			if( sizeChanged )
+			{
+				// only a resolution change gets the "keep these settings?" dialog; the frame round a
+				// window is not something a player needs talking out of
+				dispChanged = TRUE;
+
 				//Save new settings for a dialog box confirmation after options are accepted
 				newDispSettings.xRes = xres;
 				newDispSettings.yRes = yres;
 				newDispSettings.bitDepth = bitDepth;
 				newDispSettings.windowed = TheDisplay->getWindowed();
-
-				AsciiString prefString;
-				prefString.format("%d %d", xres, yres );
-				(*pref)["Resolution"] = prefString;
 
 				// delete the shell
 				delete TheShell;
@@ -1291,10 +1367,20 @@ static void saveOptions( void )
 				TheShell = MSGNEW("GameClientSubsystem") Shell;
 				if( TheShell )
 					TheShell->init();
-				
+
 				TheInGameUI->recreateControlBar();
 
-				TheShell->push( AsciiString("Menus/MainMenu.wnd") );
+				//
+				// Out of a match the shell is what you are looking at, so it opens on the main menu.
+				// In one, the menus were rebuilt for the next time you want them and the thing on
+				// screen is the battlefield: pushing the main menu over a running game is why the
+				// resolution list used to be greyed out in-game at all.  The command bar has just been
+				// built from its layouts and comes up hidden, so it is put back.
+				//
+				if( TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
+					ShowControlBar( TRUE );
+				else
+					TheShell->push( AsciiString("Menus/MainMenu.wnd") );
 			}
 		}
 	}
@@ -2007,9 +2093,11 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 		if (comboBoxDetail)
 			comboBoxDetail->winEnable(FALSE);
 
-
-		if (comboBoxResolution)
-			comboBoxResolution->winEnable(FALSE);
+		//
+		// The resolution list used to be greyed out here too.  It is not any more: changing it in a
+		// match rebuilds the menus and the command bar and leaves you looking at the battlefield -
+		// see the resolution block in saveOptions.
+		//
 
 //		if (checkAudioSurround)
 //			checkAudioSurround->winEnable(FALSE);
@@ -2018,6 +2106,9 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 //			checkAudioHardware->winEnable(FALSE);
 	}
 
+
+	// borderless owns the resolution; the list is grey while it is picked
+	updateResolutionEnabled();
 
 	TheWindowManager->winSetModal(parent);
 	ignoreSelected = FALSE;
@@ -2174,6 +2265,9 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 
 					showAdvancedOptions();
 				}
+
+				// picking borderless greys the resolution list out, the other two hand it back
+				updateResolutionEnabled();
 			break;
 		}
 

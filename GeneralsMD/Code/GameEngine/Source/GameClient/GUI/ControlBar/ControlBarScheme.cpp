@@ -76,6 +76,9 @@ enum{
 	COMMAND_BAR_SIZE_OFFSET = 0
 };
 
+/// where GeneralsExpPoints.wnd hangs its panel from, in the 800x600 the layout was authored at
+static const Real GEN_EXP_DESIGN_TOP = 3.0f;
+
 const FieldParse ControlBarSchemeManager::m_controlBarSchemeFieldParseTable[] = 
 {
 
@@ -681,7 +684,23 @@ void ControlBarScheme::init(void)
 		win->winSetEnabledImage(0,m_powerPurchaseImage);
 		if( m_powerPurchaseImage )
 		{
-			win->winSetSize(m_powerPurchaseImage->getImageWidth() * resMultiplier.x, m_powerPurchaseImage->getImageHeight() * resMultiplier.y);
+			//
+			// The rank screen is one painting, and this line is what decides how big it is drawn -
+			// which is why laying the screen out uniformly at startup was not enough: every side
+			// change put the painting back at the loader's two separate scales, a third wider than
+			// tall at 16:9, over children that had been placed squarely.
+			//
+			// One scale, and then the panel is centred on the screen by its own width rather than
+			// left hanging off the anchor its authored rectangle had.  Its children are positioned
+			// relative to it, so the whole screen moves as one piece.
+			//
+			const Real s = ControlBarUniformScale();
+			const Int w = REAL_TO_INT_CEIL( m_powerPurchaseImage->getImageWidth() * s );
+			const Int h = REAL_TO_INT_CEIL( m_powerPurchaseImage->getImageHeight() * s );
+
+			win->winSetSize( w, h );
+			win->winSetPosition( ( TheDisplay->getWidth() - w ) / 2,
+													 REAL_TO_INT_FLOOR( GEN_EXP_DESIGN_TOP * s ) );
 		}
 	}
 

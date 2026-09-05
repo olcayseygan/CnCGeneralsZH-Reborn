@@ -2467,9 +2467,19 @@ GameWindow *GameWindowManager::gogoGadgetComboBox( GameWindow *parent,
 	// intialize instData
 	winInstData.init();
 
-	// size of button
-	buttonWidth = 21;
-	buttonHeight = 22;
+	//
+	// Size of button.  It used to be a flat 21x22 - the pixels the arrow was drawn at on the
+	// 800x600 the layouts were made for - while the combo box around it is stretched to the running
+	// resolution.  So the taller the screen, the taller and thinner the slot the arrow was squeezed
+	// into: at 1080 it is nearly twice as tall as it is wide and the arrow comes out stretched.
+	// The art is square, so take the width from the height the box actually has.
+	//
+	buttonHeight = height;
+	buttonWidth = height;
+	if( buttonWidth > width / 2 )
+		buttonWidth = width / 2;			// a very narrow box keeps some room for its own text
+	if( buttonWidth < 8 )
+		buttonWidth = 8;
 
 	// ----------------------------------------------------------------------
 	// Create Drop Down Button
