@@ -740,6 +740,10 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 	#endif
 		vb=(VertexFormatXYZNDUV1*)lockVtxBuffer.Get_Vertex_Array();
 		ib = lockIdxBuffer.Get_Index_Array();
+		// a failed lock - a device that has gone away - hands back nothing to write into
+		if (vb == NULL || ib == NULL) {
+			continue;
+		}
 		// Add to the index buffer & vertex buffer.
 		Vector2 lookAtVector(m_cameraLookAtVector.X, m_cameraLookAtVector.Y);
 		lookAtVector.Normalize();
@@ -1009,6 +1013,15 @@ void W3DTreeBuffer::updateVertexBuffer(void)
 		DX8VertexBufferClass::WriteLockClass lockVtxBuffer(m_vertexTree[bNdx], D3DLOCK_DISCARD);
 	#endif
 		vb=(VertexFormatXYZNDUV1*)lockVtxBuffer.Get_Vertex_Array();
+
+		//
+		// The lock fails when the device has gone out from under us, and everything below writes
+		// through this pointer without looking.  Same shape as the tank tracks flush: give up on
+		// this buffer, the next frame will push the trees aside again.
+		//
+		if (vb == NULL) {
+			continue;
+		}
 
 		VertexFormatXYZNDUV1 *curVb;
 

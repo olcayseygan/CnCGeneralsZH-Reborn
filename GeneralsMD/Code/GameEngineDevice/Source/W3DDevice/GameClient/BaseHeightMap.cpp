@@ -1928,10 +1928,17 @@ void BaseHeightMapRenderObjClass::updateScorches(void)
 	m_curNumScorchIndices = 0;
 	DX8IndexBufferClass::WriteLockClass lockIdxBuffer(m_indexScorch);
 	UnsignedShort *ib=lockIdxBuffer.Get_Index_Array();
-	UnsignedShort *curIb = ib;
 
 	DX8VertexBufferClass::WriteLockClass lockVtxBuffer(m_vertexScorch);
 	VertexFormatXYZDUV1 *vb = (VertexFormatXYZDUV1*)lockVtxBuffer.Get_Vertex_Array();
+
+	// a failed lock - a device that has gone away - hands back nothing to write into, and the
+	// counts stay at zero so nothing is drawn from a buffer that was never filled
+	if (ib == NULL || vb == NULL) {
+		return;
+	}
+
+	UnsignedShort *curIb = ib;
 	VertexFormatXYZDUV1 *curVb = vb;
 
 	Int curScorch;

@@ -109,6 +109,10 @@ void W3DBibBuffer::loadBibsInVertexAndIndexBuffers(void)
 	DX8VertexBufferClass::WriteLockClass lockVtxBuffer(m_vertexBib, D3DLOCK_DISCARD);
 	vb=(VertexFormatXYZDUV1*)lockVtxBuffer.Get_Vertex_Array();
 	ib = lockIdxBuffer.Get_Index_Array();
+	// a failed lock - a device that has gone away - hands back nothing to write into
+	if (vb == NULL || ib == NULL) {
+		return;
+	}
 	// Add to the index buffer & vertex buffer.
 	UnsignedShort *curIb = ib;
 

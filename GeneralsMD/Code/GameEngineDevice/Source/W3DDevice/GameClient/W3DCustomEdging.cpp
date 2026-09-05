@@ -130,6 +130,11 @@ void W3DCustomEdging::loadEdgingsInVertexAndIndexBuffers(WorldHeightMap *pMap, I
 	DX8VertexBufferClass::WriteLockClass lockVtxBuffer(m_vertexEdging);
 	vb=(VertexFormatXYZDUV2*)lockVtxBuffer.Get_Vertex_Array();
 	ib = lockIdxBuffer.Get_Index_Array();
+	// a failed lock - a device that has gone away - hands back nothing to write into, and the
+	// counts stay at zero so nothing is drawn from a buffer that was never filled
+	if (vb == NULL || ib == NULL) {
+		return;
+	}
 
 	UnsignedShort *curIb = ib;
 

@@ -240,6 +240,8 @@ void W3DDebugIcons::Render(RenderInfoClass & rinfo)
 		if (!vb) return;
 
 		UnsignedShort *ib=lockib.Get_Index_Array();
+		if (!ib) return;		// the vertex lock is checked just above; this one was not
+
 		UnsignedShort *curIb = ib;
 
 //		VertexFormatXYZNDUV2 *curVb = vb;

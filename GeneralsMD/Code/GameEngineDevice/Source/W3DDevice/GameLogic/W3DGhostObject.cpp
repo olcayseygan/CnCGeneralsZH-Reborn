@@ -155,6 +155,14 @@ void W3DRenderObjectSnapshot::update(RenderObjClass *robj, DrawableInfo *drawInf
 // ------------------------------------------------------------------------------------------------
 void W3DRenderObjectSnapshot::addToScene(void)
 {
+	//
+	// Ghost objects are logic-side bookkeeping - what a player remembers of ground now under fog -
+	// and they get built on a run that has no scene to put them in.  A headless replay playback is
+	// the way to see it: the logic makes the snapshot, this puts it in a scene that does not exist.
+	//
+	if (W3DDisplay::m_3DScene == NULL || m_robj == NULL)
+		return;
+
 	((SimpleSceneClass *)W3DDisplay::m_3DScene)->Add_Render_Object(m_robj);
 }
 
@@ -549,7 +557,8 @@ void W3DGhostObject::removeFromScene(int playerIndex)
 
 	while (snap)
 	{
-		snap->m_robj->Remove();
+		if (snap->m_robj)
+			snap->m_robj->Remove();
 		snap=snap->m_next;
 	}
 }
@@ -559,11 +568,16 @@ void W3DGhostObject::removeFromScene(int playerIndex)
 // ------------------------------------------------------------------------------------------------
 void W3DGhostObject::addToScene(int playerIndex)
 {
+	// no scene to add to on a run with no picture - see W3DRenderObjectSnapshot::addToScene above
+	if (W3DDisplay::m_3DScene == NULL)
+		return;
+
 	W3DRenderObjectSnapshot *snap=m_parentSnapshots[playerIndex];
 
 	while (snap)
 	{
-		((SimpleSceneClass *)W3DDisplay::m_3DScene)->Add_Render_Object(snap->m_robj);
+		if (snap->m_robj)
+			((SimpleSceneClass *)W3DDisplay::m_3DScene)->Add_Render_Object(snap->m_robj);
 		snap=snap->m_next;
 	}
 }

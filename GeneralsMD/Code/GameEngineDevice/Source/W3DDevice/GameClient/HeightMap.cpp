@@ -344,6 +344,10 @@ Int HeightMapRenderObjClass::updateVB(DX8VertexBufferClass	*pVB, char *data, Int
 
 		DX8VertexBufferClass::WriteLockClass lockVtxBuffer(pVB);
 		VERTEX_FORMAT *vbHardware = (VERTEX_FORMAT*)lockVtxBuffer.Get_Vertex_Array();
+		// a failed lock - a device that has gone away - hands back nothing to copy the tile into
+		if (vbHardware == NULL) {
+			return 0;
+		}
 		VERTEX_FORMAT *vBase = (VERTEX_FORMAT*)data;
 		// Note that we are building the vertex buffer data in the memory buffer, data.
 		// At the bottom, we will copy the final vertex data for one cell into the 
@@ -593,6 +597,10 @@ Int HeightMapRenderObjClass::updateVBForLight(DX8VertexBufferClass	*pVB, char *d
 
 		DX8VertexBufferClass::WriteLockClass lockVtxBuffer(pVB);
 		VERTEX_FORMAT *vBase = (VERTEX_FORMAT*)lockVtxBuffer.Get_Vertex_Array();
+		// a failed lock - a device that has gone away - hands back nothing to light
+		if (vBase == NULL) {
+			return 0;
+		}
 		VERTEX_FORMAT *vb;
 		
 		for (j=y0; j<y1; j++)
@@ -740,6 +748,10 @@ Int HeightMapRenderObjClass::updateVBForLightOptimized(DX8VertexBufferClass	*pVB
 
 		DX8VertexBufferClass::WriteLockClass lockVtxBuffer(pVB);
 		VERTEX_FORMAT *vBase = (VERTEX_FORMAT*)lockVtxBuffer.Get_Vertex_Array();
+		// a failed lock - a device that has gone away - hands back nothing to light
+		if (vBase == NULL) {
+			return 0;
+		}
 		VERTEX_FORMAT *vb;
 		
 		//
@@ -1339,8 +1351,9 @@ Int HeightMapRenderObjClass::initHeightData(Int x, Int y, WorldHeightMap *pMap, 
 		// Fill up the IB
 		DX8IndexBufferClass::WriteLockClass lockIdxBuffer(m_indexBuffer);
 		UnsignedShort *ib=lockIdxBuffer.Get_Index_Array();
-			
-		for (j=0; j<(VERTEX_BUFFER_TILE_LENGTH*VERTEX_BUFFER_TILE_LENGTH*4); j+=VERTEX_BUFFER_TILE_LENGTH*4)
+
+		// a failed lock leaves nothing to write the indices into
+		for (j=0; ib != NULL && j<(VERTEX_BUFFER_TILE_LENGTH*VERTEX_BUFFER_TILE_LENGTH*4); j+=VERTEX_BUFFER_TILE_LENGTH*4)
 		{
 			for (i=j; i<(j+VERTEX_BUFFER_TILE_LENGTH*4); i+=4)	//4 vertices per 2x2 block
 			{
