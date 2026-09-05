@@ -108,8 +108,7 @@ void GameWindowManager::processDestroyList( void )
 		if( m_keyboardFocus == doDestroy )
 			winSetFocus( NULL );
 
-		if( (m_modalHead != NULL) && (doDestroy == m_modalHead->window) )
-			winUnsetModal( m_modalHead->window );
+		m_modalHead = ModalStack_removeWindow( m_modalHead, doDestroy );
 
 		if( m_currMouseRgn == doDestroy )
 			m_currMouseRgn = NULL;
@@ -1487,8 +1486,7 @@ Int GameWindowManager::winDestroy( GameWindow *window )
 	if( m_keyboardFocus == window )
 		winSetFocus( NULL );
 
-	if( (m_modalHead != NULL) && (window == m_modalHead->window) )
-		winUnsetModal( m_modalHead->window );
+	m_modalHead = ModalStack_removeWindow( m_modalHead, window );
 
 	if( m_currMouseRgn == window )
 		m_currMouseRgn = NULL;
@@ -1558,6 +1556,39 @@ Int GameWindowManager::winDestroyAll( void )
 //-------------------------------------------------------------------------------------------------
 /** Sets selected window into a modal state.  This window will get
 	* put at the top of a modal stack */
+//-------------------------------------------------------------------------------------------------
+/**
+ * Drop every entry for this window from a modal stack, wherever in it they sit, and return the new
+ * head.  Removed entries are freed.
+ *
+ * With no GameWindowManager involved so test_gameengine can link straight to it, and because the
+ * window pointer is only ever compared here - it belongs to a window that is being destroyed and
+ * must not be dereferenced.
+ *
+ * winUnsetModal only ever pops the top of the stack, so a window destroyed while another modal
+ * window sat above it left its entry behind pointing at freed memory.  Everything that walks the
+ * stack afterwards - the mouse hit test in winPointInAnyChild, the tab list, the modal check on
+ * every input message - reads that pointer.
+ */
+ModalWindow *ModalStack_removeWindow( ModalWindow *head, const GameWindow *window )
+{
+	ModalWindow **link = &head;
+	while( *link )
+	{
+		ModalWindow *entry = *link;
+		if( entry->window == window )
+		{
+			*link = entry->next;
+			entry->deleteInstance();
+		}
+		else
+		{
+			link = &entry->next;
+		}
+	}
+	return head;
+}
+
 //-------------------------------------------------------------------------------------------------
 Int GameWindowManager::winSetModal( GameWindow *window )
 {

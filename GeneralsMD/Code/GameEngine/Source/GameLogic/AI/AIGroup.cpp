@@ -3053,13 +3053,23 @@ void AIGroup::groupCreateFormation( CommandSourceType cmdSource )				///< Create
  */
 void AIGroup::groupDoSpecialPower( UnsignedInt specialPowerID, UnsignedInt commandOptions )
 {
-	//This is the no target, no position version.
-	std::list<Object *>::iterator i;
-	for( i = m_memberList.begin(); i != m_memberList.end(); ++i )
+	//
+	// This is the no target, no position version.
+	//
+	// Firing a special power can destroy the group it was ordered from. The rebel ambush over water
+	// drowns every rebel; their slow death calls deselect(), which empties this list to keep the
+	// selection and the group in step. Walking m_memberList while that happens walks freed nodes.
+	// So take the members by id first and drive the copy - each one looked up again, because by the
+	// time its turn comes an earlier member's power may have killed it.
+	//
+	const VecObjectID members = getAllIDs();
+	for( VecObjectID::const_iterator i = members.begin(); i != members.end(); ++i )
 	{
 		//Special powers do a lot of different things, but the top level stuff doesn't use
 		//ai interface code. It finds the special power module and calls it directly for each object.
-		Object *object = (*i);
+		Object *object = TheGameLogic->findObjectByID( *i );
+		if( object == NULL || object->isEffectivelyDead() )
+			continue;
 		const SpecialPowerTemplate *spTemplate = TheSpecialPowerStore->findSpecialPowerTemplateByID( specialPowerID );
 		if( spTemplate )
 		{
@@ -3093,21 +3103,25 @@ void AIGroup::groupDoSpecialPowerAtLocation( UnsignedInt specialPowerID, const C
 {
   
 
-	//This one requires a position
-	std::list<Object *>::iterator i;
-	for( i = m_memberList.begin(); i != m_memberList.end(); )
+	//
+	// This one requires a position.
+	//
+	// The rebel ambush over the ocean drowns every rebel, and their slow death calls deselect(),
+	// which destroys this list to keep the selection in step with the group - M Lorenzen noted that
+	// in 2003 and stepped the iterator forward before firing to cope with it. That covers the member
+	// that just went away and nothing else: a list emptied outright leaves the iterator on a freed
+	// node. Take the members by id instead - see groupDoSpecialPower above.
+	//
+	const VecObjectID members = getAllIDs();
+	for( VecObjectID::const_iterator i = members.begin(); i != members.end(); ++i )
 	{
 		//Special powers do a lot of different things, but the top level stuff doesn't use
 		//ai interface code. It finds the special power module and calls it directly for each object.
 
-		Object *object = (*i);
+		Object *object = TheGameLogic->findObjectByID( *i );
+		if( object == NULL || object->isEffectivelyDead() )
+			continue;
 
-    ++i; // just in case the act of specialpowering changes this list,
-         // like when the rebelambush happens over the ocean, and all the rebels drown
-         // and, of course, their slowdeath behavior calls deselect(), which naturally
-         // destroys the AIGroup list, in order to keep the selection sync'ed with the group.
-         // M Lorenzen... 8/23/03
-    
     const SpecialPowerTemplate *spTemplate = TheSpecialPowerStore->findSpecialPowerTemplateByID( specialPowerID );
 		if( spTemplate )
 		{
@@ -3140,14 +3154,16 @@ void AIGroup::groupDoSpecialPowerAtLocation( UnsignedInt specialPowerID, const C
  */
 void AIGroup::groupDoSpecialPowerAtObject( UnsignedInt specialPowerID, Object *target, UnsignedInt commandOptions )
 {
-	//This one requires a target
-	std::list<Object *>::iterator i;
-	for( i = m_memberList.begin(); i != m_memberList.end(); ++i )
+	//This one requires a target; by id for the same reason - see groupDoSpecialPower above.
+	const VecObjectID members = getAllIDs();
+	for( VecObjectID::const_iterator i = members.begin(); i != members.end(); ++i )
 	{
 		//Special powers do a lot of different things, but the top level stuff doesn't use
 		//ai interface code. It finds the special power module and calls it directly for each object.
 
-		Object *object = (*i);
+		Object *object = TheGameLogic->findObjectByID( *i );
+		if( object == NULL || object->isEffectivelyDead() )
+			continue;
 		const SpecialPowerTemplate *spTemplate = TheSpecialPowerStore->findSpecialPowerTemplateByID( specialPowerID );
 		if( spTemplate )
 		{

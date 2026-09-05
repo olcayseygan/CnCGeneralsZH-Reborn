@@ -1126,6 +1126,60 @@ TEST(attack_move_turns_on_whoever_is_shooting_it)
 	CHECK( !AIAttackMove_shouldRetaliate( 0xffffffff, 0xfffffff0, WINDOW, false, true ) );
 }
 
+/* GameWindowManager.cpp: destroying a modal window that is not the top of the modal stack
+   used to leave its entry behind, holding a pointer to freed memory. */
+#include "GameClient/GameWindow.h"
+
+TEST(destroying_a_modal_window_takes_it_out_of_the_stack_wherever_it_sits)
+{
+	/* the window pointers are never dereferenced, only compared - which is the whole point:
+	   by the time the stack is cleaned up the window is being freed. */
+	GameWindow *bottom = (GameWindow *)0x1000;
+	GameWindow *middle = (GameWindow *)0x2000;
+	GameWindow *top    = (GameWindow *)0x3000;
+
+	ModalWindow *head = NULL;
+	GameWindow *order[3] = { bottom, middle, top };
+	for( Int i = 0; i < 3; i++ )
+	{
+		ModalWindow *entry = newInstance(ModalWindow);
+		entry->window = order[i];
+		entry->next = head;
+		head = entry;			/* pushed like winSetModal does: top of the stack is 'top' */
+	}
+
+	/* the middle one goes away while another modal window still sits above it. */
+	head = ModalStack_removeWindow( head, middle );
+	CHECK( head != NULL );
+	CHECK_EQ( head->window, top );
+	CHECK( head->next != NULL );
+	CHECK_EQ( head->next->window, bottom );
+	CHECK( head->next->next == NULL );
+
+	/* a window that is not in the stack at all leaves it alone. */
+	head = ModalStack_removeWindow( head, (GameWindow *)0x4000 );
+	CHECK_EQ( head->window, top );
+	CHECK_EQ( head->next->window, bottom );
+
+	/* the same window set modal twice loses both entries, not one. */
+	for( Int j = 0; j < 2; j++ )
+	{
+		ModalWindow *dup = newInstance(ModalWindow);
+		dup->window = bottom;
+		dup->next = head;
+		head = dup;
+	}
+	head = ModalStack_removeWindow( head, bottom );
+	CHECK( head != NULL );
+	CHECK_EQ( head->window, top );
+	CHECK( head->next == NULL );
+
+	/* emptying it gives a null head back, not a stale one. */
+	head = ModalStack_removeWindow( head, top );
+	CHECK( head == NULL );
+	CHECK( ModalStack_removeWindow( NULL, top ) == NULL );
+}
+
 /* AIStates.cpp: a dud fight and a broken leash suspend the approach, never the shooting -
    a unit on attack move drove past whatever stood next to it during those windows. */
 extern Bool AIAttackMove_mayTakeTarget( Bool targetIsInRangeNow, Bool targetIsTheLastDud,

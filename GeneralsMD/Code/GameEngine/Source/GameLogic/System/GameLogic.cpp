@@ -1411,7 +1411,16 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 			d.setInt(TheKey_multiplayerStartIndex, slot->getStartPos());
 //			d.setBool(TheKey_multiplayerIsLocal, slot->isLocalPlayer());
 //			d.setBool(TheKey_multiplayerIsLocal, slot->getIP() == game->getLocalIP());
-			d.setBool(TheKey_multiplayerIsLocal, slot->isHuman() && (slot->getName().compare(game->getSlot(game->getLocalSlotNum())->getName().str()) == 0));
+			//
+			// getLocalSlotNum() returns -1 when no slot belongs to us, and getSlot(-1) returns NULL.
+			// A replay is the ordinary way to get here with no local slot at all: the header carries
+			// -1 when the recording side never identified its own seat, and the reply to that used to
+			// be a null dereference before the map had even loaded. Nobody's slot is the local one in
+			// that case, which is also the truthful answer.
+			//
+			GameSlot *localGameSlot = game->getSlot(game->getLocalSlotNum());
+			d.setBool(TheKey_multiplayerIsLocal, localGameSlot != NULL && slot->isHuman()
+								&& (slot->getName().compare(localGameSlot->getName().str()) == 0));
 
 /*
 			if (slot->getIP() == game->getLocalIP())

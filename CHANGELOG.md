@@ -60,6 +60,7 @@ found and fixed â€” EA's own, not port damage.**
 - It now weighs distance, whether the target is crippled - an opportunity, not a distraction - and how much of what it can see that player is worth. Only a genuinely finished enemy is skipped.
 - It still refuses to gang up with another computer opponent on one victim, and still gently prefers whoever is already shooting at it.
 - An aggressive computer team is supposed to fight its way to where it is sent rather than walk there. It never did. The order to fight was being reissued every frame, and each reissue pushed the moment that unit next looks for a target one step further into the future, so the look never came at all and the team crossed the map through the enemy without firing. Over four and a half minutes of one test match that order was restarted 2,240 times. It is restarted 15 times now.
+- And when that switch does happen, the old order stops there. It used to finish its own turn afterwards, steering one last time toward the place the unit was going before the order changed, which is a visible flinch at the head of a column.
 ## The computer knows when to quit
 
 - Its teams fought to the last man. The word "retreat" appeared nowhere in the opponent's code - the single most visible thing that made it look stupid.
@@ -373,6 +374,9 @@ found and fixed â€” EA's own, not port damage.**
 - A supply centre could stop accepting trucks permanently.
 - Selling a building mid-research gave no refund and left the upgrade in limbo.
 - On-screen messages now hold for two and a half seconds and fade in one.
+- Closing a dialog while another one sits on top of it no longer leaves the game holding a pointer to the window it just freed. Every click, every keypress and the tab order all read that list, so what it caused was a crash with no pattern to it.
+- Ordering a group to use a special power that can kill the units casting it, the GLA rebel ambush over water being the one that does it every time, no longer walks a list of units that the ambush is deleting underneath.
+- A replay that never recorded which seat was yours plays instead of crashing before the map loads.
 - Double-tapping 0 jumps the camera to that group.
 - The mouse wheel no longer cancels a camera move already in progress.
 

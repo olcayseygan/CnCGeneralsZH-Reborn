@@ -2100,7 +2100,14 @@ StateReturnType AIMoveToState::update()
 	UnsignedInt adjustment = ai->getMoodMatrixActionAdjustment(MM_Action_Move);
 	if (m_isMoveTo && (adjustment & MAA_Action_To_AttackMove)
 			&& getMachine()->getCurrentStateID() == AI_MOVE_TO)
+	{
 		ai->aiAttackMoveToPosition(&m_goalPosition, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
+		// We are no longer the current state and the one that replaced us has already had its
+		// onEnter, which computed its own goal and its own path.  Running the rest of this update
+		// drives the locomotor from the goal *this* state was holding, one frame after the order
+		// that replaced it - so the new state's first frame steers to the old destination.
+		return STATE_CONTINUE;
+	}
 
 	// if we have a goal object, move to it, as it may have moved
 	Object* goalObj = getMachineGoalObject();
@@ -4623,6 +4630,9 @@ StateReturnType AIFollowWaypointPathState::update()
 		}	else {
 			ai->aiAttackFollowWaypointPath(m_currentWaypoint, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
 		}
+		// The attack-follow state that replaced us owns the waypoint walk now; the rest of this
+		// update would advance our own copy of it - see AIMoveToState::update above.
+		return STATE_CONTINUE;
 	}
 
 	if (m_appendGoalPosition) {	 

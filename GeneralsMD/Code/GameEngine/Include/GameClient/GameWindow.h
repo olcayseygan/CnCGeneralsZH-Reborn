@@ -438,6 +438,9 @@ public:
 };
 EMPTY_DTOR(ModalWindow)
 
+///< drop every entry for this window from a modal stack and return the new head (GameWindowManager.cpp)
+extern ModalWindow *ModalStack_removeWindow( ModalWindow *head, const GameWindow *window );
+
 // Errors returned by window functions
 enum 
 {

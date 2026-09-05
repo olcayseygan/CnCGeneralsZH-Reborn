@@ -3591,13 +3591,16 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			}
 			break;
 		}
-    case GameMessage::MSG_CHEAT_ADD_CASH:									
+    case GameMessage::MSG_CHEAT_ADD_CASH:
 		{
 			if ( !TheGameLogic->isInMultiplayerGame() )
 			{
 				Player *localPlayer = ThePlayerList->getLocalPlayer();
 				Money *money = localPlayer->getMoney();
 				money->deposit( 10000 );
+				// consumed here, like every cheat around it.  Without this the message went on down
+				// the translator chain and onto the command list, where nothing acts on it.
+				disp = DESTROY_MESSAGE;
 			}
 			break;
 		}
@@ -4744,6 +4747,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 				Player *localPlayer = ThePlayerList->getLocalPlayer();
 				Money *money = localPlayer->getMoney();
 				money->deposit( 10000 );
+				disp = DESTROY_MESSAGE;		// same omission as the cheat message above
 			}
 			break;
 		}
