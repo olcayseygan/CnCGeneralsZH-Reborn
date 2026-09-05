@@ -373,6 +373,7 @@ found and fixed â€” EA's own, not port damage.**
 - A health bar keeps its size against the unit at any resolution. It was a fixed number of pixels wide and three tall, so the bigger the screen the thinner the thread over a tank.
 - Health bars are in the owner's colour instead of green to red. A building going up fills its bar in that same colour as it rises, so a glance across the map says whose expansion it is - the seconds written over it already say it is not finished. A disabled building keeps the blue.
 - A building's bar sits above its roof rather than inside its art.
+- A unit that is inside a transport and also disabled wears the blue bar. Being carried and being knocked out were asked as one question, so the two together answered no: a squad EMP'd inside a bunker, or hacked while riding a Battle Bus, looked perfectly healthy from outside.
 - The progress bar stacked over the health bar is white, wherever it turns up - a factory turning out a tank, a silo charging, a supply drop counting down to its payout. It was yellow, which is a colour the game already spends on your own units and on damage, and a strip of it sitting directly above a coloured health bar read as part of the same bar.
 - Every garrisonable building shows how full it is, whoever holds it.
 - A vehicle's load stays private.

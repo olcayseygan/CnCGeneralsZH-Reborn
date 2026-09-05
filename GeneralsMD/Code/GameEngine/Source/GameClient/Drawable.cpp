@@ -423,6 +423,22 @@ Bool Drawable_healthBarModeShows( Int healthBarMode, Bool isSelected, Bool isMou
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A disabled object wears a blue bar instead of its owner's colour, because that is a state
+	* nothing else on screen signals.  Being held - inside a transport, a bunker, a building - is not
+	* a malfunction and does not count.
+	*
+	* The old test was `isDisabled() && !isDisabledByType(DISABLED_HELD)`, which is two different
+	* questions stapled together: a unit that is both held and EMP'd answers yes to the second, so it
+	* lost its blue bar and looked healthy.  Clear HELD out of the mask and ask whether anything is
+	* left, which is what was meant. */
+//-------------------------------------------------------------------------------------------------
+Bool Drawable_disabledShowsBlueHealthBar( DisabledMaskType disabledFlags )
+{
+	disabledFlags.clear( MAKE_DISABLED_MASK( DISABLED_HELD ) );
+	return DISABLEDMASK_ANY_SET( disabledFlags );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** The silhouette is the finished building, not a foundation: the construction model conditions are
 	* left alone until the builder arrives, so what stands on the map is the shape that was under the
 	* cursor.  A drawable with no object behind it is the placement preview itself, which carries the
@@ -4206,7 +4222,7 @@ void Drawable::drawHealthBar(const IRegion2D* healthBarRegion)
 		//
 
 		Color color, outlineColor;
-		if( obj->isDisabled() && !obj->isDisabledByType(DISABLED_HELD) )
+		if( Drawable_disabledShowsBlueHealthBar( obj->getDisabledFlags() ) )
 		{
 			color = GameMakeColor( 0, healthRatio * 255.0f, 255, 255 );//blue to cyan
 			outlineColor = GameMakeColor( 0, healthRatio * 128.0f, 128, 255 );//dark blue to dark cyan

@@ -31,6 +31,7 @@
 #define _DRAWABLE_H_
 
 #include "Common/AudioEventRTS.h"
+#include "Common/DisabledTypes.h"
 #include "Common/GameType.h"
 #include "Common/ModelState.h"
 #include "Common/ModuleFactory.h"
@@ -85,6 +86,9 @@ extern Bool Drawable_structureShowsHealthBar( Bool isBridge, Bool isUnowned, Boo
 ///< whether the health bar setting lets this object show one right now
 extern Bool Drawable_healthBarModeShows( Int healthBarMode, Bool isSelected, Bool isMousedOver,
 																				 Bool isDamaged );
+
+///< whether these disabled flags mean the health bar is drawn blue instead of the owner's colour
+extern Bool Drawable_disabledShowsBlueHealthBar( DisabledMaskType disabledFlags );
 
 //-----------------------------------------------------------------------------
 //@TODO -- The drawable icon system needs to be implemented in a proper manner -- KM

@@ -5854,6 +5854,24 @@ TEST(an_owned_structure_always_wears_a_health_bar)
 	CHECK( Drawable_structureShowsHealthBar( FALSE, FALSE, TRUE, FALSE ) == TRUE );
 }
 
+/** Being carried is not a malfunction, so a unit inside a transport keeps its owner's colour.
+	 Anything else that disables it turns the bar blue - and the pair together used to fail: the old
+	 test asked `isDisabled() && !isDisabledByType(DISABLED_HELD)`, so a held unit that was then EMP'd
+	 answered no and looked perfectly healthy inside the transport it could no longer leave. */
+TEST(a_held_and_disabled_object_still_shows_a_blue_health_bar)
+{
+	CHECK( Drawable_disabledShowsBlueHealthBar( DISABLEDMASK_NONE ) == FALSE );
+	CHECK( Drawable_disabledShowsBlueHealthBar( MAKE_DISABLED_MASK( DISABLED_HELD ) ) == FALSE );
+
+	CHECK( Drawable_disabledShowsBlueHealthBar( MAKE_DISABLED_MASK( DISABLED_EMP ) ) == TRUE );
+	CHECK( Drawable_disabledShowsBlueHealthBar( MAKE_DISABLED_MASK( DISABLED_HACKED ) ) == TRUE );
+	CHECK( Drawable_disabledShowsBlueHealthBar( MAKE_DISABLED_MASK( DISABLED_UNDERPOWERED ) ) == TRUE );
+
+	// the case the old condition got wrong
+	CHECK( Drawable_disabledShowsBlueHealthBar( MAKE_DISABLED_MASK2( DISABLED_HELD, DISABLED_EMP ) ) == TRUE );
+	CHECK( Drawable_disabledShowsBlueHealthBar( MAKE_DISABLED_MASK2( DISABLED_HELD, DISABLED_SUBDUED ) ) == TRUE );
+}
+
 /** Always and never are the two ends and answer without looking at the object at all. */
 TEST(health_bar_always_and_never_ignore_everything_else)
 {
