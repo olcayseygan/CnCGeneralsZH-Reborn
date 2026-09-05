@@ -2646,6 +2646,16 @@ Real MilesAudioManager::getFileLengthMS( AsciiString strToLoad ) const
 		return 0.0f;
 	}
 
+	//
+	// The file's own header first, because two script conditions are built on this answer and a
+	// machine with no sound device - a -headless run is one - cannot ask Miles anything.  See
+	// AudioManager::getWaveFileLengthMS.  Miles still answers for whatever is not a .wav.
+	//
+	const Real fromHeader = getWaveFileLengthMS(strToLoad);
+	if (fromHeader > 0.0f) {
+		return fromHeader;
+	}
+
 	// Load it as a stream to get the file info without actually opening the file.
 	HSTREAM stream = AIL_open_stream(m_digitalHandle, strToLoad.str(), 0);
 	if (!stream) {

@@ -285,6 +285,7 @@ class AudioManager : public SubsystemInterface
 		// For Scripting
 		virtual Real getAudioLengthMS( const AudioEventRTS *event );
 		virtual Real getFileLengthMS( AsciiString strToLoad ) const = 0;
+		Real getWaveFileLengthMS( AsciiString strToLoad ) const;		///< from the file's own header, with no audio device involved
 
 		// For the file cache to know when to remove files.
 		virtual void closeAnySamplesUsingFile( const void *fileToClose ) = 0;

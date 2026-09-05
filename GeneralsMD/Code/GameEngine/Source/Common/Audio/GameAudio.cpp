@@ -51,6 +51,7 @@
 #include "Common/AudioHandleSpecialValues.h"
 #include "Common/AudioRequest.h"
 #include "Common/AudioSettings.h"
+#include "Common/File.h"
 #include "Common/FileSystem.h"
 #include "Common/GameEngine.h"
 #include "Common/GameMusic.h"
@@ -938,6 +939,87 @@ void AudioManager::refreshCachedVariables()
 {
 	m_hardwareAccel = isCurrentProviderHardwareAccelerated();
 	m_surroundSpeakers = isCurrentSpeakerTypeSurroundSound();
+}
+
+//-------------------------------------------------------------------------------------------------
+/**
+ * How long a RIFF/WAVE file runs, in milliseconds, read out of its own header.  Zero for anything
+ * that is not one, or that cannot be read.
+ *
+ * This exists because getAudioLengthMS is not a client question.  Two script conditions are built on
+ * it - "has this speech finished" and "has this sound finished" - and both run inside GameLogic, so
+ * the answer is part of the simulation.  The way it used to be answered was not: Miles was asked to
+ * open the file, and a machine with no working sound device has no handle to open it with, which
+ * made the length zero.  So did every -headless run, since headless turns the audio off.  Those
+ * machines walked straight past a wait that everyone else sat through - a mismatch in a network
+ * game, and a replay that diverges from the machine that recorded it.
+ *
+ * Every sound and every line of speech the game ships is a .wav, and a .wav says how long it is in
+ * its own header: the byte rate in the format chunk and the size of the data chunk.  No device, same
+ * answer everywhere.
+ */
+Real AudioManager::getWaveFileLengthMS( AsciiString strToLoad ) const
+{
+	if (strToLoad.isEmpty())
+		return 0.0f;
+
+	File *file = TheFileSystem->openFile( strToLoad.str(), File::READ | File::BINARY );
+	if (file == NULL)
+		return 0.0f;
+
+	Real lengthMS = 0.0f;
+
+	// RIFF <size> WAVE, then a run of <fourcc><size><payload> chunks.
+	char header[12];
+	if (file->read( header, sizeof(header) ) == sizeof(header)
+			&& ::memcmp( header, "RIFF", 4 ) == 0
+			&& ::memcmp( header + 8, "WAVE", 4 ) == 0)
+	{
+		UnsignedInt bytesPerSecond = 0;
+		UnsignedInt dataBytes = 0;
+
+		// 'fmt ' can follow 'data' in a legal file, so read to the end rather than stopping at
+		// whichever of the two turns up first.
+		for (;;)
+		{
+			char chunkID[4];
+			UnsignedInt chunkSize = 0;
+			if (file->read( chunkID, sizeof(chunkID) ) != sizeof(chunkID))
+				break;
+			if (file->read( &chunkSize, sizeof(chunkSize) ) != sizeof(chunkSize))
+				break;
+
+			if (::memcmp( chunkID, "fmt ", 4 ) == 0 && chunkSize >= 16)
+			{
+				// wFormatTag, nChannels, nSamplesPerSec, nAvgBytesPerSec, ...
+				char fmt[16];
+				if (file->read( fmt, sizeof(fmt) ) != sizeof(fmt))
+					break;
+				::memcpy( &bytesPerSecond, fmt + 8, sizeof(bytesPerSecond) );
+				if (chunkSize > sizeof(fmt))
+					file->seek( chunkSize - sizeof(fmt), File::CURRENT );
+			}
+			else if (::memcmp( chunkID, "data", 4 ) == 0)
+			{
+				dataBytes = chunkSize;
+				if (file->seek( chunkSize, File::CURRENT ) < 0)
+					break;
+			}
+			else if (file->seek( chunkSize, File::CURRENT ) < 0)
+			{
+				break;
+			}
+
+			if (chunkSize & 1)
+				file->seek( 1, File::CURRENT );		// chunks are word aligned
+		}
+
+		if (bytesPerSecond > 0 && dataBytes > 0)
+			lengthMS = (Real)dataBytes * 1000.0f / (Real)bytesPerSecond;
+	}
+
+	file->close();
+	return lengthMS;
 }
 
 //-------------------------------------------------------------------------------------------------
