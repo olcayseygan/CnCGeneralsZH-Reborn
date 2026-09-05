@@ -1172,6 +1172,16 @@ GlobalData::GlobalData()
     CreateDirectory(myDocumentsDirectory.str(), NULL);
     m_userDataDir = myDocumentsDirectory;
   }
+  else
+  {
+    //
+    // Saves, replays, the options file and the crash log all live under this.  When the shell
+    // cannot tell us where Documents is - a redirected folder whose path is longer than MAX_PATH is
+    // the way it happens - the directory was simply left empty and every one of those writes went
+    // somewhere else without a word.  Say so; the tail of this log is what a bug report carries.
+    //
+    DEBUG_LOG(("Could not find the Documents folder: saves, replays and settings have nowhere of their own to go.\n"));
+  }
 	
 	//-allAdvice feature
 	//m_allAdvice = FALSE;

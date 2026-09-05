@@ -112,8 +112,6 @@ ArchiveFile * Win32BIGFileSystem::openArchiveFile(const Char *filename) {
 	Int archiveFileSize = 0;
 	Int numLittleFiles = 0;
 
-	ArchiveFile *archiveFile = NEW Win32BIGFile;
-
 	DEBUG_LOG(("Win32BIGFileSystem::openArchiveFile - opening BIG file %s\n", filename));
 
 	if (fp == NULL) {
@@ -131,6 +129,11 @@ ArchiveFile * Win32BIGFileSystem::openArchiveFile(const Char *filename) {
 		fp = NULL;
 		return NULL;
 	}
+
+	// Allocated after the checks above, not before them: both of those returns used to walk away
+	// from a Win32BIGFile that had just been made. A directory of files that are not archives -
+	// which is what a mod folder handed to -mod can be - leaked one per file.
+	ArchiveFile *archiveFile = NEW Win32BIGFile;
 
 	// read in the file size.
 	fp->read(&archiveFileSize, 4);
