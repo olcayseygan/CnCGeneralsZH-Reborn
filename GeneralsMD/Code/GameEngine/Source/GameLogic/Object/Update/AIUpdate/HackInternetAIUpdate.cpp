@@ -555,7 +555,13 @@ StateReturnType HackInternetState::update()
 				// Whether the figure shows is whether this watcher can see the hacker.  Spelling the
 				// rule out as "mine, or not stealthed, or detected" reads the same for a player but
 				// hides it from an ally who shares the sight and from an observer who sees everything.
-				Drawable *ownerDraw = owner->getDrawable();
+				//
+				// A hacker working from inside an Internet Center has no drawable on screen at all -
+				// a garrisoned unit is hidden by its container - so asking the hacker whether it can
+				// be seen answered no for the whole time the money was coming in.  The thing on
+				// screen is the building, so it is the building that gets asked.
+				Object *internetCenter = owner->getContainedBy();
+				Drawable *ownerDraw = internetCenter ? internetCenter->getDrawable() : owner->getDrawable();
 				Bool displayMoney = ( ownerDraw != NULL && ownerDraw->isVisible() );
 
 				if( displayMoney )
@@ -570,7 +576,6 @@ StateReturnType HackInternetState::update()
 					pos.z += 20.0f; //add a little z to make it show up above the unit.
           
 
-          Object *internetCenter = owner->getContainedBy();
           if ( internetCenter )
           {
             Real width = internetCenter->getGeometryInfo().getMajorRadius() * 0.3f;
