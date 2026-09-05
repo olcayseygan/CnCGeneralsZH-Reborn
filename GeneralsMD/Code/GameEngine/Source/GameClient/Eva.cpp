@@ -484,8 +484,16 @@ void Eva::processPlayingMessages(UnsignedInt currentFrame)
 			continue;
 		}
 
-		// These are requests that never got a chance to play and have since expired.
-		if (it->m_triggeredOnFrame + it->m_evaInfo->m_framesToExpire <= currentFrame && !it->m_alreadyPlayed) {
+		//
+		// These are requests that never got a chance to play and have since expired.  Both terms of
+		// that sum are unsigned, and ExpirationTimeMS comes straight out of an INI file with no
+		// range on it, so a large or negative entry wraps the addition round to a small number and
+		// the request expires the moment it is made - the announcement it was waiting to play never
+		// happens at all.  Ask how long ago it was triggered instead: that cannot overflow.
+		//
+		const UnsignedInt framesWaiting = (currentFrame >= it->m_triggeredOnFrame)
+																			? (currentFrame - it->m_triggeredOnFrame) : 0;
+		if (framesWaiting >= it->m_evaInfo->m_framesToExpire && !it->m_alreadyPlayed) {
 			it = m_checks.erase(it);
 			continue;
 		}

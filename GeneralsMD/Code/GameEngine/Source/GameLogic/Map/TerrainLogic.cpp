@@ -2686,7 +2686,18 @@ void TerrainLogic::setActiveBoundary(Int newActiveBoundary)
 // ------------------------------------------------------------------------------------------------
 /** Flatten the terrain beneath a struture. */
 // ------------------------------------------------------------------------------------------------
-void TerrainLogic::flattenTerrain(Object *obj) 
+//
+// Every row scan in here, and the one in createCraterInTerrain below, computes iMin.y and then
+// starts at row zero anyway.  The shape test inside throws those rows away, so the terrain that
+// comes out is the same either way - what changes is how much work it took, and that grows with how
+// far up the map the building is.  A base at the top edge of a large map paid for the whole column
+// on every foundation it laid.
+//
+// The clamp is not decoration: iMin.y goes negative for a footprint that hangs off the bottom edge,
+// and starting there would sample and stamp map cells that do not exist.  Row zero was doing that
+// job by accident.
+//
+void TerrainLogic::flattenTerrain(Object *obj)
 {
 	if (obj->getGeometryInfo().getIsSmall()) {
 		return;
@@ -2739,7 +2750,7 @@ void TerrainLogic::flattenTerrain(Object *obj)
 			Real totalHeight = 0;
 			Int numSamples = 0;
 			for (i=iMin.x; i<=iMax.x; i++) {
-				for (j=0; j<=iMax.y; j++) {
+				for (j=(iMin.y>0?iMin.y:0); j<=iMax.y; j++) {
 					Vector3	testPt(i*MAP_XY_FACTOR, j*MAP_XY_FACTOR, 0);
 					Bool match = false;
 					unsigned char flags;
@@ -2765,7 +2776,7 @@ void TerrainLogic::flattenTerrain(Object *obj)
 			if (rawDataHeight>centerHeight) rawDataHeight = centerHeight;
 
 			for (i=iMin.x; i<=iMax.x; i++) {
-				for (j=0; j<=iMax.y; j++) {
+				for (j=(iMin.y>0?iMin.y:0); j<=iMax.y; j++) {
 					Vector3	testPt(i*MAP_XY_FACTOR, j*MAP_XY_FACTOR, 0);
 					Bool match = false;
 					unsigned char flags;
@@ -2830,7 +2841,7 @@ void TerrainLogic::flattenTerrain(Object *obj)
 			Real totalHeight = 0;
 			Int numSamples = 0;
 			for (i=iMin.x; i<=iMax.x; i++) {
-				for (j=0; j<=iMax.y; j++) {
+				for (j=(iMin.y>0?iMin.y:0); j<=iMax.y; j++) {
 					Vector3	testPt(i*MAP_XY_FACTOR, j*MAP_XY_FACTOR, 0);
 					Bool match = false;
 					Real dx = testPt.X - pos->x;
@@ -2848,7 +2859,7 @@ void TerrainLogic::flattenTerrain(Object *obj)
 			Real avgHeight = totalHeight/numSamples;
 			Int rawDataHeight = REAL_TO_INT_FLOOR(0.5f + avgHeight/MAP_HEIGHT_SCALE);
 			for (i=iMin.x; i<=iMax.x; i++) {
-				for (j=0; j<=iMax.y; j++) {
+				for (j=(iMin.y>0?iMin.y:0); j<=iMax.y; j++) {
 					Vector3	testPt(i*MAP_XY_FACTOR, j*MAP_XY_FACTOR, 0);
 					Bool match = false;
 					Real dx = testPt.X - pos->x;
@@ -2925,7 +2936,7 @@ void TerrainLogic::createCraterInTerrain(Object *obj)
 
 	for (Int i = iMin.x; i <= iMax.x; i++ ) 
   {
-		for ( Int j=0; j <= iMax.y; j++ ) 
+		for ( Int j=(iMin.y>0?iMin.y:0); j <= iMax.y; j++ ) 	// see flattenTerrain: iMin.y was computed and then ignored
     {
 			deltaX = ( i * MAP_XY_FACTOR ) - pos->x;
 			deltaY = ( j * MAP_XY_FACTOR ) - pos->y;
