@@ -9278,3 +9278,58 @@ TEST(quoted_printable_survives_bytes_over_127)
 	// a plain name is left alone, which is what makes the encoding readable in a cache file
 	CHECK_STR( AsciiStringToQuotedPrintable( AsciiString( "Alpine" ) ).str(), "Alpine" );
 }
+
+/* Peace time is a truce between people.  A computer player does not honour one - it stands still
+	 and then plays the same game - so a lobby with a bot in it has no peace time whatever the host
+	 picked.  The rule lives in GameInfo::getPeaceTime(), which is what the options string on the
+	 wire, the lobby's combo box and GameLogic all read, so this is the one place it can be checked.
+	 The host's pick is masked, not cleared: take the bot back out and it is still there. */
+TEST(peace_time_is_off_while_a_computer_player_is_in_the_lobby)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	SkirmishGameInfo game;
+	game.init();		// leaves every slot closed; clearSlotList() would name them, and naming a
+									// closed slot asks TheGameText, which the harness does not stand up
+
+	UnicodeString name;
+	name.translate( AsciiString( "Player" ) );
+
+	GameSlot human;
+	human.setState( SLOT_PLAYER, name );
+	game.setSlot( 0, human );
+
+	GameSlot other;
+	other.setState( SLOT_PLAYER, name );
+	game.setSlot( 1, other );
+
+	game.setPeaceTime( 10 );
+	CHECK( !game.hasAIPlayers() );
+	CHECK_EQ( game.getPeaceTime(), 10 );
+
+	// a bot in any seat turns it off, at every rung of the ladder
+	static const SlotState rungs[] = { SLOT_EASY_AI, SLOT_MED_AI, SLOT_BRUTAL_AI };
+	for( Int i = 0; i < 3; ++i )
+	{
+		GameSlot bot;
+		bot.setState( rungs[ i ] );
+		game.setSlot( 1, bot );
+		CHECK( game.hasAIPlayers() );
+		CHECK_EQ( game.getPeaceTime(), 0 );
+	}
+
+	// the pick was masked, not thrown away
+	game.setSlot( 1, other );
+	CHECK( !game.hasAIPlayers() );
+	CHECK_EQ( game.getPeaceTime(), 10 );
+
+	// and the setter still refuses a value the wire could not have come by honestly
+	game.setPeaceTime( -5 );
+	CHECK_EQ( game.getPeaceTime(), 0 );
+	game.setPeaceTime( 9999 );
+	CHECK_EQ( game.getPeaceTime(), 60 );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}

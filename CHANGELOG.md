@@ -419,6 +419,14 @@ found and fixed â€” EA's own, not port damage.**
 - Double-tapping 0 jumps the camera to that group.
 - The mouse wheel no longer cancels a camera move already in progress.
 
+## Peace time, if the host wants it
+
+- A new lobby setting next to starting cash: three, five, ten or fifteen minutes of truce at the head of the match, or none, which is how the game has always played. LAN and online carry it, only the host can change it, and everyone in the room sees the choice before the game starts.
+- While it runs, nobody can attack anybody. Not a rush, not a scout taking a pot shot on the way past, not a shell fired at empty ground in the hope the splash counts.
+- The ground around a command centre is not somewhere to wait. Anything of yours standing in an enemy's burns, and goes on burning until it leaves or dies. The truce buys you the time to build, not a free walk up to somebody's front door.
+- The clock counts down in red in the top right corner, above the game clock, for as long as it runs. You are also told when it starts, at a minute, thirty seconds and ten seconds left, and when it is over.
+- Put a computer player in the room and the truce switches itself off, whatever the host had picked. A computer opponent does not honour a truce - it stands still for five minutes and then plays exactly the game it was going to play - so all peace time buys against one is a handicap for the person who is not a computer. The box greys out and reads off while a bot is in a seat, and remembers the host's choice for when the bot leaves. That is also why the skirmish lobby has no such box: a skirmish is played against computer players.
+
 ## The options screen has pages
 
 - Display, audio, controls, gameplay and network, behind five buttons across the top. The original screen was one panel with everything on it at once, and it was already full the day it shipped: the language filter, the keyboard button and four camera checkboxes are all still in there, parked off the right edge where nobody can reach them, because there was nowhere left to put them.

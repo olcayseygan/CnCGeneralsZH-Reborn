@@ -1525,6 +1525,27 @@ Int parseTeams(char *args[], int num)
 	return 1;
 }
 
+/* -peacetime <minutes> gives an -autoskirmish match the lobby's peace time without a lobby.
+
+	 The option itself is a host setting picked from a combo box in the three lobby screens, and none
+	 of those exist in an unattended run - so the only way to watch what the truce does to a match, or
+	 to prove a change to it did not desync a replay, is to hand the same number to the slot list the
+	 command line builds. Clamped the same way GameInfo::setPeaceTime clamps the wire value. */
+Int parsePeaceTime(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1 && args[1])
+	{
+		Int minutes = atoi(args[1]);
+		if (minutes < 0)
+			minutes = 0;
+		if (minutes > 60)
+			minutes = 60;
+		TheWritableGlobalData->m_peaceTime = minutes;
+		return 2;
+	}
+	return 1;
+}
+
 /* -slowframe <ms> lowers the bar a logic frame has to clear before it logs its own breakdown.
 
 	 The default of 20ms is a stutter hunt: it catches the frames a player would notice. Chasing a
@@ -1806,6 +1827,7 @@ static CommandLineParam params[] =
 	{ "-tracemove", parseTraceMove },
 	{ "-slowframe", parseSlowFrame },
 	{ "-teams", parseTeams },
+	{ "-peacetime", parsePeaceTime },
 	{ "-aislice", parseAISlice },
 	{ "-noflowpath", parseNoFlowPath },
 	{ "-nolanes", parseNoLanePath },

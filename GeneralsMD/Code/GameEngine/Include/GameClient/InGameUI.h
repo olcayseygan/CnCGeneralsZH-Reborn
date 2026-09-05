@@ -1004,7 +1004,9 @@ protected:
 	SuperweaponMap							m_superweapons[MAX_PLAYER_COUNT];
 	enum { HUD_OVERLAY_POINT_SIZE = 9 };	///< small: this sits over the battlefield, not in a panel
 	enum { HUD_CLOCK_POINT_SIZE = 7 };		///< smaller still, and bold: the clock/rate plate is a glance, not a read
+	enum { PEACE_TIMER_POINT_SIZE = 12 };	///< the peace time countdown is the one number you watch, so it is the big one
 
+	void drawPeaceTimer( void );					///< the lobby's peace time, counting down in the top right corner
 	void drawHudOverlay( void );					///< the small elapsed-time / fps plate (ShowHudOverlay)
 	void drawIncomeRate( void );					///< income per minute, drawn beside the money window
 	void updateIncomeEstimate( Player *player );	///< income per minute, shown beside the money
@@ -1023,6 +1025,7 @@ protected:
 	Real												m_placementRingRadius;	///< the radius that ring was built at, so it is not rebuilt every frame
 
 	DisplayString *							m_hudDisplayString;			///< the ShowHudOverlay line (fps / clock / income)
+	DisplayString *							m_peaceTimeDisplayString;	///< the peace time countdown in the corner
 	DisplayString *							m_incomeDisplayString;	///< the "(+N/min)" drawn beside the money
 	Int													m_lastIncomeDisplayed;	///< so that string is only rebuilt when the rate changes
 	UnsignedInt									m_hudDrawCount;					///< rendered frames counted by drawHudOverlay itself
@@ -1033,7 +1036,7 @@ protected:
 	Real												m_hudLogicHz;						///< logic frames actually simulated per real second
 	UnsignedInt									m_hudRealClockBaseMs;		///< wall clock the two elapsed-time readouts were aligned at
 	UnsignedInt									m_hudLastDrawMs;				///< wall clock of the previous overlay draw, so a pause can be taken back out of it
-	Int													m_hudOverlayBottom;			///< bottom of that corner plate, so the superweapon timers start under it
+	Int													m_hudOverlayBottom;			///< bottom of everything drawn in the top right corner, so the superweapon timers start under it
 	// A script time freeze stops the logic clock, and the military subtitle's counters are
 	// logic frames, so they have to be stepped by hand while it lasts.  These two turn the
 	// wall clock into that step without drift: every update works out how many 30Hz frames

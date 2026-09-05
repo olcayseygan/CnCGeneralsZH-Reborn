@@ -119,6 +119,7 @@ static NameKeyType buttonEmoteID = NAMEKEY_INVALID;
 static NameKeyType buttonSelectMapID = NAMEKEY_INVALID;
 static NameKeyType checkboxLimitSuperweaponsID = NAMEKEY_INVALID;
 static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
+static NameKeyType comboBoxPeaceTimeID = NAMEKEY_INVALID;
 static NameKeyType windowMapID = NAMEKEY_INVALID;
 // Window Pointers ------------------------------------------------------------------------
 static GameWindow *parentLanGameOptions = NULL;
@@ -130,6 +131,7 @@ static GameWindow *textEntryChat = NULL;
 static GameWindow *textEntryMapDisplay = NULL;
 static GameWindow *checkboxLimitSuperweapons = NULL;
 static GameWindow *comboBoxStartingCash = NULL;
+static GameWindow *comboBoxPeaceTime = NULL;
 static GameWindow *windowMap = NULL;
 
 static GameWindow *comboBoxPlayer[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
@@ -641,6 +643,23 @@ static void handleStartingCashSelection()
   }
 }
 
+static void handlePeaceTimeSelection()
+{
+  LANGameInfo *myGame = TheLAN->GetMyGame();
+
+  if (myGame && comboBoxPeaceTime)
+  {
+    myGame->setPeaceTime( PeaceTimeFromComboBox( comboBoxPeaceTime ) );
+    myGame->resetAccepted();
+
+    if (myGame->amIHost() && !s_isIniting)
+    {
+      TheLAN->RequestGameOptions(GenerateGameOptionsString(), true);
+      lanUpdateSlotList(); // Update the accepted button UI
+    }
+  }
+}
+
 static void handleLimitSuperweaponsClick()
 {
   LANGameInfo *myGame = TheLAN->GetMyGame();
@@ -697,6 +716,7 @@ void InitLanGameGadgets( void )
 	buttonSelectMapID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ButtonSelectMap" ) );
   checkboxLimitSuperweaponsID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:CheckboxLimitSuperweapons" ) );
   comboBoxStartingCashID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxStartingCash" ) );
+  comboBoxPeaceTimeID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxPeaceTime" ) );
 	windowMapID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:MapWindow" ) );
 
 	// Initialize the pointers to our gadgets
@@ -721,6 +741,13 @@ void InitLanGameGadgets( void )
   comboBoxStartingCash = TheWindowManager->winGetWindowFromId( parentLanGameOptions, comboBoxStartingCashID );
   DEBUG_ASSERTCRASH(comboBoxStartingCash, ("Could not find the comboBoxStartingCash"));
 	PopulateStartingCashComboBox(comboBoxStartingCash, TheLAN->GetMyGame());
+	// this one is the fork's own control, and it lives in the fork's copy of the layout under
+	// Run/Window - a stale Run/ has EA's file, which does not carry it.  Missing is survivable
+	// (peace time then reads as off), a null dereference in Release is not.
+  comboBoxPeaceTime = TheWindowManager->winGetWindowFromId( parentLanGameOptions, comboBoxPeaceTimeID );
+  DEBUG_ASSERTCRASH(comboBoxPeaceTime, ("Could not find the comboBoxPeaceTime"));
+	if (comboBoxPeaceTime)
+		PopulatePeaceTimeComboBox(comboBoxPeaceTime, TheLAN->GetMyGame(), TheLAN->AmIHost());
 
 	windowMap = TheWindowManager->winGetWindowFromId( parentLanGameOptions,windowMapID  );
 	DEBUG_ASSERTCRASH(windowMap, ("Could not find the LanGameOptionsMenu.wnd:MapWindow" ));
@@ -819,6 +846,7 @@ void DeinitLanGameGadgets( void )
 	textEntryMapDisplay = NULL;
   checkboxLimitSuperweapons = NULL;
   comboBoxStartingCash = NULL;
+  comboBoxPeaceTime = NULL;
 	windowMap = NULL;
 	for (Int i = 0; i < MAX_SLOTS; i++)
 	{
@@ -899,6 +927,8 @@ void LanGameOptionsMenuInit( WindowLayout *layout, void *userData )
 		buttonSelectMap->winEnable( FALSE );
     checkboxLimitSuperweapons->winEnable( FALSE ); // Can look but only host can touch
     comboBoxStartingCash->winEnable( FALSE );      // Ditto
+    // the peace time box is left to UpdatePeaceTimeComboBox: being a client is only one of the two
+    // reasons it can be dead, and one place deciding beats two disagreeing
 		TheLAN->GetMyGame()->setMapCRC( TheLAN->GetMyGame()->getMapCRC() );		// force a recheck
 		TheLAN->GetMyGame()->setMapSize( TheLAN->GetMyGame()->getMapSize() ); // of if we have the map
 		TheLAN->RequestHasMap();
@@ -987,6 +1017,9 @@ void updateGameOptions( void )
     }
 
     DEBUG_ASSERTCRASH( index < itemCount, ("Could not find new starting cash amount %d in list", theGame->getStartingCash().countMoney() ) );
+
+		if (comboBoxPeaceTime)
+			UpdatePeaceTimeComboBox( comboBoxPeaceTime, theGame, TheLAN->AmIHost() );
 	}
 }
 
@@ -1144,6 +1177,10 @@ WindowMsgHandledType LanGameOptionsMenuSystem( GameWindow *window, UnsignedInt m
         if ( controlID == comboBoxStartingCashID )
         {
           handleStartingCashSelection();
+        }
+        else if ( controlID == comboBoxPeaceTimeID )
+        {
+          handlePeaceTimeSelection();
         }
         else
         {

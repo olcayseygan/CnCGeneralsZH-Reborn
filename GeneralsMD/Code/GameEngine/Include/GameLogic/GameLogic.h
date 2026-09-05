@@ -250,6 +250,14 @@ public:
   UnsignedShort getSuperweaponRestriction( void ) const; ///< Get any optional limits on superweapons
   void setSuperweaponRestriction( void );
 
+	/** The lobby's peace time: until this frame nobody may shoot anybody, and anything standing in
+			an enemy command center's yard burns.  0 when the option is off, which is every campaign
+			mission and every game the option was not set for. */
+	UnsignedInt getPeaceTimeEndFrame( void ) const { return m_peaceTimeEndFrame; }
+	Bool isPeaceTime( void ) const { return m_peaceTimeEndFrame > m_frame; }
+	/// TRUE while the truce forbids these two hurting each other; the one question both gates ask
+	Bool peaceTimeForbids( const Object *attacker, const Object *victim ) const;
+
 #ifdef DUMP_PERF_STATS
 	void getAIMetricsStatistics( UnsignedInt *numAI, UnsignedInt *numMoving, UnsignedInt *numAttacking, UnsignedInt *numWaitingForPath, UnsignedInt *overallFailedPathfinds );
 	void resetOverallFailedPathfinds() { m_overallFailedPathfinds = 0; }
@@ -365,6 +373,7 @@ private:
 	Int m_gameMode;
 	Int m_rankLevelLimit;
   UnsignedShort m_superweaponRestriction;
+	UnsignedInt m_peaceTimeEndFrame;	///< logic frame the lobby's peace time runs out on, 0 = no peace time
 
 	LoadScreen *getLoadScreen( Bool loadSaveGame );
 	LoadScreen *m_loadScreen;

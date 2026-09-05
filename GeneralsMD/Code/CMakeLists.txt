@@ -640,6 +640,13 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME optionsmenu_selfcheck
            COMMAND ${Python3_EXECUTABLE}
                    ${CMAKE_CURRENT_SOURCE_DIR}/Tools/optionsmenu_layout.py selfcheck)
+  # The peace time combo box is the same three-file agreement, in the two network lobby layouts:
+  # the menu code names ComboBoxPeaceTime, the layouts have to carry it, and Patch.str has to carry
+  # the entry captions, the tooltip, the corner countdown and the announcements.  A missing control
+  # is silent - the menu null checks it and the option just never appears - so it is checked here.
+  add_test(NAME peacetime_selfcheck
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_CURRENT_SOURCE_DIR}/Tools/peacetime_layout.py selfcheck)
 endif()
 
 if(RELEASE_DEBUG_LOGGING)

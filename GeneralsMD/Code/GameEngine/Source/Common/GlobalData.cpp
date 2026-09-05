@@ -488,6 +488,8 @@ GlobalData* GlobalData::m_theOriginal = NULL;
 	{ "StandardPublicBone", INI::parseAsciiStringVectorAppend, NULL, offsetof(GlobalData, m_standardPublicBones) },
 	{ "ShowMetrics",								INI::parseBool,				   NULL,		offsetof( GlobalData, m_showMetrics ) },
   { "DefaultStartingCash",				Money::parseMoneyAmount, NULL,		offsetof( GlobalData, m_defaultStartingCash ) },
+	{ "PeaceTimeBaseRadius",				INI::parseReal, NULL,							offsetof( GlobalData, m_peaceTimeBaseRadius ) },
+	{ "PeaceTimeBaseDamage",				INI::parseReal, NULL,							offsetof( GlobalData, m_peaceTimeBaseDamage ) },
 
 // NOTE: m_doubleClickTimeMS is still in use, but we disallow setting it from the GameData.ini file. It is now set in the constructor according to the windows parameter.
 //	{ "DoubleClickTimeMS",									INI::parseUnsignedInt,			NULL, offsetof( GlobalData, m_doubleClickTimeMS ) },
@@ -682,6 +684,7 @@ GlobalData::GlobalData()
 	m_autoSkirmishAIState = SLOT_BRUTAL_AI;
 	m_autoSkirmishAIStateOdd = 0;		// 0 = not set: every slot plays at -aidiff
 	m_autoSkirmishTeams = 0;				// 0 = not set: every slot fights every other slot
+	m_peaceTime = 0;								// no truce unless -peacetime asks for one
 	m_autoSkirmishObserver = FALSE;
 	m_headless = FALSE;
 	m_maxGameFrames = 0; // run until the match ends
@@ -713,6 +716,10 @@ GlobalData::GlobalData()
 	m_isWorldBuilder = FALSE;
 
 	m_showMetrics = false;
+
+	// peace time's no-go ring around a command center; GameData.ini can move both
+	m_peaceTimeBaseRadius = 250.0f;
+	m_peaceTimeBaseDamage = 250.0f;
 
 	for( i = 0; i < MAX_WATER_GRID_SETTINGS; i++ )
 	{

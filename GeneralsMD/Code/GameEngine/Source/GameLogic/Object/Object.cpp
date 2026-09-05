@@ -1466,6 +1466,11 @@ CanAttackResult Object::getAbleToAttackSpecificObject( AbleToAttackType t, const
 	//if (!isAbleToAttack())
 	//	return FALSE;
 
+	// The lobby's peace time.  Every route to a target - the player's own click, the AI's scan, a
+	// turret's sweep, a guard state - comes through here, so refusing once here is the whole rule.
+	if( TheGameLogic->peaceTimeForbids( this, target ) )
+		return ATTACKRESULT_NOT_POSSIBLE;
+
 	// Otherwise leave it up to our weapons.
 	return m_weaponSet.getAbleToAttackSpecificObject( t, this, target, commandSource, specificSlot );
 }

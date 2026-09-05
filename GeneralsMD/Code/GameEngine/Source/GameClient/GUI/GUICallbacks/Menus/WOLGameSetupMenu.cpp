@@ -202,6 +202,7 @@ static NameKeyType windowMapSelectMapID = NAMEKEY_INVALID;
 static NameKeyType checkBoxUseStatsID = NAMEKEY_INVALID;
 static NameKeyType checkBoxLimitSuperweaponsID = NAMEKEY_INVALID;
 static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
+static NameKeyType comboBoxPeaceTimeID = NAMEKEY_INVALID;
 static NameKeyType checkBoxLimitArmiesID = NAMEKEY_INVALID;
 
 // Window Pointers ------------------------------------------------------------------------
@@ -216,6 +217,7 @@ static GameWindow *windowMap = NULL;
 static GameWindow *checkBoxUseStats = NULL;
 static GameWindow *checkBoxLimitSuperweapons = NULL;
 static GameWindow *comboBoxStartingCash = NULL;
+static GameWindow *comboBoxPeaceTime = NULL;
 static GameWindow *checkBoxLimitArmies = NULL;
 
 static GameWindow *comboBoxPlayer[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
@@ -333,6 +335,7 @@ static void savePlayerInfo( void )
 					pref.setPreferredMap(TheGameSpyGame->getMap());
           pref.setSuperweaponRestricted( TheGameSpyGame->getSuperweaponRestriction() != 0 );
           pref.setStartingCash( TheGameSpyGame->getStartingCash() );
+          pref.setInt( "PeaceTime", TheGameSpyGame->getPeaceTime() );
         }
 				pref.write();
 			}
@@ -786,6 +789,33 @@ static void handleStartingCashSelection()
   }
 }
 
+/* Who is allowed to touch the peace time box here.  Being the host is one condition; a ranked game
+	 is the other, and it is the same rule the starting cash and the superweapon limit already follow
+	 - a game that counts towards your record plays the standard rules.  The third reason the box can
+	 be dead, a computer player in the room, is inside UpdatePeaceTimeComboBox because it applies to
+	 every lobby. */
+static Bool peaceTimeIsTheHostsToPick( void )
+{
+  return TheGameSpyGame && TheGameSpyGame->amIHost() && !TheGameSpyGame->getUseStats();
+}
+
+static void handlePeaceTimeSelection()
+{
+  GameInfo *myGame = TheGameSpyInfo->getCurrentStagingRoom();
+
+  if (myGame && comboBoxPeaceTime)
+  {
+    myGame->setPeaceTime( PeaceTimeFromComboBox( comboBoxPeaceTime ) );
+    myGame->resetAccepted();
+
+    if (myGame->amIHost())
+    {
+      TheGameSpyInfo->setGameOptions();
+      WOLDisplaySlotList();// Update the accepted button UI
+    }
+  }
+}
+
 static void handleLimitSuperweaponsClick()
 {
   GameInfo *myGame = TheGameSpyInfo->getCurrentStagingRoom();
@@ -1041,6 +1071,11 @@ void WOLDisplayGameOptions( void )
   }
   
   DEBUG_ASSERTCRASH( index < itemCount, ("Could not find new starting cash amount %d in list", theGame->getStartingCash().countMoney() ) );
+
+  // UpdatePeaceTimeComboBox only writes when the selection actually changes, which is what keeps
+  // this out of the same recursion the two above are guarding against
+  if ( comboBoxPeaceTime )
+    UpdatePeaceTimeComboBox( comboBoxPeaceTime, theGame, peaceTimeIsTheHostsToPick() );
 }
 
 
@@ -1126,6 +1161,7 @@ void InitWOLGameGadgets( void )
 	windowMapID = TheNameKeyGenerator->nameToKey( AsciiString( "GameSpyGameOptionsMenu.wnd:MapWindow" ) );
   checkBoxLimitSuperweaponsID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckboxLimitSuperweapons"));
   comboBoxStartingCashID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:ComboBoxStartingCash"));
+  comboBoxPeaceTimeID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:ComboBoxPeaceTime"));
   checkBoxLimitArmiesID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckBoxLimitArmies"));
 	windowMapSelectMapID = TheNameKeyGenerator->nameToKey(AsciiString("WOLMapSelectMenu.wnd:WinMapPreview"));
 
@@ -1149,6 +1185,11 @@ void InitWOLGameGadgets( void )
   comboBoxStartingCash = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, comboBoxStartingCashID );
   DEBUG_ASSERTCRASH(windowMap, ("Could not find the GameSpyGameOptionsMenu.wnd:ComboBoxStartingCash" ));
   PopulateStartingCashComboBox( comboBoxStartingCash, TheGameSpyGame );
+  // the fork's own control; a stale Run/Window has EA's layout, which does not carry it
+  comboBoxPeaceTime = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, comboBoxPeaceTimeID );
+  DEBUG_ASSERTCRASH(comboBoxPeaceTime, ("Could not find the GameSpyGameOptionsMenu.wnd:ComboBoxPeaceTime" ));
+  if ( comboBoxPeaceTime )
+    PopulatePeaceTimeComboBox( comboBoxPeaceTime, TheGameSpyGame, peaceTimeIsTheHostsToPick() );
   checkBoxLimitArmies = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, checkBoxLimitArmiesID );
   DEBUG_ASSERTCRASH(windowMap, ("Could not find the GameSpyGameOptionsMenu.wnd:CheckBoxLimitArmies" ));
 
@@ -1300,6 +1341,7 @@ void DeinitWOLGameGadgets( void )
 	checkBoxUseStats = NULL;
   checkBoxLimitSuperweapons = NULL;
   comboBoxStartingCash = NULL;
+  comboBoxPeaceTime = NULL;
   
 //	GameWindow *staticTextTitle = NULL;
 	for (Int i = 0; i < MAX_SLOTS; i++)
@@ -1395,6 +1437,7 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 		Int isUsingStats = TheGameSpyGame->getUseStats();
 		game->setStartingCash( isUsingStats? TheMultiplayerSettings->getDefaultStartingMoney() : customPref.getStartingCash() );
 		game->setSuperweaponRestriction( isUsingStats? 0 : customPref.getSuperweaponRestricted() ? 1 : 0 );
+		game->setPeaceTime( isUsingStats? 0 : customPref.getInt( "PeaceTime", 0 ) );
 		if (isUsingStats)
 			game->setOldFactionsOnly( 0 );
 
@@ -1478,6 +1521,7 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 		buttonSelectMap->winEnable( FALSE );
     checkBoxLimitSuperweapons->winEnable( FALSE ); // Can look but only host can touch
     comboBoxStartingCash->winEnable( FALSE );      // Ditto
+    // the peace time box is UpdatePeaceTimeComboBox's to enable; see peaceTimeIsTheHostsToPick
 		initialAcceptEnable = FALSE;
 	}
 
@@ -2614,6 +2658,10 @@ WindowMsgHandledType WOLGameSetupMenuSystem( GameWindow *window, UnsignedInt msg
         if ( controlID == comboBoxStartingCashID )
         {
           handleStartingCashSelection();
+        }
+        else if ( controlID == comboBoxPeaceTimeID )
+        {
+          handlePeaceTimeSelection();
         }
         else
         {

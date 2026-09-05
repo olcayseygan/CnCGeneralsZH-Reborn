@@ -240,6 +240,13 @@ public:
   inline Bool oldFactionsOnly(void) const;
   inline void setOldFactionsOnly( Bool oldFactionsOnly );
 
+  // Minutes of peace at the head of the match: nobody can shoot anybody, and anything that
+  // wanders up to somebody else's command center burns.  0 is the retail game.
+  inline Int getPeaceTime( void ) const;
+  void setPeaceTime( Int minutes );
+
+  Bool hasAIPlayers( void ) const;									///< is any slot held by a computer player?
+
 protected:
 	Int m_preorderMask;
 	Int m_crcInterval;
@@ -261,6 +268,7 @@ protected:
   Money         m_startingCash;
   UnsignedShort m_superweaponRestriction;
   Bool m_oldFactionsOnly; // Only USA, China, GLA -- not USA Air Force General, GLA Toxic General, et al
+  Int m_peaceTime; // minutes of enforced peace at the start of the match, 0 = off
 };
 
 extern GameInfo *TheGameInfo;
@@ -282,6 +290,13 @@ const Money&GameInfo::getStartingCash( void ) const         { return m_startingC
 UnsignedShort GameInfo::getSuperweaponRestriction( void ) const { return m_superweaponRestriction; }
 Bool        GameInfo::oldFactionsOnly(void) const           { return m_oldFactionsOnly; }
 void        GameInfo::setOldFactionsOnly( Bool oldFactionsOnly ) { m_oldFactionsOnly = oldFactionsOnly; }
+/* A computer player does not honour a truce.  It stands still for five minutes and then plays the
+	 same game it was going to play, so all peace time buys against a bot is a handicap for whoever
+	 is not one.  A lobby with a bot in it therefore has no peace time whatever the host picked, and
+	 the rule lives in the getter: the options string on the wire, the combo box and GameLogic all
+	 read it here, so none of them has to remember.  The host's pick is kept, not cleared - take the
+	 bot back out and it is still there. */
+Int         GameInfo::getPeaceTime( void ) const            { return hasAIPlayers() ? 0 : m_peaceTime; }
 
 AsciiString GameInfoToAsciiString( const GameInfo *game );
 Bool ParseAsciiStringToGameInfo( GameInfo *game, AsciiString options );

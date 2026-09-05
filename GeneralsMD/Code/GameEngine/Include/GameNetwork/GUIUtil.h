@@ -45,6 +45,14 @@ void PopulatePlayerTemplateComboBox(Int comboBox, GameWindow *comboArray[], Game
 void PopulateTeamComboBox(Int comboBox, GameWindow *comboArray[], GameInfo *myGame, Bool isObserver = FALSE);
 void PopulateStartingCashComboBox(GameWindow *comboBox, GameInfo *myGame);
 
+// The peace time rungs both network lobbies offer, from one list so they cannot drift apart.
+// UpdatePeaceTimeComboBox puts the box back on whatever the host last sent and greys it out when
+// nobody may touch it - a client, or any lobby with a computer player in it, which has no peace
+// time.  PeaceTimeFromComboBox reads the minutes back out of the entry the user picked.
+void PopulatePeaceTimeComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
+void UpdatePeaceTimeComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
+Int PeaceTimeFromComboBox(GameWindow *comboBox);
+
 void EnableSlotListUpdates( Bool val );
 Bool AreSlotListUpdatesEnabled( void );
 

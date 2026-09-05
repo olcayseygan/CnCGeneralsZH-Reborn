@@ -415,6 +415,65 @@ void PopulateStartingCashComboBox(GameWindow *comboBox, GameInfo *myGame)
 }
 
 // -----------------------------------------------------------------------------
+// Peace time: minutes at the head of the match during which nobody can shoot anybody and a
+// command center's yard burns.  One list for both network lobbies; the skirmish lobby has no such
+// control, because a skirmish is played against computer players and those have no peace time.
+static const Int thePeaceTimeChoices[] = { 0, 3, 5, 10, 15 };
+
+void PopulatePeaceTimeComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit)
+{
+  GadgetComboBoxReset(comboBox);
+
+  Color color = comboBox->winGetEnabled() ? comboBox->winGetEnabledTextColor() : comboBox->winGetDisabledTextColor();
+  for ( Int i = 0; i < (Int)(sizeof(thePeaceTimeChoices)/sizeof(thePeaceTimeChoices[0])); i++ )
+  {
+    UnicodeString text;
+    if ( thePeaceTimeChoices[i] == 0 )
+      text = TheGameText->fetch( "GUI:PeaceTimeOff" );
+    else
+      text.format( TheGameText->fetch( "GUI:PeaceTimeFormat" ), thePeaceTimeChoices[i] );
+
+    Int newIndex = GadgetComboBoxAddEntry(comboBox, text, color);
+    GadgetComboBoxSetItemData(comboBox, newIndex, (void *)thePeaceTimeChoices[i]);
+  }
+
+  UpdatePeaceTimeComboBox(comboBox, myGame, hostMayEdit);
+}
+
+void UpdatePeaceTimeComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit)
+{
+  // getPeaceTime() already answers 0 for a lobby with a computer player in it, so the box shows
+  // "No Peace Time" on its own; this is what tells the host why the box has stopped responding
+  comboBox->winEnable( hostMayEdit && !myGame->hasAIPlayers() );
+
+  Int itemCount = GadgetComboBoxGetLength(comboBox);
+  for ( Int index = 0; index < itemCount; index++ )
+  {
+    if ( (Int)GadgetComboBoxGetItemData(comboBox, index) == myGame->getPeaceTime() )
+    {
+      Int selected = -1;
+      GadgetComboBoxGetSelectedPos( comboBox, &selected );
+      if ( selected != index )
+        GadgetComboBoxSetSelectedPos(comboBox, index, TRUE);
+      return;
+    }
+  }
+
+  // a host on a build with a longer list than ours: show the nearest thing we have rather than
+  // leaving the box blank
+  GadgetComboBoxSetSelectedPos(comboBox, 0, TRUE);
+}
+
+Int PeaceTimeFromComboBox(GameWindow *comboBox)
+{
+  Int selIndex = -1;
+  GadgetComboBoxGetSelectedPos(comboBox, &selIndex);
+  if ( selIndex < 0 )
+    return 0;
+  return (Int)GadgetComboBoxGetItemData(comboBox, selIndex);
+}
+
+// -----------------------------------------------------------------------------
 
 //  -----------------------------------------------------------------------------------------
 // The slot list displaying function

@@ -391,8 +391,9 @@ void GameInfo::reset( void )
 										// set properly in the constructor of LANGameInfo which uses this as a base class.
 	m_mapCRC = 0;
 	m_mapSize = 0;
-  m_superweaponRestriction = 0; 
+  m_superweaponRestriction = 0;
   m_startingCash = TheGlobalData->m_defaultStartingCash;
+  m_peaceTime = 0;
   
 	//
 
@@ -782,6 +783,28 @@ void GameInfo::setStartingCash( const Money & startingCash )
   m_startingCash = startingCash;
 }
 
+Bool GameInfo::hasAIPlayers( void ) const
+{
+  for (Int i = 0; i < MAX_SLOTS; ++i)
+  {
+    const GameSlot *slot = getConstSlot(i);
+    if (slot && slot->isAI())
+      return TRUE;
+  }
+  return FALSE;
+}
+
+void GameInfo::setPeaceTime( Int minutes )
+{
+  // the options string carries this across the wire, so a client sending nonsense must not be able
+  // to freeze the match: an hour is more than any lobby offers and still finite
+  if (minutes < 0)
+    minutes = 0;
+  if (minutes > 60)
+    minutes = 60;
+  m_peaceTime = minutes;
+}
+
 Bool GameInfo::isColorTaken(Int colorIdx, Int slotToIgnore ) const
 {
 	for (Int i=0; i<MAX_SLOTS; ++i)
@@ -1001,9 +1024,9 @@ AsciiString GameInfoToAsciiString( const GameInfo *game )
 	}
 
 	AsciiString optionsString;
-	optionsString.format("US=%d;M=%2.2x%s;MC=%X;MS=%d;SD=%d;C=%d;SR=%u;SC=%u;O=%c;", game->getUseStats(), game->getMapContentsMask(), newMapName.str(),
+	optionsString.format("US=%d;M=%2.2x%s;MC=%X;MS=%d;SD=%d;C=%d;SR=%u;SC=%u;O=%c;PT=%d;", game->getUseStats(), game->getMapContentsMask(), newMapName.str(),
 		game->getMapCRC(), game->getMapSize(), game->getSeed(), game->getCRCInterval(), game->getSuperweaponRestriction(),
-		game->getStartingCash().countMoney(), game->oldFactionsOnly() ? 'Y' : 'N' );
+		game->getStartingCash().countMoney(), game->oldFactionsOnly() ? 'Y' : 'N', game->getPeaceTime() );
 
 	//add player info for each slot
 	optionsString.concat(slotListID);
@@ -1089,6 +1112,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
 	Int useStats = TRUE;
   Money startingCash = TheGlobalData->m_defaultStartingCash;
   UnsignedShort restriction = 0; // Always the default
+  Int peaceTime = 0; // absent from the string = off, so an older host is still joinable
   
 	Bool sawMap, sawMapCRC, sawMapSize, sawSeed, sawSlotlist, sawUseStats, sawSuperweaponRestriction, sawStartingCash, sawOldFactions;
 	sawMap = sawMapCRC = sawMapSize = sawSeed = sawSlotlist = sawUseStats = sawSuperweaponRestriction = sawStartingCash = sawOldFactions = FALSE;
@@ -1190,6 +1214,10 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
     {
       oldFactionsOnly = ( val.compareNoCase( "Y" ) == 0 );
       sawOldFactions = TRUE;
+    }
+    else if (key.compare("PT") == 0 )
+    {
+      peaceTime = atoi(val.str());
     }
 		else if (key.getLength() == 1 && *key.str() == slotListID)
 		{
@@ -1536,6 +1564,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
     game->setSuperweaponRestriction(restriction);
     game->setStartingCash( startingCash );
     game->setOldFactionsOnly( oldFactionsOnly );
+    game->setPeaceTime( peaceTime );
 
 		return true;
 	}
@@ -1562,8 +1591,8 @@ void SkirmishGameInfo::crc( Xfer *xfer )
 // ------------------------------------------------------------------------------------------------
 void SkirmishGameInfo::xfer( Xfer *xfer )
 {
-	const XferVersion currentVersion = 4;	
-	XferVersion version = currentVersion; 
+	const XferVersion currentVersion = 5;	// 5 adds m_peaceTime
+	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
 
@@ -1658,6 +1687,15 @@ void SkirmishGameInfo::xfer( Xfer *xfer )
   {
     m_superweaponRestriction = 0;
     m_startingCash = TheGlobalData->m_defaultStartingCash;
+  }
+
+  if ( version >= 5 )
+  {
+    xfer->xferInt( &m_peaceTime );
+  }
+  else if ( xfer->getXferMode() == XFER_LOAD )
+  {
+    m_peaceTime = 0;
   }
 
 }  // end xfer

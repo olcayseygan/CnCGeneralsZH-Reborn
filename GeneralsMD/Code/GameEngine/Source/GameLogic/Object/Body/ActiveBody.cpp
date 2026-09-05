@@ -370,6 +370,14 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 		damageInfo->in.m_sourceTemplate = damager->getTemplate();
 	}
 
+	/* Peace time's backstop.  getAbleToAttackSpecificObject stops a weapon being aimed at another
+		 player; this stops everything that never asks it - splash from a shot fired at the ground, a
+		 special power, a script, a crush.  DAMAGE_PENALTY is the truce's own enforcement (the ring
+		 around a command center) and is the one thing allowed through. */
+	if( damageInfo->in.m_damageType != DAMAGE_PENALTY
+			&& TheGameLogic->peaceTimeForbids( damager, obj ) )
+		return;
+
 	Bool alreadyHandled = FALSE;
 	Bool allowModifier = TRUE;
 	Real amount = m_curArmor.adjustDamage(damageInfo->in.m_damageType, damageInfo->in.m_amount);

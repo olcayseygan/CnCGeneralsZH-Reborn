@@ -233,6 +233,7 @@ GameLogic::GameLogic( void )
 	m_startNewGame = FALSE;
 	m_gameMode = GAME_NONE;
 	m_rankLevelLimit = 1000;
+	m_peaceTimeEndFrame = 0;
 	m_gamePaused = FALSE;
 	m_inputEnabledMemory = TRUE;
 	m_mouseVisibleMemory = TRUE;
@@ -1199,12 +1200,21 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
     if ( TheGameInfo )
     {
       m_superweaponRestriction = TheGameInfo->getSuperweaponRestriction();
+      m_peaceTimeEndFrame = TheGameInfo->getPeaceTime() * 60 * LOGICFRAMES_PER_SECOND;
     }
     else
     {
       // ??? Apparently this is legit? Oh well, use defaults
       m_superweaponRestriction = 0;
+      m_peaceTimeEndFrame = 0;
     }
+
+    /* -peacetime is the one way past the no-computer-players rule in GameInfo::getPeaceTime(), and
+       it is deliberate: an unattended run is nothing but bots, so without this there would be no
+       way to watch what the truce does to a match or to prove a change to it still replays. No
+       player can reach it - a network game reads the host's options string, not this. */
+    if ( TheGlobalData->m_peaceTime > 0 )
+      m_peaceTimeEndFrame = TheGlobalData->m_peaceTime * 60 * LOGICFRAMES_PER_SECOND;
   }
 
 	checkForDuplicateColors( game );
@@ -3992,6 +4002,92 @@ static void groupDrillScorePrevious( void )
 	theDrillOrders.clear();
 }
 
+/* Both peace time gates - the one in Object::getAbleToAttackSpecificObject that stops a weapon
+	 being aimed, and the one in ActiveBody::attemptDamage that stops damage arriving by any other
+	 route - ask this.  The truce is between the players who are in the lobby: civilians, the map's
+	 own props and anything else that is not somebody's side stay shootable, because clearing a hut
+	 out of a build spot is not an attack on anyone. */
+Bool GameLogic::peaceTimeForbids( const Object *attacker, const Object *victim ) const
+{
+	if( !isPeaceTime() || attacker == NULL || victim == NULL )
+		return FALSE;
+
+	const Player *mine = attacker->getControllingPlayer();
+	const Player *theirs = victim->getControllingPlayer();
+	if( mine == NULL || theirs == NULL || mine == theirs )
+		return FALSE;
+
+	if( !mine->isPlayableSide() || !theirs->isPlayableSide() )
+		return FALSE;
+
+	return attacker->getRelationship( victim ) == ENEMIES;
+}
+
+/* Peace time, the half of the rule that is not a refusal.  Object::getAbleToAttackSpecificObject
+	 and ActiveBody::attemptDamage between them stop anybody shooting anybody until the clock runs
+	 out; without this, the truce would just be free reconnaissance and a place to park an army one
+	 second from somebody's front door.  So a command center's ground burns: once a second every
+	 enemy unit inside the radius takes a slice of damage and, if it stays, dies.
+
+	 Once a second rather than every frame because it is one partition query per command center and
+	 there are as many of those as there are players, and because a second is still fast enough to
+	 kill a tank that drives in.  Structures are skipped - a building did not walk anywhere, and
+	 killing one for standing where it was built would turn the truce into a demolition tool. */
+static void peaceTimeTick( void )
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	const UnsignedInt endFrame = TheGameLogic->getPeaceTimeEndFrame();
+
+	if( endFrame == 0 || now > endFrame )
+		return;
+
+	if( TheInGameUI )
+	{
+		const UnsignedInt left = endFrame - now;
+		if( now == 1 )
+			TheInGameUI->message( "GUI:PeaceTimeStarted", (Int)(endFrame / (60 * LOGICFRAMES_PER_SECOND)) );
+		else if( now == endFrame )
+			TheInGameUI->message( "GUI:PeaceTimeOver" );
+		else if( left == 60 * LOGICFRAMES_PER_SECOND || left == 30 * LOGICFRAMES_PER_SECOND
+						 || left == 10 * LOGICFRAMES_PER_SECOND )
+			TheInGameUI->message( "GUI:PeaceTimeRemaining", (Int)(left / LOGICFRAMES_PER_SECOND) );
+	}
+
+	if( now % LOGICFRAMES_PER_SECOND != 0 )
+		return;
+
+	const Real radius = TheGlobalData->m_peaceTimeBaseRadius;
+	const Real damage = TheGlobalData->m_peaceTimeBaseDamage;
+	if( radius <= 0.0f || damage <= 0.0f )
+		return;
+
+	for( Object *base = TheGameLogic->getFirstObject(); base != NULL; base = base->getNextObject() )
+	{
+		if( !base->isKindOf( KINDOF_COMMANDCENTER ) || base->isEffectivelyDead() )
+			continue;
+
+		PartitionFilterRelationship relationship( base, PartitionFilterRelationship::ALLOW_ENEMIES );
+		PartitionFilterAlive alive;
+		PartitionFilter *filters[] = { &relationship, &alive, NULL };
+
+		SimpleObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( base, radius,
+																						FROM_CENTER_2D, filters );
+		MemoryPoolObjectHolder hold( iter );
+		for( Object *them = iter->first(); them != NULL; them = iter->next() )
+		{
+			if( them->isKindOf( KINDOF_STRUCTURE ) || them->isKindOf( KINDOF_MINE ) )
+				continue;
+
+			DamageInfo damageInfo;
+			damageInfo.in.m_amount = damage;
+			damageInfo.in.m_sourceID = base->getID();
+			damageInfo.in.m_damageType = DAMAGE_PENALTY;	// the one type peace time lets through
+			damageInfo.in.m_deathType = DEATH_BURNED;
+			them->attemptDamage( &damageInfo );
+		}
+	}
+}
+
 static void groupDrillTick( void )
 {
 	groupDrillScorePrevious();
@@ -4138,6 +4234,9 @@ void GameLogic::update( void )
 	{
 		TheScriptEngine->UPDATE();
 	}
+
+	// the lobby's peace time, if the host set one
+	peaceTimeTick();
 
 	// the measurement harness for group movement; the first tick waits for there to be an army
 	if (TheGlobalData->m_groupDrill > 0 && now > (UnsignedInt)(LOGICFRAMES_PER_SECOND * 60)
@@ -5311,13 +5410,14 @@ void GameLogic::prepareLogicForObjectLoad( void )
   * 10: xfer m_superweaponRestriction
 	* 11: objects are written back to front, so that loading - which prepends each one - rebuilds
 	*     the list in the order it was saved in.  Version 10 and earlier are reversed on load.
-	*/	
+	* 12: xfer m_peaceTimeEndFrame
+	*/
 // ------------------------------------------------------------------------------------------------
 void GameLogic::xfer( Xfer *xfer )
 {
   
 	// version
-	const XferVersion currentVersion = 11;
+	const XferVersion currentVersion = 12;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -5663,6 +5763,15 @@ void GameLogic::xfer( Xfer *xfer )
   else if ( xfer->getXferMode() == XFER_LOAD )
   {
     m_superweaponRestriction = 0;
+  }
+
+  if ( version >= 12 )
+  {
+    xfer->xferUnsignedInt( &m_peaceTimeEndFrame );
+  }
+  else if ( xfer->getXferMode() == XFER_LOAD )
+  {
+    m_peaceTimeEndFrame = 0;
   }
 }  // end xfer
 

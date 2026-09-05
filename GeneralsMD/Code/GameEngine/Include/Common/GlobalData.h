@@ -380,6 +380,7 @@ public:
 	Bool m_headless;							///< -headless: never draw a frame, never pace the logic tick, quit when the match ends
 	Int m_autoSkirmishAIStateOdd;		///< -aidiff2 <name>: rung for the odd-numbered slots (0 = same as -aidiff)
 	Int m_autoSkirmishTeams;				///< -teams <n>: split the auto-skirmish slots into n allied teams (0 or 1 = free-for-all)
+	Int m_peaceTime;								///< -peacetime <n>: the lobby's peace time, in minutes, for an -autoskirmish run
 	Int m_maxGameFrames;						///< -maxframes <n>: quit after n logic frames however the match is going (0 = no limit)
 	Int m_screenShotFrame;					///< -screenshot <n>: save one picture when the run reaches logic frame n (0 = never)
 	Int m_autoCameraSeconds;				///< -autocamera <n>: every n seconds, move the camera to wherever the fighting is (0 = off)
@@ -483,7 +484,15 @@ public:
 	
 	Bool  m_showMetrics;								///< whether or not to show the metrics.
 	Money m_defaultStartingCash;				///< The amount of cash a player starts with by default.
-	
+
+	/* Peace time, the lobby option.  The radius is measured from a command center's centre and the
+		 damage is dealt once a second to every enemy unit inside it, so 250 kills a Crusader in about
+		 four seconds - long enough to reverse out of, short enough that scouting a base under the
+		 truce costs the scout. */
+	Real m_peaceTimeBaseRadius;					///< how far an enemy command center's ground burns during peace time
+	Real m_peaceTimeBaseDamage;					///< damage per second dealt inside that radius
+
+
 	Bool m_debugShowGraphicalFramerate;		///< Whether or not to show the graphical framerate bar.
 
 	Int m_powerBarBase;										///< Logrithmic base for the power bar scale

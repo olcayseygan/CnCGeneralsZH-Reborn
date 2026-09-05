@@ -575,3 +575,34 @@ END
 GUI:DEBUG
 "Debug"
 END
+
+// Peace time - the lobby combo box, its tooltip, the corner countdown and the three things the game
+// says while the clock runs.  Tools/peacetime_layout.py selfcheck fails if any of these goes missing.
+
+GUI:PeaceTimeOff
+"No Peace Time"
+END
+
+GUI:PeaceTimeFormat
+"Peace: %d min"
+END
+
+TOOLTIP:PeaceTime
+"Nobody can attack for this long at the start of the match. Anything that walks up to an enemy command center burns."
+END
+
+GUI:PeaceTimeStarted
+"Peace time: %d minutes. Nobody can attack until it runs out."
+END
+
+GUI:PeaceTimeRemaining
+"Peace time ends in %d seconds."
+END
+
+GUI:PeaceTimeOver
+"Peace time is over."
+END
+
+GUI:PeaceTimeHud
+"PEACE %d:%02d"
+END

@@ -1125,6 +1125,7 @@ InGameUI::InGameUI()
 	m_placementRingRadius = 0.0f;
 	forgetPendingPlacements();
 	m_hudDisplayString = NULL;
+	m_peaceTimeDisplayString = NULL;
 	m_incomeDisplayString = NULL;
 	m_lastIncomeDisplayed = -1;
 	m_hudDrawCount = 0;
@@ -5960,6 +5961,53 @@ void InGameUI::drawIncomeRate( void )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The lobby's peace time, counting down in the top right corner: red, bold, and bigger than the
+	* clock plate under it, because for as long as it is up it is the only number on the screen that
+	* decides what you can do.  It is not behind ShowHudOverlay - that switch is for a readout, and
+	* this is a rule of the match.  Nothing draws once the clock runs out. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::drawPeaceTimer( void )
+{
+	// the corner is measured fresh every frame, and this is the first thing in it
+	m_hudOverlayBottom = 0;
+
+	if( TheGameLogic == NULL || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
+		return;
+
+	if( !TheGameLogic->isPeaceTime() )
+		return;
+
+	const UnsignedInt left = TheGameLogic->getPeaceTimeEndFrame() - TheGameLogic->getFrame();
+	const UnsignedInt secs = (left + LOGICFRAMES_PER_SECOND - 1) / LOGICFRAMES_PER_SECOND;
+
+	UnicodeString text;
+	text.format( TheGameText->fetch( "GUI:PeaceTimeHud" ), secs / 60, secs % 60 );
+
+	if( m_peaceTimeDisplayString == NULL )
+	{
+		m_peaceTimeDisplayString = TheDisplayStringManager->newDisplayString();
+		m_peaceTimeDisplayString->setFont( TheFontLibrary->getFont( m_superweaponNormalFont,
+										TheGlobalLanguageData->adjustFontSize( PEACE_TIMER_POINT_SIZE ),
+										TRUE ) );
+	}
+	m_peaceTimeDisplayString->setText( text );
+
+	Int textWidth = 0, textHeight = 0;
+	m_peaceTimeDisplayString->getSize( &textWidth, &textHeight );
+
+	const Int pad = 4;
+	Int x = TheDisplay->getWidth() - textWidth - pad - 8;
+	Int y = 3;
+
+	TheDisplay->drawFillRect( x - pad, y - 1, textWidth + pad*2, textHeight + 2,
+														GameMakeColor( 0, 0, 0, 160 ) );
+
+	m_hudOverlayBottom = y - 1 + textHeight + 2;
+
+	m_peaceTimeDisplayString->draw( x, y, GameMakeColor( 255, 48, 48, 255 ), GameMakeColor( 0, 0, 0, 255 ) );
+}
+
+//-------------------------------------------------------------------------------------------------
 void InGameUI::drawHudOverlay( void )
 {
 	if( !TheGlobalData->m_showHudOverlay )
@@ -6039,10 +6087,11 @@ void InGameUI::drawHudOverlay( void )
 	Int textWidth = 0, textHeight = 0;
 	m_hudDisplayString->getSize( &textWidth, &textHeight );
 
-	// top right, clear of the radar and the superweapon timers
+	// top right, clear of the radar and the superweapon timers - and under the peace time countdown
+	// while that is up, because the corner holds one plate above the other
 	const Int pad = 4;
 	Int x = TheDisplay->getWidth() - textWidth - pad - 8;
-	Int y = 3;
+	Int y = (m_hudOverlayBottom > 0) ? m_hudOverlayBottom + 2 : 3;
 
 	// a plate behind it, so it stays legible over bright terrain
 	TheDisplay->drawFillRect( x - pad, y - 1, textWidth + pad*2, textHeight + 2,
@@ -6522,7 +6571,7 @@ void InGameUI::drawSuperweaponStrip( void )
 	// a countdown drawn behind the readout is one nobody can read.
 	//
 	Int top = plate;
-	if( TheGlobalData->m_showHudOverlay && m_hudOverlayBottom + plate > top )
+	if( m_hudOverlayBottom + plate > top )
 		top = m_hudOverlayBottom + plate;
 
 	//
