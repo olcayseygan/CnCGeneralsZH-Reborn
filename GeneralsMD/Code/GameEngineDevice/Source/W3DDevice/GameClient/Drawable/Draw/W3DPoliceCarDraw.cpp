@@ -33,6 +33,7 @@
 #include "Common/Thing.h"
 #include "Common/Xfer.h"
 #include "GameClient/Drawable.h"
+#include "GameClient/GameClient.h"
 #include "W3DDevice/GameClient/Module/W3DPoliceCarDraw.h"
 #include "W3DDevice/GameClient/W3DDisplay.h"
 #include "common/RandomValue.h"
@@ -76,6 +77,7 @@ W3DPoliceCarDraw::W3DPoliceCarDraw( Thing *thing, const ModuleData* moduleData )
 {
 	m_light = NULL;
 	m_curFrame = GameClientRandomValueReal(0, 10 );
+	m_lastAnimFrame = 0;
 
 } 
 
@@ -109,12 +111,22 @@ void W3DPoliceCarDraw::doDrawModule(const Matrix3D* transformMtx)
 		return;
 
 	HAnimClass *anim = policeCarRenderObj->Peek_Animation();
-	if (anim) 
-	{		
+	if (anim)
+	{
 		Real frames = anim->Get_Num_Frames();
-		m_curFrame += animAmt;
-		if (m_curFrame > frames-1) {
-			m_curFrame = 0;
+		//
+		// animAmt is a quarter of an animation frame per LOGIC frame, but doDrawModule runs once
+		// per RENDER frame: uncapped, the light span through its cycle at (fps/30) times speed.
+		// Step it on the logic clock, the same way the tree sway does.
+		//
+		const UnsignedInt now = TheGameClient ? TheGameClient->getFrame() : 0;
+		if (now != m_lastAnimFrame)
+		{
+			m_lastAnimFrame = now;
+			m_curFrame += animAmt;
+			if (m_curFrame > frames-1) {
+				m_curFrame = 0;
+			}
 		}
 		policeCarRenderObj->Set_Animation(anim, m_curFrame);
 	}

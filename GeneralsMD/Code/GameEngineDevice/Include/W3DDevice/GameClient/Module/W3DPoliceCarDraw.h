@@ -61,6 +61,7 @@ protected:
 
 	W3DDynamicLight *m_light;  ///< light for the POLICECAR
 	Real					m_curFrame;
+	UnsignedInt		m_lastAnimFrame;		///< logic frame the light last stepped on; see doDrawModule
 
 };
 
