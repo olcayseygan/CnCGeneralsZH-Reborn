@@ -309,6 +309,15 @@ void W3DSmudgeManager::render(RenderInfoClass &rinfo)
 	if (!testHardwareSupport())
 		return;
 
+	//
+	// ...and that there is anything to smudge.  The list was not looked at until forty lines down,
+	// after the camera matrices, the surface description and, on the copy-rects path, a read of the
+	// back buffer's surface level - all of it every frame of a match with no heat haze anywhere on
+	// the screen, which is most of them.
+	//
+	if (m_usedSmudgeSetList.Head() == NULL)
+		return;
+
 	CameraClass &camera=rinfo.Camera;
 	Vector3 vsVert;
 	Vector4 ssVert;
@@ -413,7 +422,10 @@ void W3DSmudgeManager::render(RenderInfoClass &rinfo)
 			uvSpanX=verts[3].uv.X - verts[0].uv.X;
 			uvSpanY=verts[1].uv.Y - verts[0].uv.Y;
 			verts[4].uv.X=verts[0].uv.X+uvSpanX*(0.5f+smudge->m_offset.X);
-			verts[4].uv.Y=verts[0].uv.Y+uvSpanY*(0.5f+smudge->m_offset.X);
+			// .Y, not .X: the vertical offset was rolled, clamped against the top and bottom of the
+			// view a dozen lines up, and then never read - the centre vertex took the horizontal
+			// one on both axes, so every smudge pulled the background along one diagonal.
+			verts[4].uv.Y=verts[0].uv.Y+uvSpanY*(0.5f+smudge->m_offset.Y);
 
 			count++;	//increment visible smudge count.
 			smudge=smudge->Succ();

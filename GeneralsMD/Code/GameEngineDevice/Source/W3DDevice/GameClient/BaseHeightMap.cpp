@@ -2062,23 +2062,28 @@ void BaseHeightMapRenderObjClass::clearAllScorches(void)
 void BaseHeightMapRenderObjClass::addScorch(Vector3 location, Real radius, Scorches type)
 {
 #ifdef DO_SCORCH
-	if (m_numScorches >= MAX_SCORCH_MARKS) {
-		Int i;
-		for (i=0; i<MAX_SCORCH_MARKS-1; i++) {
-			m_scorches[i] = m_scorches[i+1];
-		}
-		m_numScorches--;
-	}
-
+	//
+	// Ask whether this is a duplicate first.  Making room came before the check, so a full list
+	// handed the same crater twice threw away its oldest scorch and then returned without adding
+	// anything - a mark on the ground disappeared and nothing took its place.  Two tanks firing at
+	// the same spot is all it takes.
+	//
 	Int i;
 	Real limit = radius/4;
-	for (i=0; i<m_numScorches; i++) {		
-		if ( abs(location.X-m_scorches[i].location.X) < limit &&  
-				 abs(location.Y-m_scorches[i].location.Y) < limit && 
+	for (i=0; i<m_numScorches; i++) {
+		if ( abs(location.X-m_scorches[i].location.X) < limit &&
+				 abs(location.Y-m_scorches[i].location.Y) < limit &&
 				 abs(radius - m_scorches[i].radius) < limit &&
 				 m_scorches[i].scorchType == type) {
 			return; // basically a duplicate.
 		}
+	}
+
+	if (m_numScorches >= MAX_SCORCH_MARKS) {
+		for (i=0; i<MAX_SCORCH_MARKS-1; i++) {
+			m_scorches[i] = m_scorches[i+1];
+		}
+		m_numScorches--;
 	}
 
 	m_scorches[m_numScorches].location = location;
