@@ -198,6 +198,25 @@ StateReturnType AIDockApproachState::onEnter( void )
 	if (ai) {
 		ai->ignoreObstacle( NULL );
 	}
+
+	//
+	// Nobody ahead of us and nobody inside: drive straight in.
+	//
+	// The approach position is a queue slot, and the machine treats it as a destination - a move
+	// order that ends by stopping there, then a wait, then a second move to the entry, then a third
+	// to the pad.  With a queue that is the whole point.  With an empty dock, which is what a worker
+	// meets on nearly every trip it makes, it is a full stop in open ground outside the building
+	// followed by a standing start, twice a load: the hesitation at the supply pile and again at the
+	// centre.  Taking the slot and reporting it reached without driving to it hands the dock to the
+	// next state a frame later; the queue behind is unaffected, because there is nobody in it.
+	//
+	if( dock->getActiveDocker() == INVALID_ID
+			&& ( (AIDockMachine*)getMachine() )->m_approachPosition == 0 )
+	{
+		dock->onApproachReached( getMachineOwner() );
+		return STATE_SUCCESS;
+	}
+
 	// this behavior is an extention of basic MoveTo
 	return AIInternalMoveToState::onEnter();
 }

@@ -300,6 +300,9 @@ public:
 	*/
 	virtual Bool isClearToEnter( Object const* docker ) const = 0;
 
+	/// Who is inside right now, INVALID_ID for nobody - an empty dock is not one to queue outside of
+	virtual ObjectID getActiveDocker( void ) const = 0;
+
 	/** Return true when it is OK for docker to request a new Approach position.  The dock is in
 			charge of keeping track of holes in the line, but the docker will remind us of their spot.
 	*/
