@@ -266,7 +266,15 @@ void RTS3DScene::flagOccludedObjects(CameraClass * camera)
 	m_occludedObjectsCount=0;
 
 	for (Int i=0; i<m_numPotentialOccludees; i++,occludee++)
-	{	
+	{
+		// Per occludee. This was declared once outside the loop and never cleared, so the first
+		// object found to be behind a building made every object after it in the list "occluded"
+		// too - whatever was actually in front of it, and with no occluder to point at. On a busy
+		// screen that is most of the list drawn through the see-through path for nothing.
+		hit=FALSE;
+		result.StartBad = false;
+		result.Fraction = 1.0f;
+
 		raytest.Ray.Set(camPosition,(*occludee)->Get_Position());
 
 		RenderObjClass **occluder=m_potentialOccluders;

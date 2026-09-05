@@ -117,6 +117,13 @@ public:
 	// This needs to be called after device has been created
 	static void _Init_Filters(TextureFilterMode texture_filter);
 
+	/** How many samples anisotropic filtering may take. Zero, the default, means whatever the
+		* device says it can do (capped at 16). WW3D2 cannot read the game's settings, so the player's
+		* choice is pushed in from W3DDisplay::init before the device is made, the way the
+		* multisample level is. */
+	static void _Set_Requested_Anisotropy(unsigned int level);
+	static unsigned int _Get_Requested_Anisotropy(void);
+
 	static void _Set_Default_Min_Filter(FilterType filter);
 	static void _Set_Default_Mag_Filter(FilterType filter);
 	static void _Set_Default_Mip_Filter(FilterType filter);

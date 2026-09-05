@@ -313,6 +313,7 @@ BaseHeightMapRenderObjClass::BaseHeightMapRenderObjClass(void)
 	m_vertexScorch = NULL;
 	m_indexScorch = NULL;
 	m_scorchTexture = NULL;
+	m_currentTextureLOD = 0;
 	clearAllScorches();
 #endif
 #if defined(_DEBUG) || defined(_INTERNAL)
@@ -328,10 +329,32 @@ BaseHeightMapRenderObjClass::BaseHeightMapRenderObjClass(void)
 
 void BaseHeightMapRenderObjClass::setTextureLOD(Int lod)
 {
+	// Remembered because the scorch texture is thrown away and rebuilt on a device reset, and the
+	// rebuilt one has to come back at the quality the player asked for rather than at full size.
+	m_currentTextureLOD = lod;
+
 	if (m_treeBuffer)
 		m_treeBuffer->setTextureLOD(lod);
 	if (m_map)
 		m_map->setTextureLOD(lod);
+#ifdef DO_SCORCH
+	// The terrain and the trees followed the texture quality setting and the scorch marks did not,
+	// so on Low the ground went soft underneath craters that stayed sharp.
+	applyScorchTextureLOD();
+#endif
+}
+
+//=============================================================================
+// BaseHeightMapRenderObjClass::applyScorchTextureLOD
+//=============================================================================
+/** Push the current texture quality into the scorch texture, whenever there is one. */
+//=============================================================================
+void BaseHeightMapRenderObjClass::applyScorchTextureLOD(void)
+{
+#ifdef DO_SCORCH
+	if (m_scorchTexture && m_scorchTexture->Peek_D3D_Texture())
+		m_scorchTexture->Peek_D3D_Texture()->SetLOD((DWORD)m_currentTextureLOD);
+#endif
 }
 
 //=============================================================================
@@ -1895,6 +1918,7 @@ void BaseHeightMapRenderObjClass::allocateScorchBuffers(void)
 	m_vertexScorch=NEW_REF(DX8VertexBufferClass,(DX8_FVF_XYZDUV1,MAX_SCORCH_VERTEX,DX8VertexBufferClass::USAGE_DEFAULT));
 	m_indexScorch=NEW_REF(DX8IndexBufferClass,(MAX_SCORCH_INDEX));
 	m_scorchTexture=NEW ScorchTextureClass;
+	applyScorchTextureLOD();	// a fresh texture starts at full size; the player may have asked for less
 	m_scorchesInBuffer = 0; // If we just allocated the buffers, we got no scorches in the buffer.
 	m_curNumScorchVertices=0;
 	m_curNumScorchIndices=0;
@@ -2058,8 +2082,22 @@ void BaseHeightMapRenderObjClass::clearAllScorches(void)
 {
 #ifdef DO_SCORCH
 	m_numScorches=0;
-	m_scorchesInBuffer=0;	
-#endif	
+	m_numStaticScorches=0;
+	m_scorchesInBuffer=0;
+#endif
+}
+
+//=============================================================================
+// BaseHeightMapRenderObjClass::markScorchesStatic
+//=============================================================================
+/** Everything on the list right now came out of the map file. Say so, so that combat never
+	* evicts it. Called once, when the terrain has finished loading the map's own scorch objects. */
+//=============================================================================
+void BaseHeightMapRenderObjClass::markScorchesStatic(void)
+{
+#ifdef DO_SCORCH
+	m_numStaticScorches = m_numScorches;
+#endif
 }
 
 //=============================================================================
@@ -2088,7 +2126,14 @@ void BaseHeightMapRenderObjClass::addScorch(Vector3 location, Real radius, Scorc
 	}
 
 	if (m_numScorches >= MAX_SCORCH_MARKS) {
-		for (i=0; i<MAX_SCORCH_MARKS-1; i++) {
+		// Make room by dropping the oldest scorch the fighting made, not the oldest scorch there is.
+		// The front of this list is whatever the map file put down, and shifting from index 0 ate
+		// one of those every time the list filled up - so a long match wiped the level designer's
+		// craters off the ground one by one.
+		if (m_numStaticScorches >= MAX_SCORCH_MARKS)
+			return;		// nothing but map scorches: keep them all and drop this one instead
+
+		for (i=m_numStaticScorches; i<MAX_SCORCH_MARKS-1; i++) {
 			m_scorches[i] = m_scorches[i+1];
 		}
 		m_numScorches--;

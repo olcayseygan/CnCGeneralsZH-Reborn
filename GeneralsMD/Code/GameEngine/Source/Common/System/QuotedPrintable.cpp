@@ -52,6 +52,19 @@ static int hexDigitToInt(char c)
 	return 0;
 }
 
+// A char is signed here, and every byte over 127 - which is every accented letter in a map name,
+// and every second byte of a wide character in the unicode version below - therefore arrives as a
+// negative number. Two things went wrong with that, at all three encoders.
+//
+// isalnum takes a value representable as unsigned char or EOF, so a negative one is undefined and
+// the CRT's own check fires: that assert during map cache generation was one map name with a
+// non-ASCII character in it.
+//
+// Worse, and silent: `(*src)>>4` on a negative char sign-extends, intToHexDigit answers '\0' for
+// anything outside 0..15, and the AsciiString built from that buffer therefore ended at the first
+// high byte. A map whose name carried one encoded to nothing from that point on, and the round
+// trip back could not possibly return it.
+
 // Convert unicode strings into ascii quoted-printable strings
 AsciiString UnicodeStringToQuotedPrintable(UnicodeString original)
 {
@@ -60,21 +73,21 @@ AsciiString UnicodeStringToQuotedPrintable(UnicodeString original)
 	int i=0;
 	while ( !(src[0]=='\0' && src[1]=='\0') && i<1021 )
 	{
-		if (!isalnum(*src))
+		if (!isalnum((unsigned char)*src))
 		{
 			dest[i++] = MAGIC_CHAR;
-			dest[i++] = intToHexDigit((*src)>>4);
-			dest[i++] = intToHexDigit((*src)&0xf);
+			dest[i++] = intToHexDigit(((unsigned char)*src)>>4);
+			dest[i++] = intToHexDigit(((unsigned char)*src)&0xf);
 		} else
 		{
 			dest[i++] = *src;
 		}
 		src ++;
-		if (!isalnum(*src))
+		if (!isalnum((unsigned char)*src))
 		{
 			dest[i++] = MAGIC_CHAR;
-			dest[i++] = intToHexDigit((*src)>>4);
-			dest[i++] = intToHexDigit((*src)&0xf);
+			dest[i++] = intToHexDigit(((unsigned char)*src)>>4);
+			dest[i++] = intToHexDigit(((unsigned char)*src)&0xf);
 		}
 		else
 		{
@@ -95,11 +108,11 @@ AsciiString AsciiStringToQuotedPrintable(AsciiString original)
 	int i=0;
 	while ( src[0]!='\0' && i<1021 )
 	{
-		if (!isalnum(*src))
+		if (!isalnum((unsigned char)*src))
 		{
 			dest[i++] = MAGIC_CHAR;
-			dest[i++] = intToHexDigit((*src)>>4);
-			dest[i++] = intToHexDigit((*src)&0xf);
+			dest[i++] = intToHexDigit(((unsigned char)*src)>>4);
+			dest[i++] = intToHexDigit(((unsigned char)*src)&0xf);
 		} else
 		{
 			dest[i++] = *src;

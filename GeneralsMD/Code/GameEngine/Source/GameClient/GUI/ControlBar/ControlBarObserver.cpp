@@ -232,15 +232,21 @@ void ControlBar::populateObserverList( void )
 				buttonPlayer[currentButton]->winHide(FALSE);
 				buttonPlayer[currentButton]->winSetStatus( WIN_STATUS_USE_OVERLAY_STATES );
 
-				const GameSlot *slot = TheGameInfo->getConstSlot(currentButton);
+				// The slot this player actually sits in is i, not currentButton - currentButton only
+				// counts the players put on the bar so far, so one empty slot or one observer earlier
+				// in the list shifted every player after it onto somebody else's team.
+				const GameSlot *slot = TheGameInfo ? TheGameInfo->getConstSlot(i) : NULL;
 				Color playerColor = p->getPlayerColor();
 				Color backColor = GameMakeColor(0, 0, 0, 255);
 				staticTextPlayer[currentButton]->winSetEnabledTextColors( playerColor, backColor );
 				staticTextPlayer[currentButton]->winHide(FALSE);
 				AsciiString teamStr;
-				teamStr.format("Team:%d", slot->getTeamNumber() + 1);
-				if (slot->isAI() && slot->getTeamNumber() == -1)
+				if (slot == NULL)
 					teamStr = "Team:AI";
+				else if (slot->isAI() && slot->getTeamNumber() == -1)
+					teamStr = "Team:AI";
+				else
+					teamStr.format("Team:%d", slot->getTeamNumber() + 1);
 
 				UnicodeString text;
 				text.format(TheGameText->fetch("CONTROLBAR:ObsPlayerLabel"), p->getPlayerDisplayName().str(),

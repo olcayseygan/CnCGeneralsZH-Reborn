@@ -170,9 +170,13 @@ void PopulateReplayFileListbox(GameWindow *listbox)
 				if (lastReplayFName.compareNoCase(asciistr) == 0)
 					replayNameToShow = TheGameText->fetch("GUI:LastReplay");
 
-				UnicodeString displayTimeBuffer = getUnicodeTimeBuffer(header.timeVal);
-
-				//displayTimeBuffer.format( L"%ls", timeBuffer);
+				// The column is headed "date" and only ever held the clock time, so a folder of
+				// replays recorded over months all read as the same handful of afternoons and there
+				// was no way to tell last night's game from one in April. Date first, then the time,
+				// both in whatever format the player's own Region settings ask for.
+				UnicodeString displayTimeBuffer = getUnicodeDateBuffer(header.timeVal);
+				displayTimeBuffer.concat( L" " );
+				displayTimeBuffer.concat( getUnicodeTimeBuffer(header.timeVal) );
 
 				// version (no-op)
 

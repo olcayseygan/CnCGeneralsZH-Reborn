@@ -1283,6 +1283,25 @@ Int parseMaxGameFrames(char *args[], int num)
 	return 2;
 }
 
+/* -screenshot <n>: save one picture of the running game at logic frame n.
+	 *
+	 * F12 has always taken one, and a key is no use to anything that runs on its own. A renderer
+	 * change with no picture to compare against can only be argued about, which is why a row of
+	 * graphics work in the upstream ledger sits unclosed - not because the code is hard, because
+	 * nobody could see the result. Combine with -autoskirmish, -map and -maxframes; -headless draws
+	 * nothing and says so. The file goes next to the save games, as sshotNNN.bmp. */
+Int parseScreenShot(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		Int frame = atoi(args[1]);
+		if (frame < 1)
+			frame = 1;
+		TheWritableGlobalData->m_screenShotFrame = frame;
+	}
+	return 2;
+}
+
 /* -autocamera [seconds]: every so often, put the camera wherever the fighting is.
 	 *
 	 * A soak run watches from a free camera that never moves, and a camera that never moves is the
@@ -1573,6 +1592,22 @@ Int parseReplay(char *args[], int num)
 	return 2;
 }
 
+/* -loadsave <file> opens a save game without the menus, the same way -replay opens a replay. The
+	 only route into a save was the Load menu, so there was no way to get a machine straight back
+	 into a known world - which is what a bug that only shows up ten minutes into a mission needs.
+	 The name is resolved against the save directory; the extension is optional. */
+Int parseLoadSave(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		AsciiString name = args[1];
+		if (!name.endsWithNoCase(".sav"))
+			name.concat(".sav");
+		TheWritableGlobalData->m_initialFile = name;
+	}
+	return 2;
+}
+
 Int parseDumpAssetUsage(char *args[], int num)
 {
 	if (TheWritableGlobalData)
@@ -1765,6 +1800,7 @@ static CommandLineParam params[] =
 	{ "-observer", parseObserver },
 	{ "-headless", parseHeadless },
 	{ "-maxframes", parseMaxGameFrames },
+	{ "-screenshot", parseScreenShot },
 	{ "-msaa", parseMSAA },
 	{ "-autocamera", parseAutoCamera },
 	{ "-tracemove", parseTraceMove },
@@ -1778,6 +1814,7 @@ static CommandLineParam params[] =
 	{ "-crowd", parseCrowdModel },
 	{ "-groupdrill", parseGroupDrill },
 	{ "-replay", parseReplay },
+	{ "-loadsave", parseLoadSave },
 	{ "-netgame", parseNetGame },
 	{ "-netslot", parseNetSlot },
 

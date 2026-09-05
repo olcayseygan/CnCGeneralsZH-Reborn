@@ -396,11 +396,17 @@ WindowMsgHandledType GadgetHorizontalSliderSystem( GameWindow *window, UnsignedI
 		// ------------------------------------------------------------------------
 		case GSM_SET_SLIDER:
 		{
-			Int newPos = (Int)mData1; 
+			Int newPos = (Int)mData1;
 			GameWindow *child = window->winGetChild();
 
-			if( newPos < s->minVal || newPos > s->maxVal )
-				break;
+			// A value outside the track used to be dropped on the floor, which left the slider
+			// holding whatever it had before - the minimum, freshly written by GSM_SET_MIN_MAX -
+			// and the options screen then saved that back over a setting somebody had typed into
+			// Options.ini by hand. Take the nearest end of the track instead.
+			if( newPos < s->minVal )
+				newPos = s->minVal;
+			else if( newPos > s->maxVal )
+				newPos = s->maxVal;
 
 			s->position = newPos;
 

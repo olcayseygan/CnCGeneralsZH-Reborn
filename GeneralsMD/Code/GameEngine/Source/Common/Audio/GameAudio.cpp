@@ -121,6 +121,7 @@ static const FieldParse audioSettingsFieldParseTable[] =
 	{ "Default3DSpeakerType",		 parseSpeakerType,							NULL,							offsetof( AudioSettings, m_defaultSpeakerType3D) },
 
 	{ "MinSampleVolume",			INI::parsePercentToReal,						NULL,							offsetof( AudioSettings, m_minVolume) },
+	{ "RangeVolumeFade",			INI::parseBool,											NULL,							offsetof( AudioSettings, m_rangeVolumeFade) },
 	{ "GlobalMinRange",				INI::parseInt,											NULL,							offsetof( AudioSettings, m_globalMinRange) },
 	{ "GlobalMaxRange",				INI::parseInt,											NULL,							offsetof( AudioSettings, m_globalMaxRange) },
 	{ "TimeBetweenDrawableSounds", INI::parseDurationUnsignedInt, NULL,							offsetof( AudioSettings, m_drawableAmbientFrames) },
@@ -451,6 +452,14 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 	}
 
 
+	// Whether this event is for the local player at all depends on nothing the copy below
+	// adds - only on the event info and the owning player, both of which are already here.
+	// It used to be asked after a pool allocation, a filename pick and a play-info pass, so
+	// in a four-player match most of that work was done for sounds nobody could hear.
+	if (!eventToAdd->getUninterruptable() && !shouldPlayLocally(eventToAdd)) {
+		return AHSV_NotForLocal;
+	}
+
 	AudioEventRTS *audioEvent = MSGNEW("AudioEventRTS") AudioEventRTS(*eventToAdd);		// poolify
 	audioEvent->setPlayingHandle( allocateNewHandle() );
 	audioEvent->generateFilename();	// which file are we actually going to play?
@@ -465,13 +474,6 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 		}
 	}
 	
-	if (!audioEvent->getUninterruptable()) {
-		if (!shouldPlayLocally(audioEvent)) {
-			releaseAudioEventRTS(audioEvent);
-			return AHSV_NotForLocal;
-		}
-	}
-
 	// cull muted audio
 	if (audioEvent->getVolume() < TheAudio->getAudioSettings()->m_minVolume) {
 #ifdef INTENSIVE_AUDIO_DEBUG

@@ -2774,18 +2774,28 @@ Real MilesAudioManager::getEffectiveVolume(AudioEventRTS *event) const
 				}
 
 				Real objDistance = distance.length();
-				if( objDistance > objMinDistance ) 
+
+				// `RangeVolumeFade = Yes` in AudioSettings.ini uses the linear fade EA left
+				// commented out right here. The default curve is 1/distance, which never reaches
+				// zero, so the hard cut at the maximum range makes a sound you are walking away
+				// from stop dead instead of fading out. The linear one reaches zero exactly where
+				// the cut is. Off by default: it changes how every 3D sound in the game attenuates,
+				// and that is a listening decision, not a bug fix.
+				if( TheAudio->getAudioSettings()->m_rangeVolumeFade &&
+						objMaxDistance > objMinDistance )
+				{
+					if( objDistance > objMinDistance )
+						volume *= 1.0f - (objDistance - objMinDistance) / (objMaxDistance - objMinDistance);
+				}
+				else if( objDistance > objMinDistance )
 				{
 					volume *= 1 / (objDistance / objMinDistance);
 				}
-				if( objDistance >= objMaxDistance ) 
+
+				if( objDistance >= objMaxDistance )
 				{
 					volume = 0.0f;
 				}
-				//else if( objDistance > objMinDistance )
-				//{
-				//	volume *= 1.0f - (objDistance - objMinDistance) / (objMaxDistance - objMinDistance);
-				//}
 			}
 		} 
 		else 

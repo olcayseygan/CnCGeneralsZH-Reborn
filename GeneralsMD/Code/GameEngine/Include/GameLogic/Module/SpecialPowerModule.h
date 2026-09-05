@@ -89,6 +89,7 @@ public:
 	AudioEventRTS			m_initiateSound;
 	Bool							m_updateModuleStartsAttack;	///< update module determines when the special power actually starts! If true, update module is required.
 	Bool							m_startsPaused; ///< Paused on creation, someone else will have to unpause (like upgrade module, or script)
+	Bool							m_startsReady;	///< Skip the first reload: available the moment the object exists
 	Bool							m_scriptedSpecialPowerOnly;
 };
 

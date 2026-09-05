@@ -40,6 +40,20 @@
 #include "texturefilter.h"
 #include "dx8wrapper.h"
 
+/// 0 = take whatever the device offers; see _Set_Requested_Anisotropy
+static unsigned int _RequestedAnisotropy = 0;
+
+void TextureFilterClass::_Set_Requested_Anisotropy(unsigned int level)
+{
+	if (level > 16) level = 16;
+	_RequestedAnisotropy = level;
+}
+
+unsigned int TextureFilterClass::_Get_Requested_Anisotropy(void)
+{
+	return _RequestedAnisotropy;
+}
+
 unsigned _MinTextureFilters[MAX_TEXTURE_STAGES][TextureFilterClass::FILTER_TYPE_COUNT];
 unsigned _MagTextureFilters[MAX_TEXTURE_STAGES][TextureFilterClass::FILTER_TYPE_COUNT];
 unsigned _MipMapFilters[MAX_TEXTURE_STAGES][TextureFilterClass::FILTER_TYPE_COUNT];
@@ -194,6 +208,10 @@ void TextureFilterClass::_Init_Filters(TextureFilterMode filter_type)
 	if (filter_type==TEXTURE_FILTER_ANISOTROPIC) {
 		maxAnisotropy = dx8caps.MaxAnisotropy;
 		if (maxAnisotropy > 16) maxAnisotropy = 16;
+		// The player may ask for less than the device can do; asking for more than it can do is
+		// still the device's answer, because there is nothing to be gained by lying to it.
+		if (_RequestedAnisotropy != 0 && _RequestedAnisotropy < maxAnisotropy)
+			maxAnisotropy = _RequestedAnisotropy;
 		if (maxAnisotropy < 1) maxAnisotropy = 1;
 	}
 	for (i=0;i<MAX_TEXTURE_STAGES;++i) {

@@ -53,6 +53,7 @@
 //-----------------------------------------------------------------------------
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
+#include "Common/GlobalData.h"
 #include "GameClient/AnimateWindowManager.h"
 #include "GameClient/UiAnimClock.h"
 #include "GameClient/GameWindow.h"
@@ -206,6 +207,19 @@ Bool GameClient_isUiAnimStepDue( UnsignedInt &lastMs, Real &accumMs, UnsignedInt
 	return TRUE;
 }
 
+//-----------------------------------------------------------------------------
+Real GameClient_menuAnimStepsPerSec( void )
+{
+	Int percent = TheGlobalData ? TheGlobalData->m_menuTransitionSpeed : 100;
+
+	if (percent < 25)
+		percent = 25;			// the catalog clamps this too; a zero here would divide by nothing
+	else if (percent > 400)
+		percent = 400;
+
+	return UI_ANIM_STEPS_PER_SEC * (Real)percent / 100.0f;
+}
+
 void AnimateWindowManager::update( void )
 {
 	//
@@ -215,7 +229,7 @@ void AnimateWindowManager::update( void )
 	// travel in a handful of milliseconds and appears to snap into place.
 	//
 	if (!GameClient_isUiAnimStepDue(m_lastStepMs, m_stepAccumMs, timeGetTime(),
-																	UI_ANIM_STEPS_PER_SEC))
+																	GameClient_menuAnimStepsPerSec()))
 		return;
 
 	ProcessAnimateWindow *processAnim = NULL;

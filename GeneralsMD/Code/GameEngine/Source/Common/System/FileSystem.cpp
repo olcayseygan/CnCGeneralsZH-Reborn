@@ -141,6 +141,7 @@ FileSystem::~FileSystem()
 
 void		FileSystem::init( void )
 {
+	m_fileExist.clear();		// see reset(): the cache outlives whatever it was an answer about
 	TheLocalFileSystem->init();
 	TheArchiveFileSystem->init();
 }
@@ -163,6 +164,14 @@ void		FileSystem::update( void )
 void		FileSystem::reset( void )
 {
 	USE_PERF_TIMER(FileSystem)
+
+	// doesFileExist remembers its answer for the life of the process and this is the only place
+	// that ever gets told the world underneath it changed. A "no" cached before a mod archive was
+	// mounted, or before Win32BIGFileSystem::init re-loaded the Patch*.big over the plain pass, made
+	// that file invisible for the rest of the run - and the cache is keyed by name, so nothing else
+	// would ever ask again.
+	m_fileExist.clear();
+
 	TheLocalFileSystem->reset();
 	TheArchiveFileSystem->reset();
 }

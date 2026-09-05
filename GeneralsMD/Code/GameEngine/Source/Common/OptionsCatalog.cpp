@@ -44,6 +44,10 @@ OPTION_BOOL_ACCESSORS( m_edgeScrollInWindowedMode )
 OPTION_BOOL_ACCESSORS( m_snapCameraRotateTo45 )
 OPTION_BOOL_ACCESSORS( m_middleMousePans )
 OPTION_BOOL_ACCESSORS( m_zoomToCursor )
+OPTION_BOOL_ACCESSORS( m_rightMouseScroll )
+OPTION_INT_ACCESSORS( m_menuTransitionSpeed )
+OPTION_INT_ACCESSORS( m_textureFilterMode )
+OPTION_INT_ACCESSORS( m_anisotropyLevel )
 OPTION_INT_ACCESSORS( m_bloomIntensity )
 OPTION_INT_ACCESSORS( m_bloomThreshold )
 OPTION_INT_ACCESSORS( m_windowMode )
@@ -111,6 +115,34 @@ const OptionDef TheOptionCatalog[] =
 	{ "ZoomToCursor",							"", "",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_zoomToCursor, set_m_zoomToCursor },
+
+	// Alternate mouse mode moves commands onto the left button and selection onto the right, and
+	// then the right button is doing two jobs at once - every command drag also drags the camera.
+	// Turning this off leaves the middle button and the screen edge to scroll with.
+	{ "RightMouseScroll",					"", "",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_rightMouseScroll, set_m_rightMouseScroll },
+
+	// Percent of the speed the menu slides and fades were authored at. 100 is what the artists
+	// drew; higher gets you through the shell faster, and nothing about a menu animation is worth
+	// waiting for on the four hundredth launch.
+	{ "MenuTransitionSpeed",			"", "",
+		OPTION_INT, APPLY_LIVE, 25, 400,
+		get_m_menuTransitionSpeed, set_m_menuTransitionSpeed },
+
+	// 0 bilinear, 1 trilinear, 2 anisotropic. Retail shipped bilinear with point mip selection,
+	// which is a 2003 fill-rate budget and is why distant ground used to shimmer; 2 is the default
+	// here. The filter table is built when the device is made, so this needs a device reset.
+	{ "TextureFilter",						"", "",
+		OPTION_INT, APPLY_DEVICE_RESET, 0, 2,
+		get_m_textureFilterMode, set_m_textureFilterMode },
+
+	// Samples anisotropic filtering may take. 0 means whatever the card offers, capped at 16, and
+	// asking for more than the card has still gets you the card's answer. Only read when the filter
+	// above is anisotropic.
+	{ "Anisotropy",								"", "",
+		OPTION_INT, APPLY_DEVICE_RESET, 0, 16,
+		get_m_anisotropyLevel, set_m_anisotropyLevel },
 
 	// Eight rows used to sit here: grid and nudge build placement, snap-to-45 building rotation, the
 	// placement range ring, workers returning to supply, detailed build tooltips, the HUD overlay

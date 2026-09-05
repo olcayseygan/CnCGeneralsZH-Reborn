@@ -187,7 +187,10 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 					Smudge *smudge = set->addSmudgeToSet();
 
 					smudge->m_pos.Set( pos->x, pos->y, pos->z );
-					smudge->m_offset.Set( GameClientRandomValueReal(-0.06f,0.06f), GameClientRandomValueReal(-0.03f,0.03f) );
+					// Same range on both axes. The vertical one was half the horizontal, which
+					// nobody could see while the centre vertex was reading the horizontal offset
+					// for both - now that it reads .Y, a heat smudge pulled twice as far sideways.
+					smudge->m_offset.Set( GameClientRandomValueReal(-0.06f,0.06f), GameClientRandomValueReal(-0.06f,0.06f) );
 					smudge->m_size = psize;
 					smudge->m_opacity = p->getAlpha();
 					visibleSmudgeCount++;

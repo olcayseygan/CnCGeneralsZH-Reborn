@@ -383,8 +383,12 @@ WindowMsgHandledType GadgetVerticalSliderSystem( GameWindow *window, UnsignedInt
 			Int newPos = (Int)mData1;
 			GameWindow *child = window->winGetChild();
 
-			if (newPos < s->minVal || newPos > s->maxVal)
-				break;
+			// See the horizontal slider: an out-of-range value used to be ignored outright,
+			// leaving the thumb wherever it already was. Clamp to the track instead.
+			if( newPos < s->minVal )
+				newPos = s->minVal;
+			else if( newPos > s->maxVal )
+				newPos = s->maxVal;
 
 			s->position = newPos;
 

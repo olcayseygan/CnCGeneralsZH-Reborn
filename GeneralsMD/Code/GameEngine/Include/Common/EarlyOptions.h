@@ -41,6 +41,62 @@
 #include <stdlib.h>
 #include <string.h>
 
+/** Where this user's Documents folder is.
+	*
+	* SHGetSpecialFolderPath writes into a MAX_PATH buffer and fails outright when the folder has
+	* been redirected somewhere longer than that - a network share, or the long OneDrive path a lot
+	* of machines have now. The whole user data directory then comes back empty and the saves, the
+	* replays, Options.ini and the crash log all go somewhere else without a word.
+	* SHGetKnownFolderPath has no such limit. It is Vista and later, so it is bound at run time and
+	* the old call is still the fallback. The GUID is spelled out here rather than taken from
+	* KnownFolders.h so that nothing has to link another lib for one constant. */
+inline bool findDocumentsFolderA( char *out, size_t outSize )
+{
+	if (out == NULL || outSize == 0)
+		return false;
+	out[0] = 0;
+
+	// FOLDERID_Documents {FDD39AD0-238F-46AF-ADB4-6C85480369C7}
+	static const GUID kFolderIdDocuments =
+		{ 0xFDD39AD0, 0x238F, 0x46AF, { 0xAD, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7 } };
+
+	typedef HRESULT (WINAPI *GetKnownFolderPathFn)( const GUID &, DWORD, HANDLE, PWSTR * );
+
+	HMODULE shell = ::GetModuleHandleA( "shell32.dll" );
+	if (shell == NULL)
+		shell = ::LoadLibraryA( "shell32.dll" );
+
+	if (shell != NULL)
+	{
+		GetKnownFolderPathFn getKnownFolderPath =
+			(GetKnownFolderPathFn)::GetProcAddress( shell, "SHGetKnownFolderPath" );
+
+		if (getKnownFolderPath != NULL)
+		{
+			PWSTR wide = NULL;
+			if (SUCCEEDED( getKnownFolderPath( kFolderIdDocuments, 0, NULL, &wide ) ) && wide != NULL)
+			{
+				const int written = ::WideCharToMultiByte( CP_ACP, 0, wide, -1,
+																									 out, (int)outSize, NULL, NULL );
+				::CoTaskMemFree( wide );
+				if (written > 0)
+					return true;
+				out[0] = 0;		// the path did not fit this buffer; fall through and try the old way
+			}
+		}
+	}
+
+	char documents[MAX_PATH];
+	if (!::SHGetSpecialFolderPathA( NULL, documents, CSIDL_PERSONAL, TRUE ))
+		return false;
+
+	if (strlen( documents ) + 1 > outSize)
+		return false;
+
+	strcpy( out, documents );
+	return true;
+}
+
 /** The directory the game keeps Options.ini, replays and save games in.
 	*
 	* GlobalData works this out the same way at startup (Documents plus a leaf name the installer
@@ -53,15 +109,16 @@ inline bool findUserDataDirectory( char *out, size_t outSize )
 	out[0] = 0;
 
 	char documents[MAX_PATH];
-	if (!::SHGetSpecialFolderPathA( NULL, documents, CSIDL_PERSONAL, TRUE ))
+	if (!findDocumentsFolderA( documents, sizeof( documents ) ))
 		return false;
 
 	char leaf[MAX_PATH] = "Command and Conquer Generals Zero Hour Data";
 
-	// HKLM first, then HKCU: the same two hives in the same order that GetStringFromRegistry walks.
+	// HKCU first, then HKLM: the same two hives in the same order that GetStringFromRegistry walks.
 	// A localized install renames the folder here, and reading only one hive would send this at the
-	// English folder while the engine writes to the translated one.
-	const HKEY hives[2] = { HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER };
+	// English folder while the engine writes to the translated one. The order has to match the
+	// engine's or these two read different directories.
+	const HKEY hives[2] = { HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE };
 	for (int hive = 0; hive < 2; ++hive)
 	{
 		HKEY key;

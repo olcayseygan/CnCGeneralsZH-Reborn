@@ -142,6 +142,11 @@ public:
 	static void					Set_Texture_Filter(int filter);
 	static int					Get_Texture_Filter() { return TextureFilter; }
 
+	/** Record the mode without rebuilding the filter table. Set_Texture_Filter rebuilds it there and
+		* then, and the table is read out of the device caps - so it can only be called once a device
+		* exists. This one is for before that, which is when the player's setting arrives. */
+	static void					Set_Requested_Texture_Filter(int filter);
+
 	/*
 	** Rendering functions
 	** Each frame should be bracketed by a Begin_Render and End_Render call.  Between these two calls you will

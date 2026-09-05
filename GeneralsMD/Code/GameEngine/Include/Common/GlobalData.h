@@ -355,8 +355,15 @@ public:
 	Bool m_snapCameraRotateTo45;		///< quantize the camera heading to 45 degrees when a middle-drag rotate ends
 	Bool m_gridBuildPlacement;			///< quantize structure placement to the pathfinder's build grid
 	Bool m_nudgeBuildPlacement;			///< slide a blocked structure to the nearest spot it does fit
+	Int m_moneyPerMinute;				///< income every player gets once a minute regardless of supply lines; 0 = off
+	Real m_buildPlacementOpacity;		///< how solid the structure riding the cursor is drawn, 0..1
+	Bool m_buildPlacementShadows;		///< whether that structure casts a shadow while it rides the cursor
 	Bool m_middleMousePans;				///< middle-button drag pans the camera instead of rotating it
 	Bool m_zoomToCursor;				///< the mouse wheel zooms toward whatever the cursor is over
+	Bool m_rightMouseScroll;			///< holding the right button drags the camera; off frees it for alternate mouse mode
+	Int m_menuTransitionSpeed;			///< percent of the authored speed the menus slide and fade at; 100 = as drawn
+	Int m_textureFilterMode;			///< 0 bilinear, 1 trilinear, 2 anisotropic
+	Int m_anisotropyLevel;				///< samples anisotropic filtering may take; 0 = whatever the card offers
 	Bool m_showHudOverlay;				///< draw the fps / elapsed time / income line in the corner
 	Bool m_showPlacementRangeRing;		///< while placing a structure, ring its weapon range
 	Bool m_workersReturnToSupply;		///< a worker that finishes a build job goes back to the dock it left
@@ -374,6 +381,7 @@ public:
 	Int m_autoSkirmishAIStateOdd;		///< -aidiff2 <name>: rung for the odd-numbered slots (0 = same as -aidiff)
 	Int m_autoSkirmishTeams;				///< -teams <n>: split the auto-skirmish slots into n allied teams (0 or 1 = free-for-all)
 	Int m_maxGameFrames;						///< -maxframes <n>: quit after n logic frames however the match is going (0 = no limit)
+	Int m_screenShotFrame;					///< -screenshot <n>: save one picture when the run reaches logic frame n (0 = never)
 	Int m_autoCameraSeconds;				///< -autocamera <n>: every n seconds, move the camera to wherever the fighting is (0 = off)
 	Int m_traceMoveID;							///< -tracemove [id]: log one movement line a frame for this object (0 = off, -1 = the first unit that gets blocked)
 	Real m_slowFrameMS;							///< -slowframe <ms>: a logic frame over this long logs its own breakdown (default 20)

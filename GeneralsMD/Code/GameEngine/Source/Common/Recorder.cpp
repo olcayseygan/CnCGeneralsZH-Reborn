@@ -1059,7 +1059,10 @@ Bool RecorderClass::testVersionPlayback(AsciiString filename)
 	Bool success = readReplayHeader( header );
 	if (!success)
 	{
-		return FALSE;
+		// A header we cannot read used to answer "compatible", and the caller then went straight
+		// into playback on a file it had already failed to parse. Warn instead: the prompt is the
+		// same one a version difference gets, which is at least true - we do not know what this is.
+		return TRUE;
 	}
 	Bool versionStringDiff = header.versionString != TheVersion->getUnicodeVersion();
 	Bool versionTimeStringDiff = header.versionTimeString != TheVersion->getUnicodeBuildTime();

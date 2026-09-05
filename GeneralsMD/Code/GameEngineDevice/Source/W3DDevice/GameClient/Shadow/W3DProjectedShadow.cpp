@@ -1928,7 +1928,10 @@ W3DProjectedShadow* W3DProjectedShadowManager::addShadow(RenderObjClass *robj, S
 
 	switch (shadow->m_type)
 	{
+		// same three kinds the two addDecal paths count, so that adding and removing agree
 		case SHADOW_DECAL:
+		case SHADOW_ALPHA_DECAL:
+		case SHADOW_ADDITIVE_DECAL:
 			m_numDecalShadows++;
 			break;
 		case SHADOW_PROJECTION:
@@ -2062,7 +2065,12 @@ void W3DProjectedShadowManager::removeShadow (W3DProjectedShadow *shadow)
 					m_decalList=shadow->m_next;
 				switch (shadow->m_type)
 				{
+					// addDecal counts all three decal kinds; this only ever counted one of them
+					// back down, and this loop is entered only for the other two - so the decal
+					// count climbed for the whole match and never came back.
 					case SHADOW_DECAL:
+					case SHADOW_ALPHA_DECAL:
+					case SHADOW_ADDITIVE_DECAL:
 						m_numDecalShadows--;
 						break;
 					case SHADOW_PROJECTION:
@@ -2088,6 +2096,8 @@ void W3DProjectedShadowManager::removeShadow (W3DProjectedShadow *shadow)
 			switch (shadow->m_type)
 			{
 				case SHADOW_DECAL:
+				case SHADOW_ALPHA_DECAL:
+				case SHADOW_ADDITIVE_DECAL:
 					m_numDecalShadows--;
 					break;
 				case SHADOW_PROJECTION:

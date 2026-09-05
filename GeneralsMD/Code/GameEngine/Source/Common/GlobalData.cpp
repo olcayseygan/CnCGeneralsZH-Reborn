@@ -39,6 +39,7 @@
 #define DEFINE_PANNING_NAMES
 
 #include "Common/CRC.h"
+#include "Common/EarlyOptions.h"	// findDocumentsFolderA
 #include "Common/File.h"
 #include "Common/FileSystem.h"
 #include "Common/GameAudio.h"
@@ -53,6 +54,7 @@
 #include "GameLogic/Module/BodyModule.h"
 
 #include "GameClient/Color.h"
+#include "GameClient/Drawable.h"	// PLACEMENT_SILHOUETTE_OPACITY, the default for BuildPlacementOpacity
 #include "GameClient/TerrainVisual.h"
 
 #include "GameNetwork/FirewallHelper.h"
@@ -192,8 +194,12 @@ GlobalData* GlobalData::m_theOriginal = NULL;
 	{ "SnapCameraRotateTo45",			INI::parseBool,				NULL,			offsetof( GlobalData, m_snapCameraRotateTo45 ) },
 	{ "GridBuildPlacement",				INI::parseBool,				NULL,			offsetof( GlobalData, m_gridBuildPlacement ) },
 	{ "NudgeBuildPlacement",			INI::parseBool,				NULL,			offsetof( GlobalData, m_nudgeBuildPlacement ) },
+	{ "MoneyPerMinute",						INI::parseInt,				NULL,			offsetof( GlobalData, m_moneyPerMinute ) },
+	{ "BuildPlacementOpacity",		INI::parseReal,				NULL,			offsetof( GlobalData, m_buildPlacementOpacity ) },
+	{ "BuildPlacementShadows",		INI::parseBool,				NULL,			offsetof( GlobalData, m_buildPlacementShadows ) },
 	{ "MiddleMousePans",					INI::parseBool,				NULL,			offsetof( GlobalData, m_middleMousePans ) },
 	{ "ZoomToCursor",							INI::parseBool,				NULL,			offsetof( GlobalData, m_zoomToCursor ) },
+	{ "RightMouseScroll",					INI::parseBool,				NULL,			offsetof( GlobalData, m_rightMouseScroll ) },
 	{ "ShowHudOverlay",						INI::parseBool,				NULL,			offsetof( GlobalData, m_showHudOverlay ) },
 	{ "ShowPlacementRangeRing",		INI::parseBool,				NULL,			offsetof( GlobalData, m_showPlacementRangeRing ) },
 	{ "WorkersReturnToSupply",		INI::parseBool,				NULL,			offsetof( GlobalData, m_workersReturnToSupply ) },
@@ -679,6 +685,7 @@ GlobalData::GlobalData()
 	m_autoSkirmishObserver = FALSE;
 	m_headless = FALSE;
 	m_maxGameFrames = 0; // run until the match ends
+	m_screenShotFrame = 0; // take no picture unless -screenshot asks for one
 	m_autoCameraSeconds = 0; // the camera stays where it was put
 	m_traceMoveID = 0; // no movement trace
 	m_slowFrameMS = 20.0f; // a frame worth a line in the log; -slowframe lowers it for a hunt
@@ -1059,10 +1066,17 @@ GlobalData::GlobalData()
 	// middle-drag stays a rotate by default (it snaps to 45 degrees on release); pan is opt-in
 	m_middleMousePans = FALSE;
 	m_zoomToCursor = TRUE;
+	m_rightMouseScroll = TRUE;
+	m_menuTransitionSpeed = 100;
+	m_textureFilterMode = 2;	// anisotropic; retail shipped bilinear on a 2003 fill-rate budget
+	m_anisotropyLevel = 0;		// whatever the card offers, capped at 16 in _Init_Filters
 
 	m_snapBuildPlacementTo45 = TRUE;
 	m_gridBuildPlacement = TRUE;
 	m_nudgeBuildPlacement = TRUE;
+	m_moneyPerMinute = 0;
+	m_buildPlacementOpacity = PLACEMENT_SILHOUETTE_OPACITY;
+	m_buildPlacementShadows = TRUE;
 	m_showHudOverlay = TRUE;
 	m_showPlacementRangeRing = TRUE;
 	m_workersReturnToSupply = TRUE;
@@ -1148,8 +1162,11 @@ GlobalData::GlobalData()
 
   // Set user data directory based on registry settings instead of INI parameters. This allows us to 
   // localize the leaf name.
-  char temp[_MAX_PATH + 1];
-  if (::SHGetSpecialFolderPath(NULL, temp, CSIDL_PERSONAL, true))
+  // A redirected Documents folder can sit at a path longer than MAX_PATH, and the shell call this
+  // used to make simply fails there - see findDocumentsFolderA. The buffer is generous for the same
+  // reason.
+  char temp[1024];
+  if (findDocumentsFolderA(temp, sizeof(temp)))
   {
     AsciiString myDocumentsDirectory = temp;
 

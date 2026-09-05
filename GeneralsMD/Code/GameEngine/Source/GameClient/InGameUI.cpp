@@ -103,7 +103,16 @@
 
 
 // ------------------------------------------------------------------------------------------------
-static const Real placementOpacity = PLACEMENT_SILHOUETTE_OPACITY;
+/** How the structure riding the cursor is drawn. `BuildPlacementOpacity` and
+	* `BuildPlacementShadows` in GameData.ini; the defaults are what the game always did. */
+static void dressPlacementPreview( Drawable *draw )
+{
+	if( draw == NULL )
+		return;
+
+	draw->setDrawableOpacity( TheGlobalData->m_buildPlacementOpacity );
+	draw->setShadowsEnabled( TheGlobalData->m_buildPlacementShadows );
+}
 static const RGBColor illegalBuildColor = { 1.0, 0.0, 0.0 };
 
 // ------------------------------------------------------------------------------------------------
@@ -1894,8 +1903,8 @@ void InGameUI::handleBuildPlacements( void )
 				// set the drawble position
 				m_placeIcon[ i ]->setPosition( &tileBuildInfo->positions[ i ] );
 
-				// set opacity for the drawble
-				m_placeIcon[ i ]->setDrawableOpacity( placementOpacity );
+				// set opacity and shadowing for the drawble
+				dressPlacementPreview( m_placeIcon[ i ] );
 
 				// set the drawable angle
 				m_placeIcon[ i ]->setOrientation( angle );
@@ -3531,7 +3540,7 @@ void InGameUI::placeBuildAvailable( const ThingTemplate *build, Drawable *buildD
 			draw->setOrientation( angle );
 
 			// set the build icon attached to the cursor to be "see-thru"
-			draw->setDrawableOpacity( placementOpacity );
+			dressPlacementPreview( draw );
 
 			// set the "icon" in the icon array at the first index
 			DEBUG_ASSERTCRASH( m_placeIcon[ 0 ] == NULL, ("placeBuildAvailable, build icon array is not empty!") );

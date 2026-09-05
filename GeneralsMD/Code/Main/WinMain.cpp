@@ -419,6 +419,9 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message,
 				//_exit(EXIT_SUCCESS);
 				return 0;
 			}
+			// No engine to ask, or it is already on its way out: let DefWindowProc take
+			// the window down. Falling through into WM_SETFOCUS is what used to happen.
+			break;
 
 			// ------------------------------------------------------------------------
 			case WM_SETFOCUS:

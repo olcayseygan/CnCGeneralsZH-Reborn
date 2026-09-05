@@ -567,6 +567,10 @@ void GameClient::update( void )
 			TheDisplay->playLogoMovie("EALogoMovie", 5000, 3000);
 		else
 			TheDisplay->playLogoMovie("EALogoMovie640", 5000, 3000);
+		// Escape gets you out of this one too. The flag is what the key handler asks, and it was
+		// only ever raised once the logo had finished playing itself out, so the one movie you see
+		// on every single launch was the one you could not skip.
+		TheWritableGlobalData->m_allowExitOutOfMovies = TRUE;
 		TheWritableGlobalData->m_playIntro = FALSE;
 		TheWritableGlobalData->m_afterIntro = TRUE;
 		playSizzle = TRUE;

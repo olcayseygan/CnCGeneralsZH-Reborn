@@ -63,4 +63,10 @@ Bool GameClient_isUiAnimStepDue( UnsignedInt &lastMs, Real &accumMs, UnsignedInt
 /// what the menus were authored against, and what everything using the helper above steps at
 const Real UI_ANIM_STEPS_PER_SEC = 30.0f;
 
+/** The same rate with the player's `MenuTransitionSpeed` percent applied. Menu slides and fades ask
+	* for this; the control bar and the shader manager keep the authored rate, because those are the
+	* game's own animations rather than the shell's ceremony. Kept out of the pure helper above so
+	* that stays testable without a GlobalData. */
+Real GameClient_menuAnimStepsPerSec( void );
+
 #endif // __UIANIMCLOCK_H_

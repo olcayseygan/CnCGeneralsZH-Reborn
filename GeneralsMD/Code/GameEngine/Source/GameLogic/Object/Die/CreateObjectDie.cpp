@@ -38,6 +38,8 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/ObjectCreationList.h"
 #include "GameLogic/Module/BodyModule.h"
+#include "GameClient/Drawable.h"
+#include "GameClient/InGameUI.h"
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -52,6 +54,7 @@ CreateObjectDieModuleData::CreateObjectDieModuleData()
 
 	m_ocl = NULL;
 	m_transferPreviousHealth = FALSE;
+	m_transferSelection = FALSE;
 
 }
 
@@ -65,6 +68,7 @@ CreateObjectDieModuleData::CreateObjectDieModuleData()
 	{
 		{ "CreationList",	INI::parseObjectCreationList,		NULL,											offsetof( CreateObjectDieModuleData, m_ocl ) },
 		{ "TransferPreviousHealth", INI::parseBool, NULL	,offsetof( CreateObjectDieModuleData, m_transferPreviousHealth ) },
+		{ "TransferSelection", INI::parseBool, NULL	,offsetof( CreateObjectDieModuleData, m_transferSelection ) },
 		{ 0, 0, 0, 0 }
 	};
 	p.add(dataFieldParse);
@@ -100,6 +104,23 @@ void CreateObjectDie::onDie( const DamageInfo * damageInfo )
 	Object *damageDealer = TheGameLogic->findObjectByID( damageInfo->in.m_sourceID );
 
 	Object *newObject = ObjectCreationList::create( data->m_ocl, getObject(), damageDealer );
+
+	// A unit that turns into something else on death - a bus into a wreck that still fights, a
+	// hull into its crew - used to drop out of your selection the moment it changed, so a mid-fight
+	// transformation cost you the order you were about to give. `TransferSelection = Yes` hands the
+	// selection on. Selection is the local player's own business, so this touches nothing the other
+	// machines in a network game have to agree about.
+	if( newObject && data->m_transferSelection && TheInGameUI )
+	{
+		Drawable *oldDraw = getObject()->getDrawable();
+		Drawable *newDraw = newObject->getDrawable();
+
+		if( oldDraw && newDraw && oldDraw->isSelected() && !newDraw->isSelected() )
+		{
+			TheInGameUI->selectDrawable( newDraw );
+			TheInGameUI->deselectDrawable( oldDraw );
+		}
+	}
 
 	//If we're transferring previous health, we're transfering the last known
 	//health before we died. In the case of the sneak attack tunnel network, it

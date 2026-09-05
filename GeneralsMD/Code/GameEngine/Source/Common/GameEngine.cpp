@@ -206,6 +206,13 @@ GameEngine::~GameEngine()
 	//extern std::vector<std::string>	preloadTextureNamesGlobalHack;
 	//preloadTextureNamesGlobalHack.clear();
 
+	// Debug.cpp puts an assertion up as a modal dialog only while the game is windowed, because a
+	// dialog over a fullscreen device deadlocks. Teardown is neither: the device is on its way out
+	// under us, and a dialog raised here hangs the process on exit with nothing on screen. Say we
+	// are not windowed and every assertion from here on goes to the log instead.
+	extern bool DX8Wrapper_IsWindowed;
+	DX8Wrapper_IsWindowed = false;
+
 	delete TheMapCache;
 	TheMapCache = NULL;
 
@@ -269,6 +276,59 @@ void GameEngine::setFramesPerSecondLimit( Int fps )
 /* -replay <file>: the name the command line asked for, opened after init()'s resetAll().  See
 	 the .rep branch in init() for why it cannot be opened where it is parsed. */
 static AsciiString thePendingReplayFile;
+
+/* -loadsave <file>: same deferral, same reason. A save game rebuilds the whole world, and doing
+	 that before init()'s resetAll() would have resetAll tear it straight back down again. */
+static AsciiString thePendingSaveFile;
+
+/** Open the save game -loadsave named, once every subsystem has been reset.
+	*
+	* This is doLoadGame() in PopupSaveLoad.cpp without the menu: prepare a single player game, load,
+	* and fall back to the shell if the load fails. */
+static void startPendingSaveGame( void )
+{
+	AvailableGameInfo gameInfo;
+	gameInfo.next = NULL;
+	gameInfo.prev = NULL;
+	// A leaf name, not a path: everything downstream calls getFilePathInSaveDirectory on it, so a
+	// full path here gets the save directory glued in front of it a second time and loadGame then
+	// answers SC_FILE_NOT_FOUND for a file that is plainly there.
+	gameInfo.filename = thePendingSaveFile;
+
+	/* Ask first. Neither getSaveGameInfoFromFile nor loadGame survives a name that is not there -
+		 the first reads out of an xfer that never opened - and a file name typed on a command line is
+		 exactly the sort of thing that is not there. Without this the switch faulted on a typo. */
+	if (!TheGameState->doesSaveGameExist( thePendingSaveFile ))
+	{
+		DEBUG_LOG(("-loadsave: '%s' does not exist\n", gameInfo.filename.str()));
+		// A run driven entirely from the command line has nobody at the keyboard, so dropping it
+		// into the main menu means a process that never ends. Say what went wrong and stop.
+		if (TheGlobalData->m_headless)
+			TheGameEngine->setQuitting( TRUE );
+		else
+			TheWritableGlobalData->m_shellMapOn = TRUE;
+		return;
+	}
+
+	// getSaveGameInfoFromFile opens the name it is handed as-is - the menu path gets away with a
+	// leaf only because it is called from inside iterateSaveFiles, which has chdir'd into the save
+	// directory first. Give it the path.
+	TheGameState->getSaveGameInfoFromFile(
+		TheGameState->getFilePathInSaveDirectory( thePendingSaveFile ), &gameInfo.saveGameInfo );
+
+	TheGameLogic->prepareNewGame( GAME_SINGLE_PLAYER, DIFFICULTY_NORMAL, 0 );
+
+	if (TheGameState->loadGame( gameInfo ) != SC_OK)
+	{
+		DEBUG_LOG(("-loadsave: '%s' could not be loaded\n", gameInfo.filename.str()));
+		if (TheGameLogic->isInGame())
+			TheGameLogic->clearGameData( FALSE );
+		if (TheGlobalData->m_headless)
+			TheGameEngine->setQuitting( TRUE );
+		else
+			TheWritableGlobalData->m_shellMapOn = TRUE;
+	}
+}
 
 /** -----------------------------------------------------------------------------------------------
  * -autoskirmish <n>: build a skirmish slot list from the command line and launch it without going
@@ -898,6 +958,12 @@ void GameEngine::init( int argc, char *argv[] )
 				TheWritableGlobalData->m_playIntro = FALSE;
 				thePendingReplayFile = fname;
 			}
+			else if (fname.endsWithNoCase(".sav"))
+			{
+				TheWritableGlobalData->m_shellMapOn = FALSE;
+				TheWritableGlobalData->m_playIntro = FALSE;
+				thePendingSaveFile = TheGlobalData->m_initialFile;	// the name as given, not lowercased
+			}
 		}
 		else if (TheGlobalData->m_netGameHosts.isNotEmpty())
 		{
@@ -978,6 +1044,15 @@ void GameEngine::init( int argc, char *argv[] )
 			TheWritableGlobalData->m_shellMapOn = TRUE;
 		}
 		thePendingReplayFile.clear();
+	}
+
+	/* Same point in the sequence, same reason: the world a save builds has to survive resetAll().
+		 The menu path (doLoadGame in PopupSaveLoad.cpp) prepares a single player game first and falls
+		 back to the shell if the load fails; do both here. */
+	if (thePendingSaveFile.isNotEmpty())
+	{
+		startPendingSaveGame();
+		thePendingSaveFile.clear();
 	}
 
 	if (TheGlobalData->m_netGameHosts.isNotEmpty() && TheGlobalData->m_initialFile.isEmpty())
@@ -1430,6 +1505,28 @@ static void updateHeadlessRun( void )
 	}
 
 	const UnsignedInt frame = TheGameLogic->getFrame();
+
+	/* -screenshot <n>: hand the renderer a shot request as the run passes frame n. W3DDisplay only
+		 sets a pending flag here and writes the file out of the back buffer on its next draw, so this
+		 does something only in a run that is drawing - -autoskirmish without -headless. It is the
+		 only way to see what a renderer change did without somebody sitting in front of the machine,
+		 which is what half the remaining graphics work needs. The file lands next to the save games
+		 as sshotNNN.bmp. */
+	static UnsignedInt screenShotRequestedOn = 0;
+	if (TheGlobalData->m_screenShotFrame > 0 && screenShotRequestedOn == 0 &&
+			frame >= (UnsignedInt)TheGlobalData->m_screenShotFrame)
+	{
+		screenShotRequestedOn = frame;
+		if (TheGlobalData->m_headless)
+		{
+			DEBUG_LOG(("-screenshot: -headless draws nothing, so there is no picture to save\n"));
+		}
+		else if (TheDisplay != NULL)
+		{
+			TheDisplay->takeScreenShot();
+			DEBUG_LOG(("-screenshot: asked for one at frame %d\n", frame));
+		}
+	}
 
 	/* The frame times start a second in, not at frame 0.  The first counted pass carries the tail
 		 of the map load and came out at two full seconds, which then *is* the worst frame of the

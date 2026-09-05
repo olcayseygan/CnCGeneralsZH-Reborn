@@ -124,12 +124,12 @@ Bool GetStringFromGeneralsRegistry(AsciiString path, AsciiString key, AsciiStrin
 
 	fullPath.concat(path);
 	DEBUG_LOG(("GetStringFromRegistry - looking in %s for key %s\n", fullPath.str(), key.str()));
-	if (getStringFromRegistry(HKEY_LOCAL_MACHINE, fullPath.str(), key.str(), val))
+	if (getStringFromRegistry(HKEY_CURRENT_USER, fullPath.str(), key.str(), val))
 	{
 		return TRUE;
 	}
 
-	return getStringFromRegistry(HKEY_CURRENT_USER, fullPath.str(), key.str(), val);
+	return getStringFromRegistry(HKEY_LOCAL_MACHINE, fullPath.str(), key.str(), val);
 }
 
 Bool GetStringFromRegistry(AsciiString path, AsciiString key, AsciiString& val)
@@ -137,13 +137,16 @@ Bool GetStringFromRegistry(AsciiString path, AsciiString key, AsciiString& val)
 	AsciiString fullPath = "SOFTWARE\\Electronic Arts\\EA Games\\Command and Conquer Generals Zero Hour";
 
 	fullPath.concat(path);
+	// HKCU first, HKLM second. The machine-wide hive needs administrator rights to write, so a
+	// per-user or Steam install writes only HKCU - and a stale HKLM entry left by some other copy of
+	// the game used to win, sending this one at another install's language or data folder.
 	DEBUG_LOG(("GetStringFromRegistry - looking in %s for key %s\n", fullPath.str(), key.str()));
-	if (getStringFromRegistry(HKEY_LOCAL_MACHINE, fullPath.str(), key.str(), val))
+	if (getStringFromRegistry(HKEY_CURRENT_USER, fullPath.str(), key.str(), val))
 	{
 		return TRUE;
 	}
 
-	return getStringFromRegistry(HKEY_CURRENT_USER, fullPath.str(), key.str(), val);
+	return getStringFromRegistry(HKEY_LOCAL_MACHINE, fullPath.str(), key.str(), val);
 }
 
 Bool GetUnsignedIntFromRegistry(AsciiString path, AsciiString key, UnsignedInt& val)
@@ -152,12 +155,12 @@ Bool GetUnsignedIntFromRegistry(AsciiString path, AsciiString key, UnsignedInt& 
 
 	fullPath.concat(path);
 	DEBUG_LOG(("GetUnsignedIntFromRegistry - looking in %s for key %s\n", fullPath.str(), key.str()));
-	if (getUnsignedIntFromRegistry(HKEY_LOCAL_MACHINE, fullPath.str(), key.str(), val))
+	if (getUnsignedIntFromRegistry(HKEY_CURRENT_USER, fullPath.str(), key.str(), val))
 	{
 		return TRUE;
 	}
 
-	return getUnsignedIntFromRegistry(HKEY_CURRENT_USER, fullPath.str(), key.str(), val);
+	return getUnsignedIntFromRegistry(HKEY_LOCAL_MACHINE, fullPath.str(), key.str(), val);
 }
 
 AsciiString GetRegistryLanguage(void)

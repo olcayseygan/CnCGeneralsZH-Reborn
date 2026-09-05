@@ -68,6 +68,7 @@ SpecialPowerModuleData::SpecialPowerModuleData()
 	m_specialPowerTemplate = NULL;
 	m_updateModuleStartsAttack = false;
 	m_startsPaused = FALSE;
+	m_startsReady = FALSE;
 	m_scriptedSpecialPowerOnly = FALSE;
 
 }  // end SpecialPowerModuleData
@@ -83,6 +84,7 @@ SpecialPowerModuleData::SpecialPowerModuleData()
 		{ "SpecialPowerTemplate",			INI::parseSpecialPowerTemplate, NULL, offsetof( SpecialPowerModuleData, m_specialPowerTemplate ) },
 		{ "UpdateModuleStartsAttack", INI::parseBool,									NULL, offsetof( SpecialPowerModuleData, m_updateModuleStartsAttack ) },
 		{ "StartsPaused",							INI::parseBool,									NULL, offsetof( SpecialPowerModuleData, m_startsPaused ) },
+		{ "StartsReady",							INI::parseBool,									NULL, offsetof( SpecialPowerModuleData, m_startsReady ) },
 		{ "InitiateSound",						INI::parseAudioEventRTS,				NULL, offsetof( SpecialPowerModuleData, m_initiateSound ) },
 		{ "ScriptedSpecialPowerOnly", INI::parseBool,									NULL, offsetof( SpecialPowerModuleData, m_scriptedSpecialPowerOnly ) },
 		{ 0, 0, 0, 0 }
@@ -427,8 +429,15 @@ void SpecialPowerModule::startPowerRecharge()
 	}
 	else
 	{
-		// set the frame we will be 100% available on now
-		m_availableOnFrame = TheGameLogic->getFrame() + getSpecialPowerTemplate()->getReloadTime();
+		//
+		// StartsReady = Yes means the first use costs no wait: the object is built and the power is
+		// there.  Every reload after it is the normal one, because this only runs when the recharge
+		// is started and the first start is the one at creation.
+		//
+		if( modData->m_startsReady && m_availableOnFrame == 0 )
+			m_availableOnFrame = TheGameLogic->getFrame();
+		else
+			m_availableOnFrame = TheGameLogic->getFrame() + getSpecialPowerTemplate()->getReloadTime();
 	}
 }
 

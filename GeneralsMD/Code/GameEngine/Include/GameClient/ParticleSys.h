@@ -640,7 +640,18 @@ public:
 	Bool isUsingDrawables( void ) { return (m_particleType == DRAWABLE) ? true : false; }
 	Bool isUsingStreak( void ) { return (m_particleType == STREAK) ? true : false; }
 	Bool isUsingSmudge( void ) { return (m_particleType == SMUDGE) ? true : false; }
-	UnsignedInt getVolumeParticleDepth( void ) { return ( m_particleType == VOLUME_PARTICLE ) ? OPTIMUM_VOLUME_PARTICLE_DEPTH : 0; }
+	/// How many layers deep a volume particle is drawn. `VolumeParticleDepth` in the template sets
+	/// it; left at zero the engine picks its own figure, which is what every system did before the
+	/// field existed. Only VOLUME_PARTICLE draws layers at all.
+	UnsignedInt getVolumeParticleDepth( void )
+	{
+		if( m_particleType != VOLUME_PARTICLE )
+			return 0;
+		if( m_volumeParticleDepth == 0 )
+			return OPTIMUM_VOLUME_PARTICLE_DEPTH;
+		return ( m_volumeParticleDepth > MAX_VOLUME_PARTICLE_DEPTH )
+						 ? MAX_VOLUME_PARTICLE_DEPTH : m_volumeParticleDepth;
+	}
 
 	Bool shouldBillboard( void ) { return !m_isGroundAligned; }
 

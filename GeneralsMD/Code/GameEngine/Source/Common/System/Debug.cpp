@@ -393,12 +393,25 @@ void DebugInit(int flags)
 		strcat(curbuf, DEBUG_FILE_NAME);
 
  		remove(prevbuf);
-		rename(curbuf, prevbuf);
+		// A failed rotate is not fatal - the log still opens - but it means the ".prev" file holds
+		// some older run than the one before this, and a bug report read on that assumption is read
+		// wrong. It fails when the previous log is still open somewhere, which is what a second copy
+		// of the game without -logPrefix does.
+		// A first run under a new -logPrefix has nothing to rotate, and rename fails for that too -
+		// so ask whether the file was there before deciding anything went wrong.
+		FILE *existing = fopen(curbuf, "r");
+		const bool hadPreviousLog = (existing != NULL);
+		if (existing != NULL)
+			fclose(existing);
+
+		const int rotated = rename(curbuf, prevbuf);
 		theLogFile = fopen(curbuf, "w");
 		if (theLogFile != NULL)
 		{
 			DebugLog("Log %s opened: %s\n", curbuf, getCurrentTimeString());
-		} 
+			if (hadPreviousLog && rotated != 0)
+				DebugLog("Could not rotate the previous log to %s: it holds an older run than this one.\n", prevbuf);
+		}
 	#endif
 	}
 
@@ -708,12 +721,20 @@ void ReleaseCrash(const char *reason)
 	strcat(curbuf, RELEASECRASH_FILE_NAME);
 
  	remove(prevbuf);
-	rename(curbuf, prevbuf);
+	FILE *existingCrashLog = fopen(curbuf, "r");
+	const bool hadPreviousCrashLog = (existingCrashLog != NULL);
+	if (existingCrashLog != NULL)
+		fclose(existingCrashLog);
+	const int rotated = rename(curbuf, prevbuf);
 
 	theReleaseCrashLogFile = fopen(curbuf, "w");
 	if (theReleaseCrashLogFile)
 	{
 		fprintf(theReleaseCrashLogFile, "Release Crash at %s; Reason %s\n", getCurrentTimeString(), reason);
+		// Two crashes in a row and this is the report anybody reads. If the older one could not be
+		// moved aside it is gone, and the file next to this one is not the crash before it.
+		if (hadPreviousCrashLog && rotated != 0)
+			fprintf(theReleaseCrashLogFile, "(the previous crash report could not be rotated aside; %s is older than it looks)\n", prevbuf);
 		fprintf(theReleaseCrashLogFile, "\nLast error:\n%s\n\nCurrent stack:\n", g_LastErrorDump.str());
 		const int STACKTRACE_SIZE	= 12;
 		// 1, not 6: FillStackAddresses drops its own frame itself now, so 6 skipped
@@ -809,12 +830,18 @@ void ReleaseCrashLocalized(const AsciiString& p, const AsciiString& m)
 	strcat(curbuf, RELEASECRASH_FILE_NAME);
 
  	remove(prevbuf);
-	rename(curbuf, prevbuf);
+	FILE *existingCrashLog = fopen(curbuf, "r");
+	const bool hadPreviousCrashLog = (existingCrashLog != NULL);
+	if (existingCrashLog != NULL)
+		fclose(existingCrashLog);
+	const int rotated = rename(curbuf, prevbuf);
 
 	theReleaseCrashLogFile = fopen(curbuf, "w");
 	if (theReleaseCrashLogFile)
 	{
 		fprintf(theReleaseCrashLogFile, "Release Crash at %s; Reason %s\n", getCurrentTimeString(), mesg.str());
+		if (hadPreviousCrashLog && rotated != 0)
+			fprintf(theReleaseCrashLogFile, "(the previous crash report could not be rotated aside; %s is older than it looks)\n", prevbuf);
 
 		const int STACKTRACE_SIZE	= 12;
 		// 1, not 6: FillStackAddresses drops its own frame itself now, so 6 skipped

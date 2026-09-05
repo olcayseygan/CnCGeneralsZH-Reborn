@@ -194,6 +194,21 @@ found and fixed â€” EA's own, not port damage.**
 - Replay archiving saves each match under its own date-and-time name.
 - Long lists scroll the whole way, past two thousand rows.
 - Map, skirmish and replay menus read the catalogue once instead of rebuilding it.
+- The replay list's date column shows the date. It only ever held the clock time, so a folder of
+  games recorded over months all read as the same handful of afternoons.
+- Dates in the replay and save lists are written the way your own Region settings ask for. Both
+  lists were formatting against the locale the machine was installed with rather than the one the
+  person using it picked, which on any machine set up in one country and used in another is not the
+  same thing.
+- A save game can be opened straight from the command line: `-loadsave <name>`, the same way
+  `-replay` opens a replay. The only route in was the Load menu, so there was no way to put a
+  machine back into a known world without clicking through to it.
+- A map with an accented character in its name survives the map cache. The name is encoded before it
+  goes in, and the encoder stopped dead at the first byte over 127 - so anything past it was simply
+  gone, and nothing could read the name back.
+- A replay whose header the game cannot read warns you instead of starting anyway. It used to
+  report the file as compatible and go straight into playback on something it had already failed to
+  parse.
 
 ## Placing a building, then changing your mind
 
@@ -345,6 +360,12 @@ found and fixed â€” EA's own, not port damage.**
 - Hackers show how far off the next payout is. So do the black market and the oil derricks.
 - A hacker working from inside an Internet Center shows what it earns. The green figure floats over the building on every payout, the way it does over one sitting in the field. It never appeared, because the game asked the hacker whether it could be seen and a garrisoned unit is not drawn at all - which is the one place a hacker is meant to work.
 - Factories take a hundred units in the queue, not nine. The build queue only ever had nine buttons and that had become the limit.
+- A match can pay everyone a wage. `MoneyPerMinute` in `GameData.ini` drops the same sum into every
+  living player's account on the minute, on top of whatever they are mining, which is the knob a
+  mod or a map needs to run a game that is not about holding the supply piles. Zero, and therefore
+  absent, unless somebody asks for it: on a stock install nothing changes. Measured on one seed with
+  four brutal computers at 7,777 a minute, three of the four spent between 3,400 and 6,200 more in
+  the first three minutes and put the difference on the map.
 
 ## Health bars
 
@@ -418,6 +439,12 @@ found and fixed â€” EA's own, not port damage.**
 - The writing on a build button keeps its size against the button. The hotkey letter, the price, the build time and the queue count were sized off how wide your monitor is while the bar they sit on is sized off the smaller of its width and its height, so the wider the screen the further the lettering grew away from the cameo underneath it. One size for both now, and it is the bar's.
 - Every key the game answers to is in the options screen, and you can move any of them. The keyboard screen has been in the game since 2003 - the code for it, anyway; the layout it needed was never shipped in any data file, which is why the button that opens it was authored hidden and parked off the right edge, and why its Assign button had an empty body with a comment where the work should be. It is built now: every command in one list with the key it answers to beside it, click a row and press the key you want. A key can only mean one thing, so whatever was on it gives it up. Your changes go in `Keybinds.ini` next to `Options.ini` and hold only what you moved, so a patch that adds commands does not wipe them - and none of it is in the multiplayer checksum, so two players in one match can hold completely different keyboards.
 - Minimising the command bar sends the radar and the whole middle off the bottom of the screen, and they slide back up when you bring them back. The old minimise dropped the bar a tenth of the screen and left a strip of metal, a readable money box and the top of the radar dish lying along the bottom edge, which is neither the bar nor out of the way. The selection panel stays where it is, because that is where the button that puts the rest back lives.
+- Menu panels slide in at the same speed whatever your monitor is. They travel the width of the
+  screen but moved at a fixed forty pixels a step, so the wider the screen the longer every
+  transition took: twenty steps at 800 wide, sixty-four at 2560.
+- A screenshot no longer takes the game down when the window is bigger than the desktop. Asking for
+  a 1600x1200 window on a 1080-tall monitor puts part of it off the screen, and the capture read
+  the whole client area out of a buffer that stops at the desktop's edge.
 - The arrow on a dropdown is square at every resolution. It was drawn into a slot of a fixed 21 pixels wide however tall the box around it was stretched, so the bigger the screen the more the arrow was squeezed.
 - The promotion screen closes when you press its key again, however fast you press it. The screen fades in, and the fade drives the window itself for several frames either way - so a second press during the fade read the screen as still shut and opened it again, and a press just after it was closed was undone by the fade's next frame.
 - The command bar stops changing under you while you are using it. With nothing selected the bar shows one of your builders so you can place a structure without picking a dozer first, and it showed whichever one happened to be idle - so a dozer finishing a building on the far side of the base took the bar over, dropping a half-typed build hotkey and taking the structure off your cursor. The builder you are working with keeps the bar.
@@ -427,8 +454,16 @@ found and fixed â€” EA's own, not port damage.**
 - Borderless fullscreen: start with `-borderless` and the game fills the screen at your desktop resolution with no frame and no display mode change, so alt-tab is instant, nothing on the desktop gets shuffled around behind it, and a second monitor stays usable. Screen-edge scrolling works there, the way it does in fullscreen. The loading picture still opens as its own small window with your desktop around it, and the game only takes the screen once it has something to draw.
 - Fullscreen, borderless and windowed are one saved setting now, so borderless no longer means adding a switch to your shortcut every time. `WindowMode` in `Options.ini` takes 0, 1 or 2 in that order; a switch on the command line still wins for that one run. Picking a different one applies when you press Accept instead of the next time you start the game: the window loses or gains its frame and the display device is rebuilt on the spot. Borderless takes your desktop resolution and nothing else, so while it is selected the resolution list greys out and the other two modes hand it straight back.
 - Antialiasing is a saved setting as well: `MSAA` in `Options.ini`, 0 for off through 4 for sixteen samples. `-msaa 4` still works and still wins for that run. Whatever your card will not give is stepped down instead of refused, so asking for six samples gets you four rather than nothing.
+- Texture filtering is yours to set. `TextureFilter` in `Options.ini` takes 0 for bilinear, 1 for
+  trilinear and 2 for anisotropic, and `Anisotropy` takes the sample count, 0 meaning whatever your
+  card offers. The default is anisotropic at the card's maximum: retail shipped bilinear with point
+  mip selection, which was a 2003 fill-rate budget and is why distant ground shimmered.
 - Picking High detail gives you high resolution textures. The setting was ignored: the resolution came from a machine benchmark that answers 'low' on anything modern, so there was no way to ask for better.
 - The main menu plays its battle again instead of showing one still picture. The game asks Windows how much memory the machine has and compares the answer against a 256MB minimum, and on a machine with more than 4GB installed that answer arrived as minus one - so the better the machine, the more certain the game was that it did not meet the 2003 minimum. It switched off the animated menu, forced textures down and, at the preset detail levels, took the trees out. It reads the real figure now.
+- A setting you typed into `Options.ini` by hand survives opening the options screen. A value the
+  matching slider could not reach was thrown away rather than clamped, and the slider then sat on
+  its minimum - which is what got written back when you pressed Accept. Whatever the slider cannot
+  show now reads as the nearest end of its track instead of the bottom of it.
 - The Default button in the options menu no longer throws away your resolution. It reset the display along with everything else, dropping you to 800x600 with no undo.
 - Text does not vanish at large sizes. Any font over 100 points simply failed to load, which on a 4K screen is a missing line of interface.
 - Zoom further out, with the whole map drawn instead of black corners.
@@ -448,6 +483,19 @@ found and fixed â€” EA's own, not port damage.**
 - Snapping now uses the true cell offset and the building's concrete apron.
 - A building faces the way you drag it, read at the moment you release.
 - The mouse pointer stays visible for the whole placement.
+- How see-through the structure on your cursor is, and whether it drops a shadow, are yours to set:
+  `BuildPlacementOpacity` and `BuildPlacementShadows` in `GameData.ini`. The defaults are what the
+  game always did.
+- The menus move at whatever speed you want them to. `MenuTransitionSpeed` in `Options.ini` is a
+  percentage: 100 is the pace the slides and fades were drawn at, 400 gets you from the main menu to
+  a skirmish setup in a quarter of the time, 25 is for looking at them.
+- The right mouse button can stop dragging the camera. With the alternate mouse layout it is the
+  selection button, so every selection drag was also a camera drag; `RightMouseScroll = no` in
+  `Options.ini` hands it back and leaves the middle button and the screen edge to scroll with.
+- Alt+F4 and the window's close button quit the game. Both have always sent the message that means
+  "leave now", and nothing was listening for it: the handler was switched off in 2003 and never
+  switched back on, so the X in the corner did nothing and the only way out was the menus. A match
+  in progress stops recording its replay first.
 
 ## Soldiers cast real shadows
 
@@ -464,6 +512,17 @@ found and fixed â€” EA's own, not port damage.**
 
 - `Bloom = 60` in `Options.ini` makes bright things bleed light into the air.
 - Off until you add that line; `BloomThreshold` sets how much of the picture joins in.
+- Scorch marks follow the texture quality setting like everything else. The terrain and the trees
+  dropped to the resolution you asked for and the burn marks did not, so on Low the ground went soft
+  underneath craters that stayed sharp.
+- The craters a map ships with stay on the ground. Scorch marks live in a list of 500 and the list
+  makes room by throwing away its oldest entry - which is always one the level designer placed, so a
+  long battle rubbed out the map's own burn marks one at a time. Only marks the fighting made are
+  thrown away now.
+- Units stop going see-through for no reason. The game marks a unit that is standing behind a
+  building so you can still make it out, and the flag that says "yes, something is in front of this
+  one" was set once and never cleared - so the first unit genuinely behind a wall made every unit
+  checked after it see-through too, wall or no wall. On a busy screen that was most of them.
 - Bloom and antialiasing work together. Turning bloom on with antialiasing on gave you a black battlefield under a live interface: the glow pass draws the world into its own picture first, and that picture came with a depth buffer nobody had cleared, so every triangle in the scene was rejected as being behind something that was not there.
 - A switch you write in `Options.ini` by hand takes `yes`, `true`, `on` or `1` for on. Only the
   exact word `yes` used to count, so a line spelled any other way read as off and looked like a
@@ -471,6 +530,13 @@ found and fixed â€” EA's own, not port damage.**
 - Explosions light what is around them: 89 of them, from a tank shell to the Scud Storm,
   throw a warm flash that fades over a third of a second. A night fight used to be muzzle
   smoke over unlit ground.
+- Heat haze bends the picture as far up and down as it does side to side. The vertical pull was
+  half the horizontal one, which nobody could see while the haze was reading its sideways figure
+  for both directions, and became a visible lean the moment that was fixed.
+- Cutscenes and briefings play at the colour depth your card actually offers. Every video but the
+  EA logo was dropped to sixteen bit on the way in, on any machine - the test that was meant to
+  limit that to a 2003 low-memory PC is commented out in the same line - and it was dropped there
+  even on a device that had just reported it could not do sixteen bit at all.
 
 ## It does not crash
 
@@ -496,6 +562,14 @@ found and fixed â€” EA's own, not port damage.**
 - A transport told to load into something it cannot enter - or into itself, which happens when it is part of the group you gave the order to - ignores the order instead of flying over and hovering beside it.
 - A pilot ejecting from a wreck no longer plays a promotion sound and animation somewhere out in the map.
 - A sound finishing does not take the game with it. Every sound carries a description of itself, and that description can be gone by the time the sound ends - it is dropped when the sound is renamed, cleared by hand when what it points at is about to be deleted, and absent on a sound that was queued to repeat after a delay. The 2003 code checked for that in two places and then read straight through it in fifteen others, one of which is where every finished sound goes. It crashed mid-match with a stack that is all audio and names nothing that caused it. A sound with no description is now simply not music and not speech, which is what all fifteen questions were asking; the channel it was using is still handed back, because losing one leaks a voice for the rest of the match and enough of them go quiet.
+- A vehicle that gives off dirt but no dust no longer takes the game down when it lands. The landing
+  puff belongs to the dust effect, and the code reached for it after checking that the dirt effect
+  existed - so any vehicle whose data has one and not the other faulted the moment its wheels came
+  back down.
+- A file that appears after the game has already looked for it is found. The answer to "is this
+  file there" was remembered forever, and nothing cleared it when a mod archive was mounted or the
+  patch content was layered on top - so a file the game had asked about a moment too early stayed
+  invisible for the rest of the session.
 - A guard posted at a tunnel network no longer takes the game down when its target stops existing.
   EA's own copy of that function, the one for units guarding anywhere else, tests for it on its first
   line; the tunnel copy read straight through the missing pointer and crashed mid-match.
@@ -516,6 +590,30 @@ found and fixed â€” EA's own, not port damage.**
 - The game says so in the log when the graphics device is lost, which is what happens when you
   alt-tab out. The recovery after that is the riskiest thing the renderer does, and until now it
   left no trace at all in a shipping build.
+- Wreckage no longer drops a shadow request full of whatever was on the stack. A shadow is asked
+  for by filling in a small form, and the form has a slot for a texture name that the wreckage code
+  never filled in at all. The shadow system reads that slot the moment its first byte is not zero,
+  so it was measuring and copying a name nobody wrote. The form now starts blank.
+- A battle thick with smoke, fire and glass draws instead of falling over. Everything see-through
+  is collected, sorted back to front and drawn in one go, and the list it goes into can only count
+  to 65,535 - which nothing checked. Past that the game asked for a buffer that cannot exist and
+  wrote into it anyway. What does not fit now waits for the next pass.
+- A map stored somewhere with a long name no longer overruns on the way in. The wave marks a map
+  carries are looked up by swapping the map's own extension, and the name was copied into a fixed
+  256-byte buffer first, with no check at either end.
+- Saves, replays and settings find your Documents folder even when it has been moved. The shell call
+  the game used writes into a fixed buffer and fails outright on a path longer than that, which is
+  what a redirected folder on a network share or a long OneDrive path is. Everything then went
+  somewhere else without a word.
+- The game reads its own registry settings from your account before the machine-wide ones. Writing
+  the machine-wide half needs administrator rights, so a per-user or Steam install only ever writes
+  yours - and a stale entry left by some other copy of the game was winning, pointing this one at
+  another install's language and data folder.
+- Quitting no longer stops on a dialog nobody can see. An internal warning raised while the game is
+  tearing down used to put a box up over a graphics device that was already going away.
+- A log that could not be rotated says so, in the log. Rotation fails when a second copy of the game
+  has the file open, and the ".prev" file next to it then holds some older run than the one before -
+  which is a bug report read wrong.
 - Something going wrong now writes a readable crash report.
 
 ## Units take corners wide, and drive round a jam instead of into it
@@ -686,8 +784,13 @@ found and fixed â€” EA's own, not port damage.**
 ## Sound, video, and getting it to start at all
 
 - Audio is real, through the audio library the retail game ships with.
+- A sound at the edge of its range can fade out instead of stopping dead. The volume curve never
+  actually reaches zero, so a sound you are walking away from was cut off mid-note at the maximum
+  range. `RangeVolumeFade = Yes` in `AudioSettings.ini` uses a fade that reaches zero exactly where
+  the cut is. Off by default, because it changes how every positional sound in the game carries.
 - The videos play: the intro, the sizzle reel, the mission briefings, the general portraits.
 - The pointer is on screen over them. It used to appear only once the main menu did, so clicking through the logos was done blind.
+- Escape skips the opening logo, not just everything after it. The key has always skipped movies; the gate it asks was raised only once the logo had played itself out, so the one film you see on every single launch was the one you could not get past.
 - About 5,600 graphics calls are translated to a modern path, none of them touched.
 - No disc, no registry keys, no retail installer â€” a normal install works.
 - The startup screen is this build's own, so you can see which one you launched before the menu loads.

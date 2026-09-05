@@ -70,6 +70,9 @@
 #include "GameNetwork/GameInfo.h"
 #include <float.h>
 #include "GameClient/Water.h"
+#include "GameClient/Shadow.h"
+#include "GameClient/UiAnimClock.h"
+#include "Common/QuotedPrintable.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameClient/GameClient.h"
 #include "Common/GameEngine.h"
@@ -9161,4 +9164,117 @@ TEST(crowd_brake_only_reads_closing_time)
 
 	// a zero window is the rule switched off, not a division by zero
 	CHECK_NEAR( Crowd_brakeSpeed( full, 0.0f, 0.0f, 0 ), full, 0.0001f );
+}
+
+//-------------------------------------------------------------------------------------------------
+// A shadow request is filled in field by field by whoever makes it, and the debris draw module
+// never touched the name at all.  The shadow manager reads that name the moment its first byte is
+// not zero, so an uninitialised stack was being strlen'd and copied as a texture name.
+//-------------------------------------------------------------------------------------------------
+TEST(a_shadow_request_starts_with_no_texture_name)
+{
+	// Build the request on top of a scribbled buffer, default-initialised the way a local
+	// variable is.  Without a constructor on the struct that leaves the pattern in place -
+	// which is the whole failure - so this check cannot pass by accident.
+	char raw[ sizeof(Shadow::ShadowTypeInfo) ];
+	memset( raw, 0x7F, sizeof(raw) );
+
+	Shadow::ShadowTypeInfo *info = ::new ( (void *)raw ) Shadow::ShadowTypeInfo;
+
+	CHECK_EQ( info->m_ShadowName[ 0 ], '\0' );
+	CHECK_EQ( (Int)strlen( info->m_ShadowName ), 0 );
+	CHECK_EQ( (Int)info->m_type, (Int)SHADOW_NONE );
+	CHECK_NEAR( info->m_sizeX, 0.0f, 0.0001f );
+	CHECK_NEAR( info->m_sizeY, 0.0f, 0.0001f );
+	CHECK_NEAR( info->m_offsetX, 0.0f, 0.0001f );
+	CHECK_NEAR( info->m_offsetY, 0.0f, 0.0001f );
+	CHECK( !info->allowUpdates );
+	CHECK( !info->allowWorldAlign );
+}
+
+//-------------------------------------------------------------------------------------------------
+// MenuTransitionSpeed scales the rate the shell's slides and fades step at. The catalog clamps the
+// setting, but the function is what the menus actually call and a zero reaching it would be a
+// division by nothing, so it clamps again on its own.
+//-------------------------------------------------------------------------------------------------
+TEST(menu_transition_speed_scales_the_step_rate_and_never_reaches_zero)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+
+	// the default is the rate the menus were drawn at, unchanged
+	CHECK_EQ( scratch->m_menuTransitionSpeed, 100 );
+	CHECK_NEAR( GameClient_menuAnimStepsPerSec(), UI_ANIM_STEPS_PER_SEC, 0.0001f );
+
+	scratch->m_menuTransitionSpeed = 200;
+	CHECK_NEAR( GameClient_menuAnimStepsPerSec(), UI_ANIM_STEPS_PER_SEC * 2.0f, 0.0001f );
+
+	scratch->m_menuTransitionSpeed = 50;
+	CHECK_NEAR( GameClient_menuAnimStepsPerSec(), UI_ANIM_STEPS_PER_SEC * 0.5f, 0.0001f );
+
+	// out of range on either side lands on the range, and nothing ever comes back at or below zero
+	scratch->m_menuTransitionSpeed = 0;
+	CHECK_NEAR( GameClient_menuAnimStepsPerSec(), UI_ANIM_STEPS_PER_SEC * 0.25f, 0.0001f );
+
+	scratch->m_menuTransitionSpeed = -1000;
+	CHECK( GameClient_menuAnimStepsPerSec() > 0.0f );
+
+	scratch->m_menuTransitionSpeed = 100000;
+	CHECK_NEAR( GameClient_menuAnimStepsPerSec(), UI_ANIM_STEPS_PER_SEC * 4.0f, 0.0001f );
+
+	TheWritableGlobalData = saved;
+	delete scratch;
+}
+
+//-------------------------------------------------------------------------------------------------
+// The structure riding the cursor is drawn at BuildPlacementOpacity and casts a shadow or not
+// according to BuildPlacementShadows. Both defaults have to be what the game always did, or every
+// player who never touches GameData.ini gets a different picture than they had.
+//-------------------------------------------------------------------------------------------------
+TEST(build_placement_preview_defaults_are_the_ones_the_game_always_used)
+{
+	GlobalData *scratch = NEW GlobalData;
+
+	CHECK_NEAR( scratch->m_buildPlacementOpacity, PLACEMENT_SILHOUETTE_OPACITY, 0.0001f );
+	CHECK( scratch->m_buildPlacementShadows );
+
+	// and the income trickle is off unless somebody asks for it
+	CHECK_EQ( scratch->m_moneyPerMinute, 0 );
+
+	// the right button still scrolls unless somebody turns it off
+	CHECK( scratch->m_rightMouseScroll );
+
+	delete scratch;
+}
+
+//-------------------------------------------------------------------------------------------------
+// A map name with a non-ASCII byte in it reaches isalnum as a negative number, which is undefined
+// and is what the CRT asserted on while building the map cache. Every byte over 127 has to encode,
+// and the round trip has to bring it back.
+//-------------------------------------------------------------------------------------------------
+TEST(quoted_printable_survives_bytes_over_127)
+{
+	// every high byte, one after another - this is what an accented map name looks like
+	char highBytes[ 130 ];
+	Int n = 0;
+	for( Int b = 128; b <= 255; ++b )
+		highBytes[ n++ ] = (char)b;
+	highBytes[ n ] = '\0';
+
+	AsciiString original( highBytes );
+	AsciiString encoded = AsciiStringToQuotedPrintable( original );
+
+	// nothing high survives into the encoded form: it is all MAGIC_CHAR plus two hex digits
+	for( Int i = 0; i < encoded.getLength(); ++i )
+		CHECK( (unsigned char)encoded.getCharAt( i ) < 128 );
+
+	CHECK_EQ( encoded.getLength(), original.getLength() * 3 );
+
+	// and it comes back
+	AsciiString decoded = QuotedPrintableToAsciiString( encoded );
+	CHECK_STR( decoded.str(), original.str() );
+
+	// a plain name is left alone, which is what makes the encoding readable in a cache file
+	CHECK_STR( AsciiStringToQuotedPrintable( AsciiString( "Alpine" ) ).str(), "Alpine" );
 }

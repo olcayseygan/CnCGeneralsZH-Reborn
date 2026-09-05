@@ -999,11 +999,17 @@ void WaterTracksRenderSystem::saveTracks(void)
 		return;
 
 	AsciiString fileName=TheTerrainLogic->getSourceFilename();
-	char path[256];
+	char path[_MAX_PATH];
+
+	// The map name is whatever the player's Maps folder is called, so it is not
+	// bounded by anything this code owns: the old fixed 256 byte copy overran on a
+	// long path, and a name shorter than ".map" wrote the new extension in front of
+	// the buffer.
+	Int len=fileName.getLength();
+	if (len < 4 || len >= (Int)sizeof(path))
+		return;
 
 	strcpy(path,fileName.str());
-	Int len=strlen(path);
-
 	strcpy(path+len-4,".wak");
 
 	WaterTracksObj *umod;
@@ -1037,11 +1043,13 @@ void WaterTracksRenderSystem::loadTracks(void)
 		return;
 
 	AsciiString fileName=TheTerrainLogic->getSourceFilename();
-	char path[256];
+	char path[_MAX_PATH];
+
+	Int len=fileName.getLength();
+	if (len < 4 || len >= (Int)sizeof(path))
+		return;
 
 	strcpy(path,fileName.str());
-	Int len=strlen(path);
-
 	strcpy(path+len-4,".wak");
 
 	File *file = TheFileSystem->openFile(path, File::READ | File::BINARY);

@@ -48,6 +48,7 @@ public:
 
 	const ObjectCreationList* m_ocl;			///< object creaton list to make
 	Bool m_transferPreviousHealth; ///< Transfers previous health before death to the new object created.
+	Bool m_transferSelection;			 ///< If the dying object was selected, select what replaces it.
 
 	CreateObjectDieModuleData();
 

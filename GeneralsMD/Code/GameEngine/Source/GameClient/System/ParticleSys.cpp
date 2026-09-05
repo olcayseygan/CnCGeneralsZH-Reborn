@@ -1201,8 +1201,11 @@ ParticleSystem::ParticleSystem( const ParticleSystemTemplate *sysTemplate,
 	m_slavePosOffset = sysTemplate->m_slavePosOffset;
 
 
-	///@todo: further formalize this parameter with an UnsignedInt field in the editor
-	m_volumeParticleDepth = DEFAULT_VOLUME_PARTICLE_DEPTH;
+	// EA's own todo here was "further formalize this parameter with an UnsignedInt field in the
+	// editor": the member existed, was reset to zero on every system built from a template, and
+	// the getter ignored it and returned a hard-coded 6 for anything typed VOLUME_PARTICLE.
+	// It is a template field now, and zero still means "whatever the engine thinks best".
+	m_volumeParticleDepth = sysTemplate->m_volumeParticleDepth;
 
 
 	m_driftVelocity = sysTemplate->m_driftVelocity;
@@ -2861,6 +2864,7 @@ const FieldParse ParticleSystemTemplate::m_fieldParseTable[] =
 	{ "IsOneShot",							INI::parseBool,						NULL,		offsetof( ParticleSystemTemplate, m_isOneShot ) },
 	{ "Shader",									INI::parseIndexList,			ParticleShaderTypeNames,		offsetof( ParticleSystemTemplate, m_shaderType ) },
 	{ "Type",										INI::parseIndexList,			ParticleTypeNames,		offsetof( ParticleSystemTemplate, m_particleType ) },
+	{ "VolumeParticleDepth",		INI::parseUnsignedInt,		NULL,		offsetof( ParticleSystemTemplate, m_volumeParticleDepth ) },
 	{ "ParticleName",						INI::parseAsciiString,		NULL,		offsetof( ParticleSystemTemplate, m_particleTypeName ) },
 	{ "AngleZ",									INI::parseGameClientRandomVariable,	NULL,		offsetof( ParticleSystemTemplate, m_angleZ ) },
 	{ "AngularRateZ",						INI::parseGameClientRandomVariable,	NULL,		offsetof( ParticleSystemTemplate, m_angularRateZ ) },

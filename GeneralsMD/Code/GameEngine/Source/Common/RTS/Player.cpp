@@ -737,6 +737,19 @@ void Player::update()
 	if( m_tunnelSystem )
 		m_tunnelSystem->healObjects();
 
+	// A trickle of income that does not come from a supply line. `MoneyPerMinute` in GameData.ini,
+	// zero and therefore absent unless somebody asks for it. Paid on the minute rather than spread
+	// over the frames so that the figure in the readout is the figure that was asked for, and only
+	// to players who are still in the match - the neutral slot and a defeated player get nothing.
+	if( TheGlobalData->m_moneyPerMinute > 0 && isPlayableSide() && isPlayerActive() )
+	{
+		const UnsignedInt now = TheGameLogic->getFrame();
+		const UnsignedInt minute = LOGICFRAMES_PER_SECOND * 60;
+
+		if( now > 0 && (now % minute) == 0 )
+			m_money.deposit( (UnsignedInt)TheGlobalData->m_moneyPerMinute, FALSE );
+	}
+
 	//Update the academy stats (this only checks applicable things that require a polling method)
 	getAcademyStats()->update();
 

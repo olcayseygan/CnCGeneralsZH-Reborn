@@ -58,6 +58,7 @@ CrateCollideModuleData::CrateCollideModuleData()
 	m_executeAnimationFades = TRUE;
 	m_isBuildingPickup = FALSE;
 	m_isHumanOnlyPickup = FALSE;
+	m_allowMultiplePickup = FALSE;
 	m_executeFX = NULL;
 	m_pickupScience = SCIENCE_INVALID;
 
@@ -82,6 +83,7 @@ void CrateCollideModuleData::buildFieldParse(MultiIniFieldParse& p)
 		{ "ForbidOwnerPlayer", INI::parseBool,	NULL,	offsetof( CrateCollideModuleData, m_isForbidOwnerPlayer ) },
 		{ "BuildingPickup", INI::parseBool,	NULL,	offsetof( CrateCollideModuleData, m_isBuildingPickup ) },
 		{ "HumanOnly", INI::parseBool,	NULL,	offsetof( CrateCollideModuleData, m_isHumanOnlyPickup ) },
+		{ "AllowMultiplePickup", INI::parseBool,	NULL,	offsetof( CrateCollideModuleData, m_allowMultiplePickup ) },
 		{ "PickupScience", INI::parseScience,	NULL,	offsetof( CrateCollideModuleData, m_pickupScience ) },
 		{ "ExecuteFX", INI::parseFXList, NULL, offsetof( CrateCollideModuleData, m_executeFX ) },
 		{ "ExecuteAnimation", INI::parseAsciiString, NULL, offsetof( CrateCollideModuleData, m_executionAnimationTemplate ) },
@@ -178,7 +180,9 @@ Bool CrateCollide::isValidToExecute( const Object *other ) const
 
 	// every unit that touches the crate in the same frame used to collect it: the crate is marked
 	// destroyed by the first one, but destruction does not happen until the end of the frame.
-	if( getObject()->isDestroyed() )
+	// `AllowMultiplePickup = Yes` asks for that back, for a crate that is meant to pay a whole
+	// group at once.
+	if( !md->m_allowMultiplePickup && getObject()->isDestroyed() )
 		return FALSE;
 
 	if( md->m_isForbidOwnerPlayer  &&  (getObject()->getControllingPlayer() == other->getControllingPlayer()) )

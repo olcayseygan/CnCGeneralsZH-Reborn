@@ -704,6 +704,11 @@ Bool W3DTerrainVisual::load( AsciiString filename )
 		pMapObj = pMapObj->getNext();
 	}
 
+	// Everything on the scorch list came out of the map file. Say so: the list has a fixed size and
+	// makes room by dropping its oldest entry, and the oldest entries are these - so a long match
+	// used to rub out the map's own craters one at a time.
+	m_terrainRenderObject->markScorchesStatic();
+
 	// reset water render object if present
 	if( m_waterRenderObject )
 	{

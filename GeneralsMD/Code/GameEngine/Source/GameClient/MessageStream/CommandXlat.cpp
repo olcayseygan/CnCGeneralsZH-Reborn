@@ -94,7 +94,10 @@
 
 
 
-#define dont_ALLOW_ALT_F4
+// Alt+F4 and the window's close button both end up as MSG_META_DEMO_INSTANT_QUIT
+// (WinMain's WM_CLOSE posts it). With this off, that message had no handler at all:
+// the title bar's X and Alt+F4 did nothing, and the only way out was the menus.
+#define ALLOW_ALT_F4
 
 //-------------------------------------------------------------------------------------------------
 /**

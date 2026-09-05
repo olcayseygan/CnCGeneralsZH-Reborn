@@ -56,6 +56,41 @@
 #include "GameClient/AnimateWindowManager.h"
 #include "GameClient/GameWindow.h"
 #include "GameClient/Display.h"
+
+/** How far off the authored 800-wide screen this one is.
+	*
+	* A window slides in from off the edge, so the distance it covers is the screen's own width or
+	* height. The speed it covers it at, and the distance over which it slows down, are flat pixel
+	* counts written for 800x600 - so the wider the monitor the longer every menu animation took:
+	* 800/40 is twenty steps, 2560/40 is sixty-four. Scaling both with the screen keeps the animation
+	* the same length whatever it is drawn on.
+	*
+	* ponytail: read once, when AnimateWindowManager::init builds these objects. Changing resolution
+	* mid-session leaves the old scale until the next start; move this to a per-frame refresh if that
+	* ever matters. */
+static Real animateWindowDisplayScale( void )
+{
+	const Real AUTHORED_WIDTH = 800.0f;
+
+	if (TheDisplay == NULL || TheDisplay->getWidth() <= 0)
+		return 1.0f;
+
+	Real scale = (Real)TheDisplay->getWidth() / AUTHORED_WIDTH;
+	return (scale < 1.0f) ? 1.0f : scale;		// never slower than it was authored to be
+}
+
+/// The same thing for the windows that slide up and down: their travel is the screen's height.
+static Real animateWindowDisplayScaleY( void )
+{
+	const Real AUTHORED_HEIGHT = 600.0f;
+
+	if (TheDisplay == NULL || TheDisplay->getHeight() <= 0)
+		return 1.0f;
+
+	Real scale = (Real)TheDisplay->getHeight() / AUTHORED_HEIGHT;
+	return (scale < 1.0f) ? 1.0f : scale;
+}
+
 //-----------------------------------------------------------------------------
 // DEFINES ////////////////////////////////////////////////////////////////////
 //-----------------------------------------------------------------------------
@@ -75,9 +110,9 @@
 
 ProcessAnimateWindowSlideFromRight::ProcessAnimateWindowSlideFromRight( void )
 {
-	m_maxVel.x =  -40.0f;  // top speed windows travel in x and y
+	m_maxVel.x =  -40.0f * animateWindowDisplayScale();  // top speed windows travel in x and y
 	m_maxVel.y = 0.0f;
-	m_slowDownThreshold = 80;  // when widnows get this close to their resting
+	m_slowDownThreshold = (Int)(80 * animateWindowDisplayScale());  // when widnows get this close to their resting
 																			// positions they start to slow down
 	m_slowDownRatio = 0.67f;  // how fast the windows slow down (smaller slows quicker)
 	m_speedUpRatio = 2.0f - m_slowDownRatio;  // how fast the windows speed up
@@ -261,9 +296,9 @@ Bool ProcessAnimateWindowSlideFromRight::reverseAnimateWindow( AnimateWindow *an
 
 ProcessAnimateWindowSlideFromLeft::ProcessAnimateWindowSlideFromLeft( void )
 {
-	m_maxVel.x =  40.0f;  // top speed windows travel in x and y
+	m_maxVel.x =  40.0f * animateWindowDisplayScale();  // top speed windows travel in x and y
 	m_maxVel.y = 0.0f;
-	m_slowDownThreshold = 80;  // when widnows get this close to their resting
+	m_slowDownThreshold = (Int)(80 * animateWindowDisplayScale());  // when widnows get this close to their resting
 																			// positions they start to slow down
 	m_slowDownRatio = 0.67f;  // how fast the windows slow down (smaller slows quicker)
 	m_speedUpRatio = 2.0f - m_slowDownRatio;  // how fast the windows speed up
@@ -439,9 +474,9 @@ Bool ProcessAnimateWindowSlideFromLeft::reverseAnimateWindow( AnimateWindow *ani
 
 ProcessAnimateWindowSlideFromTop::ProcessAnimateWindowSlideFromTop( void )
 {
-	m_maxVel.y =  40.0f;  // top speed windows travel in x and y
+	m_maxVel.y =  40.0f * animateWindowDisplayScaleY();  // top speed windows travel in x and y
 	m_maxVel.x = 0.0f;
-	m_slowDownThreshold = 80;  // when widnows get this close to their resting
+	m_slowDownThreshold = (Int)(80 * animateWindowDisplayScaleY());  // when widnows get this close to their resting
 																			// positions they start to slow down
 	m_slowDownRatio = 0.67f;  // how fast the windows slow down (smaller slows quicker)
 	m_speedUpRatio = 2.0f - m_slowDownRatio;  // how fast the windows speed up
@@ -618,9 +653,9 @@ Bool ProcessAnimateWindowSlideFromTop::reverseAnimateWindow( AnimateWindow *anim
 
 ProcessAnimateWindowSlideFromBottom::ProcessAnimateWindowSlideFromBottom( void )
 {
-	m_maxVel.y =  -40.0f;  // top speed windows travel in x and y
+	m_maxVel.y =  -40.0f * animateWindowDisplayScaleY();  // top speed windows travel in x and y
 	m_maxVel.x = 0.0f;
-	m_slowDownThreshold = 80;  // when widnows get this close to their resting
+	m_slowDownThreshold = (Int)(80 * animateWindowDisplayScaleY());  // when widnows get this close to their resting
 																			// positions they start to slow down
 	m_slowDownRatio = 0.67f;  // how fast the windows slow down (smaller slows quicker)
 	m_speedUpRatio = 2.0f - m_slowDownRatio;  // how fast the windows speed up
@@ -1132,9 +1167,9 @@ Bool ProcessAnimateWindowSpiral::reverseAnimateWindow( AnimateWindow *animWin )
 
 ProcessAnimateWindowSlideFromTopFast::ProcessAnimateWindowSlideFromTopFast( void )
 {
-	m_maxVel.y =  60.0f;  // top speed windows travel in x and y
+	m_maxVel.y =  60.0f * animateWindowDisplayScaleY();  // top speed windows travel in x and y
 	m_maxVel.x = 0.0f;
-	m_slowDownThreshold = 40;  // when widnows get this close to their resting
+	m_slowDownThreshold = (Int)(40 * animateWindowDisplayScaleY());  // when widnows get this close to their resting
 																			// positions they start to slow down
 	m_slowDownRatio = 0.67f;  // how fast the windows slow down (smaller slows quicker)
 	m_speedUpRatio = 4.0f - m_slowDownRatio;  // how fast the windows speed up
@@ -1315,9 +1350,9 @@ Bool ProcessAnimateWindowSlideFromTopFast::reverseAnimateWindow( AnimateWindow *
 
 ProcessAnimateWindowSlideFromRightFast::ProcessAnimateWindowSlideFromRightFast( void )
 {
-	m_maxVel.x =  -80.0f;  // top speed windows travel in x and y
+	m_maxVel.x =  -80.0f * animateWindowDisplayScale();  // top speed windows travel in x and y
 	m_maxVel.y = 0.0f;
-	m_slowDownThreshold = 60;  // when widnows get this close to their resting
+	m_slowDownThreshold = (Int)(60 * animateWindowDisplayScale());  // when widnows get this close to their resting
 																			// positions they start to slow down
 	m_slowDownRatio = 0.77f;  // how fast the windows slow down (smaller slows quicker)
 	m_speedUpRatio = 3.0f - m_slowDownRatio;  // how fast the windows speed up

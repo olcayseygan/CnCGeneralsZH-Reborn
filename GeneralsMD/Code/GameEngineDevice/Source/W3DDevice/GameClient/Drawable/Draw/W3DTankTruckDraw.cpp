@@ -634,16 +634,17 @@ void W3DTankTruckDraw::doDrawModule(const Matrix3D* transformMtx)
 		}
 		if (m_dirtEffect) {
 			if (wheelInfo && wheelInfo->m_framesAirborne>3) {
-				Real factor = 1 + wheelInfo->m_framesAirborne/16;
-				if (factor>2.0) factor = 2.0;
-				m_dustEffect->setSizeMultiplier(factor*SIZE_CAP);
-				m_dustEffect->trigger();
+				// See W3DTruckDraw: the landing puff is the dust system's, and this branch reached
+				// it while guarded on the dirt system - a null dereference for anything with a
+				// DirtSpray and no Dust.
+				if (m_dustEffect) {
+					Real factor = 1 + wheelInfo->m_framesAirborne/16;
+					if (factor>2.0) factor = 2.0;
+					m_dustEffect->setSizeMultiplier(factor*SIZE_CAP);
+					m_dustEffect->trigger();
+				}
 				m_landingSound.setPosition(obj->getPosition());
 				TheAudio->addAudioEvent(&m_landingSound);
-			} else {
-				if (!accelerating || speed>2.0f) {
-					m_dirtEffect->stop();
-				}	
 			}
 		}
 		if (m_powerslideEffect) {
@@ -654,10 +655,9 @@ void W3DTankTruckDraw::doDrawModule(const Matrix3D* transformMtx)
 				m_powerslideEffect->start();
 			}
 		}
-		if (m_dirtEffect) {
-			if (!accelerating || speed>2.0f) {
-				m_dirtEffect->stop();
-			}	
+		// once, not twice: the else of the airborne branch above said exactly this
+		if (m_dirtEffect && (!accelerating || speed>2.0f)) {
+			m_dirtEffect->stop();
 		}
 	}
 	else

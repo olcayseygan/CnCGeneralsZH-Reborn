@@ -50,6 +50,7 @@ public:
 	Bool m_isForbidOwnerPlayer;			///< This crate cannot be picked up by the player of the dead thing that made it.
 	Bool m_isBuildingPickup;			///< This crate can be picked up by a Building (bypassing AI requirement)
 	Bool m_isHumanOnlyPickup;				///< Can this crate only be picked up by a human player?  (Mission thing)
+	Bool m_allowMultiplePickup;			///< let every unit touching it in one frame collect it, the way it used to work
 	ScienceType m_pickupScience;		///< Can only be picked up by a unit whose player has this science
 	FXList *m_executeFX;						///< FXList to play when activated
 	

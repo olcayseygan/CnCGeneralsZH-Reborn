@@ -919,6 +919,12 @@ void W3DDisplay::init( void )
 	// 4, 8 or 16; the device degrades an unsupported one on its own.
 	DX8Wrapper::Set_Requested_MultiSample_Level( msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
 
+	// Same problem, same answer: the filter table is built the moment the device exists and WW3D2
+	// cannot see GlobalData, so the player's texture filtering goes in here. Nothing in the game
+	// ever called Set_Texture_Filter, so before this the mode was whatever the WW3D2 default was.
+	WW3D::Set_Requested_Texture_Filter( TheGlobalData->m_textureFilterMode );
+	TextureFilterClass::_Set_Requested_Anisotropy( (unsigned int)TheGlobalData->m_anisotropyLevel );
+
 	if( WW3D::Set_Render_Device( 0,
 															 getWidth(), 
 															 getHeight(), 
@@ -3219,8 +3225,12 @@ VideoBuffer*	W3DDisplay::createVideoBuffer( void )
 			return NULL;
 		}
 	}
-	// on low mem machines, render every video in 16bit except for the EA Logo movie
-	if(!TheGlobalData->m_playIntro )//&& TheGameLODManager && (!TheGameLODManager->didMemPass() || W3DShaderManager::getChipset() == DC_GEFORCE2))
+	// on low mem machines, render every video in 16bit except for the EA Logo movie.
+	// The low-memory half of that test is commented out right there, so this fires on
+	// every machine - and it used to fire even when the device had just told us it does
+	// not support R5G6B5, handing the video player a format it cannot create.
+	if( !TheGlobalData->m_playIntro//&& TheGameLODManager && (!TheGameLODManager->didMemPass() || W3DShaderManager::getChipset() == DC_GEFORCE2))
+			&& DX8Wrapper::Get_Current_Caps()->Support_Texture_Format( WW3D_FORMAT_R5G6B5 ) )
 		format = VideoBuffer::TYPE_R5G6B5;
 
 	W3DVideoBuffer *buffer = NEW W3DVideoBuffer( format );
@@ -3447,6 +3457,28 @@ static void saveScreenShot(void)
 		point.x=bounds.right; point.y=bounds.bottom;
 		ClientToScreen(ApplicationHWnd, &point);
 		bounds.right=point.x; bounds.bottom=point.y;
+	}
+
+	// The front-buffer path above turns the window's client area into desktop coordinates, and a
+	// window can hang off the edge of the desktop - ask for a 1600x1200 window on a 1080-tall
+	// monitor and it does. Reading that rectangle walks off the end of the front buffer and faults
+	// inside the copy loop below, which is a screenshot taking the game down. Clamp to the surface.
+	{
+		D3DSURFACE_DESC fbDesc;
+		if (fb != NULL && SUCCEEDED(fb->GetDesc(&fbDesc)))
+		{
+			if (bounds.left < 0) bounds.left = 0;
+			if (bounds.top < 0) bounds.top = 0;
+			if (bounds.right > (LONG)fbDesc.Width) bounds.right = (LONG)fbDesc.Width;
+			if (bounds.bottom > (LONG)fbDesc.Height) bounds.bottom = (LONG)fbDesc.Height;
+		}
+
+		if (fb == NULL || bounds.right <= bounds.left || bounds.bottom <= bounds.top)
+		{
+			if (fb != NULL)
+				fb->Release();
+			return;		// nothing to save; better than a fault
+		}
 	}
 
 	D3DLOCKED_RECT lrect;

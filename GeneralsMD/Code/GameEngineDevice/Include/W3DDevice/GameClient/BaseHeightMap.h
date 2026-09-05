@@ -168,11 +168,14 @@ public:
 
 	/// Update the macro texture (pass 3).
 	void setTextureLOD(Int lod);	///<change the maximum mip-level sent to the hardware.
+	void applyScorchTextureLOD(void);	///<re-apply that level to the scorch texture (it is rebuilt on a device reset)
 	void updateMacroTexture(AsciiString textureName);
 	void doTextures(Bool flag) {m_disableTextures = !flag;};
 	/// Update the diffuse value from static light info for one vertex.
 	void doTheLight(VERTEX_FORMAT *vb, Vector3*light, Vector3*normal, RefRenderObjListIterator *pLightsIterator, UnsignedByte alpha);
 	void addScorch(Vector3 location, Real radius, Scorches type);
+	/// Everything added so far came with the map and is not to be thrown away to make room.
+	void markScorchesStatic(void);
 	void addTree(DrawableID id, Coord3D location, Real scale, Real angle,
 								Real randomScaleAmount,  const W3DTreeDrawModuleData *data);
 	void removeAllTrees(void);
@@ -265,6 +268,13 @@ protected:
 	Int			m_curNumScorchIndices;	 ///<number of indices used in m_indexScorch.
 	TScorch	m_scorches[MAX_SCORCH_MARKS];
 	Int			m_numScorches;
+	/** How many of the scorches at the front of that list came with the map.
+		*
+		* The list is full-up on any long match and the oldest entry is thrown away to make room.
+		* The oldest entries are the map's own authored scorch marks, so an hour of fighting quietly
+		* erased everything the level designer put down. These are never evicted. */
+	Int			m_numStaticScorches;
+	Int			m_currentTextureLOD;	///< last value setTextureLOD was given; re-applied to textures rebuilt after a device reset
 
 	Int			m_scorchesInBuffer;		///< how many are in the buffers.  If less than numScorches, we need to update
 	

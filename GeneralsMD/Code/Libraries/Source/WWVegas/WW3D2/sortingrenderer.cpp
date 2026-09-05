@@ -336,6 +336,9 @@ static unsigned overlapping_node_count;
 static unsigned overlapping_polygon_count;
 static unsigned overlapping_vertex_count;
 static const unsigned MAX_OVERLAPPING_NODES=4096;
+// 16 bit indices: 65535 is the last index a triangle can name, and three of them per polygon.
+static const unsigned MAX_SORTING_VERTICES=65535;
+static const unsigned MAX_SORTING_POLYGONS=65535/3;
 static SortingNodeStruct* overlapping_nodes[MAX_OVERLAPPING_NODES];
 
 // ----------------------------------------------------------------------------
@@ -345,6 +348,17 @@ void SortingRendererClass::Insert_To_Sorting_Pool(SortingNodeStruct* state)
 	if (overlapping_node_count>=MAX_OVERLAPPING_NODES) {
 		Release_Refs(state);
 		WWASSERT(0);
+		return;
+	}
+
+	// The pool feeds one dynamic index buffer and one dynamic vertex buffer, and both
+	// are 16 bit. Past 65535 indices Flush_Sorting_Pool asks for a buffer that cannot
+	// exist and writes the triangles into it anyway; past 65535 vertices the per-node
+	// vertex offset stored in each triangle wraps and the geometry comes out as noise.
+	// Refuse the node instead, the way an over-full node list already does.
+	if (overlapping_polygon_count+state->polygon_count>MAX_SORTING_POLYGONS ||
+			overlapping_vertex_count+state->vertex_count>MAX_SORTING_VERTICES) {
+		Release_Refs(state);
 		return;
 	}
 

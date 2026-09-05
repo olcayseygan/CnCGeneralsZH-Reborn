@@ -210,7 +210,12 @@ GameState::SnapshotBlock *GameState::findBlockInfoByToken( AsciiString token, Sn
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-UnicodeString getUnicodeDateBuffer(SYSTEMTIME timeVal) 
+/* LOCALE_USER_DEFAULT, not LOCALE_SYSTEM_DEFAULT, in both of these: the system locale is the one
+	 the machine was installed with and is what non-Unicode programs get, while the user locale is the
+	 one the person sitting there picked in Region settings. On a machine set up in one country and
+	 used in another - which is most machines that run this game now - the dates in the replay and
+	 save lists came out in a format the owner never chose. */
+UnicodeString getUnicodeDateBuffer(SYSTEMTIME timeVal)
 {
 	// setup date buffer for local region date format
 	#define DATE_BUFFER_SIZE 256
@@ -222,7 +227,7 @@ UnicodeString getUnicodeDateBuffer(SYSTEMTIME timeVal)
 		if (osvi.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS)
 		{		
 			char dateBuffer[ DATE_BUFFER_SIZE ];
-			GetDateFormat( LOCALE_SYSTEM_DEFAULT,
+			GetDateFormat( LOCALE_USER_DEFAULT,
 										 DATE_SHORTDATE,
 										 &timeVal,
 										 NULL,
@@ -232,7 +237,7 @@ UnicodeString getUnicodeDateBuffer(SYSTEMTIME timeVal)
 		}	
 	}
 	wchar_t dateBuffer[ DATE_BUFFER_SIZE ];
-	GetDateFormatW( LOCALE_SYSTEM_DEFAULT,
+	GetDateFormatW( LOCALE_USER_DEFAULT,
 								 DATE_SHORTDATE,
 								 &timeVal,
 								 NULL,
@@ -253,7 +258,7 @@ UnicodeString getUnicodeTimeBuffer(SYSTEMTIME timeVal)
 		if (osvi.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS)
 		{		
 			char timeBuffer[ DATE_BUFFER_SIZE ];
-			GetTimeFormat( LOCALE_SYSTEM_DEFAULT,
+			GetTimeFormat( LOCALE_USER_DEFAULT,
 										 TIME_NOSECONDS|TIME_FORCE24HOURFORMAT|TIME_NOTIMEMARKER,
 										 &timeVal,
 										 NULL,
@@ -265,7 +270,7 @@ UnicodeString getUnicodeTimeBuffer(SYSTEMTIME timeVal)
 	// setup time buffer for local region time format
 	#define TIME_BUFFER_SIZE 256
 	wchar_t timeBuffer[ TIME_BUFFER_SIZE ];
-	GetTimeFormatW( LOCALE_SYSTEM_DEFAULT,
+	GetTimeFormatW( LOCALE_USER_DEFAULT,
 								 TIME_NOSECONDS,
 								 &timeVal,
 								 NULL,

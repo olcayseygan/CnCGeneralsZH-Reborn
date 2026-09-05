@@ -598,16 +598,17 @@ void W3DTruckDraw::doDrawModule(const Matrix3D* transformMtx)
 		}
 		if (m_dirtEffect) {
 			if (wheelInfo && wheelInfo->m_framesAirborne>3) {
-				Real factor = 1 + wheelInfo->m_framesAirborne/16;
-				if (factor>2.0) factor = 2.0;
-				m_dustEffect->setSizeMultiplier(factor*SIZE_CAP);
-				m_dustEffect->trigger();
+				// The landing puff belongs to the dust system, not the dirt system. This branch was
+				// guarded on m_dirtEffect and then went straight through m_dustEffect, which is a
+				// null dereference for any vehicle whose INI gives it a DirtSpray and no Dust.
+				if (m_dustEffect) {
+					Real factor = 1 + wheelInfo->m_framesAirborne/16;
+					if (factor>2.0) factor = 2.0;
+					m_dustEffect->setSizeMultiplier(factor*SIZE_CAP);
+					m_dustEffect->trigger();
+				}
 				m_landingSound.setObjectID(obj->getID());
 				TheAudio->addAudioEvent(&m_landingSound);
-			} else {
-				if (!accelerating || speed>2.0f) {
-					m_dirtEffect->stop();
-				}	
 			}
 		}
 		if (m_powerslideEffect) {
@@ -618,10 +619,10 @@ void W3DTruckDraw::doDrawModule(const Matrix3D* transformMtx)
 				m_powerslideEffect->start();
 			}
 		}
-		if (m_dirtEffect) {
-			if (!accelerating || speed>2.0f) {
-				m_dirtEffect->stop();
-			}	
+		// The same test was written out twice - once as the else of the airborne branch above and
+		// once again down here - so the else was doing nothing the second copy did not already do.
+		if (m_dirtEffect && (!accelerating || speed>2.0f)) {
+			m_dirtEffect->stop();
 		}
 	}
 	else

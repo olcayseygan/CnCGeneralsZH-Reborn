@@ -37,6 +37,11 @@ enum { MAX_HW_PROVIDERS = 4 };
 
 struct AudioSettings
 {
+	// Every field below is filled in by AudioSettings.ini and nothing gives them a value before
+	// that, so a key the shipped file does not carry arrives as whatever was on the heap. New
+	// fields get their default here.
+	AudioSettings() : m_rangeVolumeFade( FALSE ) {}
+
 	AsciiString m_audioRoot;
 	AsciiString m_soundsFolder;
 	AsciiString m_musicFolder;
@@ -52,6 +57,14 @@ struct AudioSettings
 	Int m_streamCount;
 	Int m_globalMinRange;
 	Int m_globalMaxRange;
+	/** How a 3D sound loses volume with distance.
+		*
+		* No, the default, is what the game has always done: a 1/distance curve past the minimum range
+		* and then a hard cut to silence at the maximum, so a sound you are walking away from stops
+		* dead rather than fading out. Yes uses the linear fade between the two ranges that EA left
+		* commented out next to it, which reaches zero exactly where the cut is.
+		* `RangeVolumeFade` in AudioSettings.ini. */
+	Bool m_rangeVolumeFade;
 	Int m_drawableAmbientFrames;
 	Int m_fadeAudioFrames;
 	UnsignedInt m_maxCacheSize;

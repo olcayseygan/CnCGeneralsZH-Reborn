@@ -292,7 +292,9 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 			m_anchor = msg->getArgument( 0 )->pixel;
 			m_currentPos = msg->getArgument( 0 )->pixel;
 
-			if (!TheInGameUI->isSelecting() && !m_isScrolling)
+			// `RightMouseScroll = no` in Options.ini frees the right button. In alternate mouse
+			// mode it is the selection button, so every selection drag was also a camera drag.
+			if (TheGlobalData->m_rightMouseScroll && !TheInGameUI->isSelecting() && !m_isScrolling)
 			{
 				setScrolling(SCROLL_RMB);
 			}

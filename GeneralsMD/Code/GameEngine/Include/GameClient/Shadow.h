@@ -75,7 +75,18 @@ class Shadow
 public:
 		
 		struct	ShadowTypeInfo
-		{	
+		{
+				// Every caller fills in only the fields it cares about. W3DDebrisDraw never
+				// touched m_ShadowName at all, and addShadow reads it as a texture name the
+				// moment its first byte is not zero - so a debris shadow was strlen'ing and
+				// copying whatever happened to be on the stack. Start every field known.
+				ShadowTypeInfo()
+					: m_type( SHADOW_NONE ), allowUpdates( FALSE ), allowWorldAlign( FALSE ),
+						m_sizeX( 0.0f ), m_sizeY( 0.0f ), m_offsetX( 0.0f ), m_offsetY( 0.0f )
+				{
+					m_ShadowName[ 0 ] = '\0';
+				}
+
 				char	m_ShadowName[64];	//when set, overrides the default model shadow (used mostly for Decals).
 				ShadowType m_type;			//type of shadow
 				Bool	allowUpdates;			//whether to update the shadow image when object/light moves.
