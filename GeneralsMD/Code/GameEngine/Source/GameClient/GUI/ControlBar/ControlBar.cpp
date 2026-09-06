@@ -5205,12 +5205,35 @@ void ControlBar::setUpDownImages( void )
 	GameWindow *win= TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey( "ControlBar.wnd:ButtonLarge" ) );
 	if(!win)
 		return;
+
 	// we only care if it's in it's low state, else we put the default images up
 	if(m_currentControlBarStage == CONTROL_BAR_STAGE_LOW)
 	{
 		GadgetButtonSetEnabledImage(win, m_toggleButtonUpOn);
 		GadgetButtonSetHiliteImage(win, m_toggleButtonUpIn);
 		GadgetButtonSetHiliteSelectedImage(win, m_toggleButtonUpPushed);
+		return;
+	}
+
+	//
+	// A plate that paints its own minimise tab is the picture.  The button sits exactly on that tab
+	// now (see placeInPanel), so drawing the down arrow's art there lays a second copy of the tab
+	// over the painted one, stretched to a rectangle the art was not drawn for - a wide arrow on a
+	// slab covering the painted bezel.  Leave the button as the place you click and let the painting
+	// be what you see.  It costs the hover and pushed states, which nothing else paints.
+	//
+	// Only in this stage.  Minimised, the painted arrow points the wrong way - the tab is then the
+	// only piece of the bar on screen and it has to say "up" - so the up art is drawn there as it
+	// always was.
+	//
+	const ControlBarPlate *minTabPlate = m_controlBarSchemeManager
+		? ControlBarPlateForSide( m_controlBarSchemeManager->getCurrentSide(), CB_PANEL_RIGHT )
+		: NULL;
+	if( minTabPlate && minTabPlate->minTab.width() > 0 )
+	{
+		GadgetButtonSetEnabledImage( win, NULL );
+		GadgetButtonSetHiliteImage( win, NULL );
+		GadgetButtonSetHiliteSelectedImage( win, NULL );
 		return;
 	}
 
