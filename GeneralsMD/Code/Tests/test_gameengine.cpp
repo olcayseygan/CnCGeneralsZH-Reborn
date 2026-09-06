@@ -8083,14 +8083,15 @@ TEST(the_grid_and_the_readout_follow_the_plate_that_paints_them)
 	/* A plate is its side's own painting rather than a cut of the shipped bar, so the money box and
 		 the grid field are where the plate draws them and not where ControlBarScheme.ini and the .wnd
 		 put the windows.  On the American centre plate both disagree, and both were measured off the
-		 targa: the box's dark interior runs 448.5 to 465.4 and the 19-unit readout centres on 457,
-		 ten below the scheme's 447.5; the striped field runs 224.6 to 614.2 and the fourteen command
-		 buttons are 223 to 603, so the block sits six units left of centre in it.  China and GLA
-		 paint theirs where the windows already are and shift nothing. */
+		 targa: the box's dark interior runs 448.5 to 465.4, middle 456.6, nine below the middle of
+		 the 19-unit readout ControlBarScheme.ini places at 438 to 457; the striped field runs 224.6
+		 to 614.2 and the fourteen command buttons are 223 to 603, so the block sits six units left
+		 of centre in it.  China and GLA paint theirs where the windows already are and shift
+		 nothing - GLA's box middle is 451.3 against a readout the scheme puts at 443 to 462. */
 	struct Expect { const char *side; Int readout; Int grid; };
 	static const Expect expected[] =
 	{
-		{ "America", 10, 6 }, { "China", 0, 0 }, { "GLA", 0, 0 }, { NULL, 0, 0 }
+		{ "America", 9, 6 }, { "China", 0, 0 }, { "GLA", 0, 0 }, { NULL, 0, 0 }
 	};
 
 	// what ControlBarScheme.ini gives the readout and the .wnd gives the button block
@@ -8113,13 +8114,13 @@ TEST(the_grid_and_the_readout_follow_the_plate_that_paints_them)
 	}
 }
 
-TEST(the_minimise_button_sits_on_the_tab_its_plate_paints)
+TEST(the_minimised_panel_stops_on_the_tab_its_plate_paints)
 {
-	/* Each right-hand plate paints its own minimise tab, green arrow and all, and none of them
-		 paints it where ControlBar.wnd puts ButtonLarge - 666,445 to 714,473.  Left on the authored
-		 rectangle the button drew a second tab beside the painted one, which at 1920x1080 was up to
-		 nineteen pixels of doubled metal and two arrows.  The rectangles below were measured off the
-		 three targas; placeInPanel hands them to ButtonLarge instead of the authored one. */
+	/* Each right-hand plate paints its own minimise tab, bezel and arrow, and none of them paints it
+		 where ControlBar.wnd puts ButtonLarge - 666,445 to 714,473.  The button itself lands on the
+		 painting from ControlBarScheme.ini's MinMaxUL/LR, which is EA's own per-side rectangle; what
+		 the plate carries is the tab as painted, bezel included, because that is where the minimised
+		 selection panel has to stop.  The rectangles were measured off the three targas. */
 	static const char *const sides[] = { "America", "China", "GLA", NULL };
 
 	// what the .wnd says, which is the thing every one of these has to disagree with
@@ -8131,7 +8132,7 @@ TEST(the_minimise_button_sits_on_the_tab_its_plate_paints)
 		const ControlBarPlate *plate = ControlBarPlateForSide( AsciiString( *s ), ControlBar::CB_PANEL_RIGHT );
 		CHECK( plate != NULL );
 
-		// a tab at all - a zeroed rectangle means the button went back to the authored place
+		// a tab at all - a zeroed rectangle means the panel drops out of sight entirely
 		CHECK( plate->minTab.width() > 0 );
 		CHECK( plate->minTab.height() > 0 );
 
@@ -8141,8 +8142,8 @@ TEST(the_minimise_button_sits_on_the_tab_its_plate_paints)
 		CHECK( plate->minTab.lo.y >= plate->design.lo.y );
 		CHECK( plate->minTab.hi.y <= plate->design.hi.y );
 
-		// and it has to be a tab-sized thing: the arrow art is stretched into it, so a fat-fingered
-		// number that makes the button half the panel is the failure worth catching
+		// and it has to be a tab-sized thing: a fat-fingered number that leaves half the panel on
+		// screen, or nothing of it, is the failure worth catching
 		CHECK( plate->minTab.width() >= wndWidth / 2 );
 		CHECK( plate->minTab.width() <= wndWidth * 2 );
 		CHECK( plate->minTab.height() >= wndHeight / 2 );

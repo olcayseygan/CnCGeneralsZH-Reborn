@@ -1568,14 +1568,16 @@ static const ControlBarPlateSet thePlateSets[] =
 				 composition rather than a straight cut of the shipped bar: its grid field lines up with
 				 the command buttons (494-589) exactly where it stands, and its money box does not line
 				 up with the scheme's readout.  So it stands on the bottom of the screen, where a plate
-				 belongs, and the readout moves the ten units down into the box - the box's dark
-				 interior measures 448.5 to 465.4, and the 19-unit readout centres on 457.
+				 belongs, and the readout moves down into the box - the box's dark interior measures
+				 448.5 to 465.4, middle 456.6, where ControlBarScheme.ini puts the readout's middle at
+				 447.5.  Nine.  (It was ten while the readout was landing at ControlBar.wnd's 446.5
+				 instead; see the slide note in layoutPanels.)
 
 				 The grid moves the same way and for the same reason.  The painting's striped field
 				 runs 224.6 to 614.2, and the fourteen command buttons are 223 to 603: the first
 				 column overhangs the left bezel by a unit and a half while eleven units stand empty
 				 on the right.  Six to the right centres the block in the field. */
-			{ "RebornBarAmericaCenter.tga",	{ { 180, 429 }, { 623, 599 } }, 10, 6, 706, 271 },
+			{ "RebornBarAmericaCenter.tga",	{ { 180, 429 }, { 623, 599 } }, 9, 6, 706, 271 },
 			{ "RebornBarAmericaRight.tga",	{ { 610, 433 }, { 800, 599 } }, 0, 0, 304, 268,
 																			{ { 648, 434 }, { 717, 460 } } },
 		}
@@ -1591,6 +1593,8 @@ static const ControlBarPlateSet thePlateSets[] =
 	{ "GLA",
 		{
 			{ "RebornBarGLALeft.tga",		{ {   0, 416 }, { 215, 599 } }, 0, 0, 345, 295 },
+			/* No shift: this plate paints its box at design 443.2 to 459.3, middle 451.3, and
+				 ControlBarScheme.ini already puts GLA's readout at 443 to 462, middle 452.5. */
 			{ "RebornBarGLACenter.tga",	{ { 168, 437 }, { 617, 599 } }, 0, 0, 720, 261 },
 			{ "RebornBarGLARight.tga",	{ { 612, 423 }, { 799, 599 } }, 0, 0, 300, 284,
 																	{ { 631, 428 }, { 705, 465 } } },
@@ -1689,19 +1693,6 @@ void ControlBar::placeInPanel( GameWindow *win, Int panel,
 	newX += shiftX;
 	if( plate && strcmp( shortName, "MoneyDisplay" ) == 0 )
 		newY += REAL_TO_INT_FLOOR( plate->readoutShiftY * s );
-
-	//
-	// The minimise button is not where the .wnd says either: every plate paints its own tab for it,
-	// and the button takes that rectangle rather than the authored one.  Otherwise it draws its own
-	// tab beside the painted one and you get two arrows.
-	//
-	if( plate && plate->minTab.width() > 0 && strcmp( shortName, "ButtonLarge" ) == 0 )
-	{
-		newX = REAL_TO_INT_FLOOR( originX + plate->minTab.lo.x * s );
-		newY = REAL_TO_INT_FLOOR( dispH - ( CONTROL_BAR_DESIGN_H - plate->minTab.lo.y ) * s );
-		newW = REAL_TO_INT_CEIL( plate->minTab.width() * s );
-		newH = REAL_TO_INT_CEIL( plate->minTab.height() * s );
-	}
 
 	// the grid shift starts at CenterBackground and is inherited by everything under it
 	Int childShiftX = shiftX;
@@ -1929,16 +1920,50 @@ void ControlBar::layoutPanels( void )
 	// taken off first and put back at the end, and a bar that was minimised when the side changed
 	// is minimised again without the trip down.
 	//
+	// Taken off by moving each panel back up by however far it had travelled, not by calling
+	// applyPanelSlide - that puts every window back where this function last put it, and
+	// ControlBarScheme::init writes the money readout, the two tabs and the toolbar column their
+	// own positions immediately before calling us.  Restoring the cached y threw every one of
+	// those away, so the bar wore ControlBarScheme.ini's x and size with ControlBar.wnd's y: the
+	// GLA money sat six units high in its box, and the minimise button drew its tab eleven units
+	// below the one its plate paints, which is where the two arrows came from.
+	//
 	Bool wasAway[ CB_PANEL_COUNT ];
+	Int slideOff[ CB_PANEL_COUNT ];
 	Int q;
 	for( q = 0; q < CB_PANEL_COUNT; q++ )
 	{
 		wasAway[ q ] = ( m_panelSlideTo[ q ] > 0.0f );
+		slideOff[ q ] = getPanelSlideOffset( q );
+	}
+
+	for( GameWindow *slid = parent->winGetChild(); slid; slid = slid->winGetNext() )
+	{
+		ControlBarPanelPlacementMap::iterator it = theControlBarPlacement.find( slid );
+		if( it == theControlBarPlacement.end() || it->second.known == FALSE )
+			continue;
+		ControlBarPanelPlacement &place = it->second;
+		if( place.panel < 0 || place.panel >= CB_PANEL_COUNT )
+			continue;
+		if( place.weHid )
+		{
+			slid->winHide( FALSE );
+			place.weHid = FALSE;
+		}
+		if( slideOff[ place.panel ] != 0 )
+		{
+			ICoord2D pos;
+			slid->winGetPosition( &pos.x, &pos.y );
+			slid->winSetPosition( pos.x, pos.y - slideOff[ place.panel ] );
+		}
+	}
+
+	for( q = 0; q < CB_PANEL_COUNT; q++ )
+	{
 		m_panelSlide[ q ] = 0.0f;
 		m_panelSlideTo[ q ] = 0.0f;
 		m_panelHidden[ q ] = FALSE;
 	}
-	applyPanelSlide();
 
 	const Real dispW = (Real)TheDisplay->getWidth();
 	const Real dispH = (Real)TheDisplay->getHeight();
@@ -5212,28 +5237,6 @@ void ControlBar::setUpDownImages( void )
 		GadgetButtonSetEnabledImage(win, m_toggleButtonUpOn);
 		GadgetButtonSetHiliteImage(win, m_toggleButtonUpIn);
 		GadgetButtonSetHiliteSelectedImage(win, m_toggleButtonUpPushed);
-		return;
-	}
-
-	//
-	// A plate that paints its own minimise tab is the picture.  The button sits exactly on that tab
-	// now (see placeInPanel), so drawing the down arrow's art there lays a second copy of the tab
-	// over the painted one, stretched to a rectangle the art was not drawn for - a wide arrow on a
-	// slab covering the painted bezel.  Leave the button as the place you click and let the painting
-	// be what you see.  It costs the hover and pushed states, which nothing else paints.
-	//
-	// Only in this stage.  Minimised, the painted arrow points the wrong way - the tab is then the
-	// only piece of the bar on screen and it has to say "up" - so the up art is drawn there as it
-	// always was.
-	//
-	const ControlBarPlate *minTabPlate = m_controlBarSchemeManager
-		? ControlBarPlateForSide( m_controlBarSchemeManager->getCurrentSide(), CB_PANEL_RIGHT )
-		: NULL;
-	if( minTabPlate && minTabPlate->minTab.width() > 0 )
-	{
-		GadgetButtonSetEnabledImage( win, NULL );
-		GadgetButtonSetHiliteImage( win, NULL );
-		GadgetButtonSetHiliteSelectedImage( win, NULL );
 		return;
 	}
 

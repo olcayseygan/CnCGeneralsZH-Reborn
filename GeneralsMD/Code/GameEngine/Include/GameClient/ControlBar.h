@@ -1319,7 +1319,8 @@ struct ControlBarPlate
 	Int readoutShiftY;				///< design units the money readout moves to sit in this art's box
 	Int gridShiftX;						///< design units the command grid moves to centre in this art's field
 	Int artW, artH;						///< texels of painting in the targa; the rest is power-of-two padding
-	IRegion2D minTab;					///< the minimise tab this art paints, in design units; ButtonLarge takes it
+	IRegion2D minTab;					///< the minimise tab this art paints, in design units, bezel and all;
+														///< a minimised panel stops with this row standing on the bottom edge
 };
 
 /** The plate 'panel' wears while the bar is dressed in 'side'.  A general's scheme names a side
