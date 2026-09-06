@@ -6735,6 +6735,29 @@ TEST(a_supply_docking_ends_on_the_box_that_finishes_it)
 	CHECK( supplyDockHasNextBox( 1, 7, 8 ) );
 }
 
+/** The whole load changes hands in one action, and that action is priced by the load: the INI's
+	 SupplyWarehouseActionDelay buys one box, so a full load of eight waits for eight of them.  Same
+	 total time as taking them one at a time, one trip instead of one per box. */
+TEST(a_supply_visit_costs_what_the_load_costs)
+{
+	// empty worker, full pile: the whole load
+	CHECK_EQ( 8u * 30u, supplyWarehouseActionDelay( 30, 40, 0, 8 ) );
+
+	// half loaded already: only the room left is paid for
+	CHECK_EQ( 5u * 30u, supplyWarehouseActionDelay( 30, 40, 3, 8 ) );
+
+	// a pile with less in it than the worker can carry prices what is actually there
+	CHECK_EQ( 2u * 30u, supplyWarehouseActionDelay( 30, 2, 0, 8 ) );
+
+	// nothing to take: one delay, and the worker finds that out when it gets there
+	CHECK_EQ( 30u, supplyWarehouseActionDelay( 30, 0, 0, 8 ) );
+	CHECK_EQ( 30u, supplyWarehouseActionDelay( 30, 40, 8, 8 ) );
+	CHECK_EQ( 30u, supplyWarehouseActionDelay( 30, 40, 9, 8 ) );		// over-full does not go negative
+
+	// one box, one delay - which is what every trip used to cost per box
+	CHECK_EQ( 30u, supplyWarehouseActionDelay( 30, 1, 7, 8 ) );
+}
+
 
 /** EA's floor and ceil nudged the value by the largest float below one and truncated.  The nudge
 	 does not survive the addition: for anything from 2 upwards, f + 0.99999994 rounds to f + 1, so

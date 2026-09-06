@@ -230,7 +230,9 @@ UnsignedInt SupplyTruckAIUpdate::getActionDelayForDock( Object *dock )
 	static const NameKeyType key_warehouseUpdate = NAMEKEY("SupplyWarehouseDockUpdate");
 	SupplyWarehouseDockUpdate *warehouseModule = (SupplyWarehouseDockUpdate*) dock->findUpdateModule( key_warehouseUpdate );
 	if (warehouseModule) {
-		return getSupplyTruckAIUpdateModuleData()->m_warehouseDelay;
+		// One action moves the whole load, so the wait is the whole load's worth of action delay.
+		return supplyWarehouseActionDelay( getSupplyTruckAIUpdateModuleData()->m_warehouseDelay,
+																			 warehouseModule->getBoxesStored(), m_numberBoxes, getMaxBoxes() );
 	}
 	static const NameKeyType key_centerUpdate = NAMEKEY("SupplyCenterDockUpdate");
 	SupplyCenterDockUpdate *centerModule = (SupplyCenterDockUpdate*) dock->findUpdateModule( key_centerUpdate );

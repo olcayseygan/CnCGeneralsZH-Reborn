@@ -60,6 +60,25 @@ inline Bool supplyDockHasNextBox( Int stockLeft, Int dockerBoxes, Int dockerMax 
 }
 
 //-------------------------------------------------------------------------------------------------
+/** How long one visit to a supply point takes.  The whole load changes hands in a single action
+	* now, so the visit is priced by what that load is: SupplyWarehouseActionDelay buys one box, and
+	* a docker leaving with four of them waits for four.  Same total as taking them one at a time,
+	* one bar instead of four.
+	*
+	* The price is fixed when the docking opens, so a box another worker takes out of the pile while
+	* this one is loading is not refunded, and one the pile grows back is carried for free. */
+//-------------------------------------------------------------------------------------------------
+inline UnsignedInt supplyWarehouseActionDelay( UnsignedInt perBoxDelay, Int stockLeft, Int dockerBoxes, Int dockerMax )
+{
+	const Int room = dockerMax - dockerBoxes;
+	Int boxes = ( stockLeft < room ) ? stockLeft : room;
+	if( boxes < 1 )
+		boxes = 1;			// nothing to take, but the docker still walks up and finds that out
+
+	return perBoxDelay * (UnsignedInt)boxes;
+}
+
+//-------------------------------------------------------------------------------------------------
 class SupplyTruckStateMachine : public StateMachine
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( SupplyTruckStateMachine, "SupplyTruckStateMachine" );

@@ -209,44 +209,49 @@ Bool SupplyWarehouseDockUpdate::action( Object* docker, Object *drone )
 		return FALSE;  //not close enough.
 	}
 	
-	--m_boxesStored;// so the docker sees that I am shy by one box (or empty) from within his gainOneBox()
-
 	// getAIUpdateInterface() can be NULL here and was dereferenced blind (the sibling
-	// SupplyCenterDockUpdate does check). The ai==NULL path below already puts the box back.
+	// SupplyCenterDockUpdate does check). The no-room path below puts the box back.
 	AIUpdateInterface *dockerAI = docker->getAIUpdateInterface();
 	SupplyTruckAIInterface *ai = dockerAI ? dockerAI->getSupplyTruckAIInterface() : NULL;
-	if( ai && ai->gainOneBox( m_boxesStored ) )
+
+	//
+	// The whole load in one visit. A box per action delay left a worker parked here for MaxBoxes
+	// times SupplyWarehouseActionDelay to collect what one trip pays, and the walk was already the
+	// expensive half. The supply centre end has always emptied a truck in one go
+	// (SupplyCenterDockUpdate's `while( loseOneBox() )`); this is the same on the pick-up end.
+	//
+	Int taken = 0;
+	while( ai && m_boxesStored > 0 )
 	{
-		if( m_boxesStored == 0 && getSupplyWarehouseDockUpdateModuleData()->m_deleteWhenEmpty )
+		--m_boxesStored;// so the docker sees that I am shy by one box (or empty) from within his gainOneBox()
+		if( !ai->gainOneBox( m_boxesStored ) )
 		{
-			TheGameLogic->destroyObject( getObject() );
-			return FALSE; //Yer done.  And so am I.
+			++m_boxesStored; //take it back, since he had no room for it
+											 //this is important so that I have one less boxes as perceived by the docker when he gains one
+			break;
 		}
-		else
-		{
-			Drawable *draw = getObject()->getDrawable();
-			if( draw )
-			{
-				draw->updateDrawableSupplyStatus( getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData, m_boxesStored );
-			}
-		}
+		++taken;
 
-		//
-		// A docker that is full, or a warehouse with nothing left in it, has no next box - so say
-		// so now, on the frame the last one is handed over. Answering TRUE bought the worker one
-		// more whole action delay standing at the warehouse taking nothing, with the bar over its
-		// head filling a second time for a box that was never coming.
-		//
 		if( !supplyDockHasNextBox( m_boxesStored, ai->getNumberBoxes(), ai->getMaxBoxes() ) )
-			return FALSE;
-
-		return TRUE;
+			break;
 	}
-	else 
-		++m_boxesStored; //take it back, since there was noone to gain the box
-  									 //this is important so that I have one less boxes as perceived by the docker when he gains one
 
+	if( taken == 0 )
+		return FALSE; //nobody to gain the boxes, or nowhere to put them
 
+	if( m_boxesStored == 0 && getSupplyWarehouseDockUpdateModuleData()->m_deleteWhenEmpty )
+	{
+		TheGameLogic->destroyObject( getObject() );
+		return FALSE; //Yer done.  And so am I.
+	}
+
+	Drawable *draw = getObject()->getDrawable();
+	if( draw )
+	{
+		draw->updateDrawableSupplyStatus( getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData, m_boxesStored );
+	}
+
+	// A full docker, or an empty warehouse: either way there is no second action to wait for.
 	return FALSE;
 }
 
