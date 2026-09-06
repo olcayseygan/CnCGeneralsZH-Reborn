@@ -1563,7 +1563,7 @@ static const ControlBarPlateSet thePlateSets[] =
 {
 	{ "America",
 		{
-			{ "RebornBarAmericaLeft.tga",		{ {   0, 412 }, { 183, 599 } }, 0, 0, 293, 301 },
+			{ "RebornBarAmericaLeft.tga",		{ {   0, 412 }, { 183, 599 } }, 0, 0, 0, 293, 301 },
 			/* This painting is 170 design units tall for a 180-unit slot, and it is the plate's own
 				 composition rather than a straight cut of the shipped bar: its grid field lines up with
 				 the command buttons (494-589) exactly where it stands, and its money box does not line
@@ -1573,30 +1573,43 @@ static const ControlBarPlateSet thePlateSets[] =
 				 447.5.  Nine.  (It was ten while the readout was landing at ControlBar.wnd's 446.5
 				 instead; see the slide note in layoutPanels.)
 
+				 The power bar moves for the same reason and is the same kind of measurement.  This art
+				 paints the rail in two halves - a dark groove at texels 73 to 80 and the silver tube
+				 that reads as the gauge at 81 to 85, design 479.8 to 482.3 - where
+				 ControlBarScheme.ini puts America's 6-unit power window at 470 to 476, on the pale
+				 ledge above the whole assembly.  At 1280x720 that left the bar's left half on the
+				 terrain, over the plate's sloping top edge.  Ten sits the bar on the tube, which is
+				 the part of the rail that looks like a slot to read a bar in, with the tube's own top
+				 edge showing above it; five only got it as far as the dark groove and left the tube
+				 standing empty underneath, and eight covered the tube to its last texel.  Twelve is
+				 the ceiling - past that the bar is off the rail and on the button field.  China and
+				 GLA stay at 0 - their windows already cover their own rails, top highlight to bottom
+				 band.
+
 				 The grid moves the same way and for the same reason.  The painting's striped field
 				 runs 224.6 to 614.2, and the fourteen command buttons are 223 to 603: the first
 				 column overhangs the left bezel by a unit and a half while eleven units stand empty
 				 on the right.  Six to the right centres the block in the field. */
-			{ "RebornBarAmericaCenter.tga",	{ { 180, 429 }, { 623, 599 } }, 9, 6, 706, 271 },
-			{ "RebornBarAmericaRight.tga",	{ { 610, 433 }, { 800, 599 } }, 0, 0, 304, 268,
+			{ "RebornBarAmericaCenter.tga",	{ { 180, 429 }, { 623, 599 } }, 9, 10, 6, 706, 271 },
+			{ "RebornBarAmericaRight.tga",	{ { 610, 433 }, { 800, 599 } }, 0, 0, 0, 304, 268,
 																			{ { 648, 434 }, { 717, 460 } } },
 		}
 	},
 	{ "China",
 		{
-			{ "RebornBarChinaLeft.tga",		{ {   1, 417 }, { 196, 598 } }, 0, 0, 315, 295 },
-			{ "RebornBarChinaCenter.tga",	{ { 176, 433 }, { 617, 597 } }, 0, 0, 718, 269 },
-			{ "RebornBarChinaRight.tga",	{ { 611, 424 }, { 798, 598 } }, 0, 0, 303, 284,
+			{ "RebornBarChinaLeft.tga",		{ {   1, 417 }, { 196, 598 } }, 0, 0, 0, 315, 295 },
+			{ "RebornBarChinaCenter.tga",	{ { 176, 433 }, { 617, 597 } }, 0, 0, 0, 718, 269 },
+			{ "RebornBarChinaRight.tga",	{ { 611, 424 }, { 798, 598 } }, 0, 0, 0, 303, 284,
 																		{ { 639, 430 }, { 686, 463 } } },
 		}
 	},
 	{ "GLA",
 		{
-			{ "RebornBarGLALeft.tga",		{ {   0, 416 }, { 215, 599 } }, 0, 0, 345, 295 },
+			{ "RebornBarGLALeft.tga",		{ {   0, 416 }, { 215, 599 } }, 0, 0, 0, 345, 295 },
 			/* No shift: this plate paints its box at design 443.2 to 459.3, middle 451.3, and
 				 ControlBarScheme.ini already puts GLA's readout at 443 to 462, middle 452.5. */
-			{ "RebornBarGLACenter.tga",	{ { 168, 437 }, { 617, 599 } }, 0, 0, 720, 261 },
-			{ "RebornBarGLARight.tga",	{ { 612, 423 }, { 799, 599 } }, 0, 0, 300, 284,
+			{ "RebornBarGLACenter.tga",	{ { 168, 437 }, { 617, 599 } }, 0, 0, 0, 720, 261 },
+			{ "RebornBarGLARight.tga",	{ { 612, 423 }, { 799, 599 } }, 0, 0, 0, 300, 284,
 																	{ { 631, 428 }, { 705, 465 } } },
 		}
 	},
@@ -1693,6 +1706,8 @@ void ControlBar::placeInPanel( GameWindow *win, Int panel,
 	newX += shiftX;
 	if( plate && strcmp( shortName, "MoneyDisplay" ) == 0 )
 		newY += REAL_TO_INT_FLOOR( plate->readoutShiftY * s );
+	if( plate && strcmp( shortName, "PowerWindow" ) == 0 )
+		newY += REAL_TO_INT_FLOOR( plate->powerShiftY * s );
 
 	// the grid shift starts at CenterBackground and is inherited by everything under it
 	Int childShiftX = shiftX;

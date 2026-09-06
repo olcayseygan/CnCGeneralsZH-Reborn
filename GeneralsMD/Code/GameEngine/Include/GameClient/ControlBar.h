@@ -1317,6 +1317,7 @@ struct ControlBarPlate
 	const char *filename;			///< the targa, which is all the Image needs
 	IRegion2D design;					///< the 800x600 rectangle of the painting this piece is
 	Int readoutShiftY;				///< design units the money readout moves to sit in this art's box
+	Int powerShiftY;					///< design units the power bar moves to sit in this art's rail
 	Int gridShiftX;						///< design units the command grid moves to centre in this art's field
 	Int artW, artH;						///< texels of painting in the targa; the rest is power-of-two padding
 	IRegion2D minTab;					///< the minimise tab this art paints, in design units, bezel and all;

@@ -8110,15 +8110,23 @@ TEST(the_grid_and_the_readout_follow_the_plate_that_paints_them)
 		 the 19-unit readout ControlBarScheme.ini places at 438 to 457; the striped field runs 224.6
 		 to 614.2 and the fourteen command buttons are 223 to 603, so the block sits six units left
 		 of centre in it.  China and GLA paint theirs where the windows already are and shift
-		 nothing - GLA's box middle is 451.3 against a readout the scheme puts at 443 to 462. */
-	struct Expect { const char *side; Int readout; Int grid; };
+		 nothing - GLA's box middle is 451.3 against a readout the scheme puts at 443 to 462.
+
+		 The power bar is the third of them and the same measurement: America paints a dark groove at
+		 474.8 to 479.2 and under it the silver tube that reads as the gauge, 479.8 to 482.3, against
+		 the 6-unit power window ControlBarScheme.ini places at 470 to 476 - which is the pale ledge
+		 above both, and at 1280x720 put the bar's left half on the terrain over the plate's sloping
+		 top edge.  Ten lands it on the tube.  China's window covers its own rail from 469 and
+		 GLA's from 470, so those two shift nothing here either. */
+	struct Expect { const char *side; Int readout; Int power; Int grid; };
 	static const Expect expected[] =
 	{
-		{ "America", 9, 6 }, { "China", 0, 0 }, { "GLA", 0, 0 }, { NULL, 0, 0 }
+		{ "America", 9, 10, 6 }, { "China", 0, 0, 0 }, { "GLA", 0, 0, 0 }, { NULL, 0, 0, 0 }
 	};
 
-	// what ControlBarScheme.ini gives the readout and the .wnd gives the button block
+	// what ControlBarScheme.ini gives the readout and the power bar, and the .wnd the button block
 	const Int schemeTop = 438, schemeBottom = 457;
+	const Int powerTop = 469, powerBottom = 476;
 	const Int gridLeft = 223, gridRight = 603;
 
 	for( const Expect *e = expected; e->side; e++ )
@@ -8126,15 +8134,30 @@ TEST(the_grid_and_the_readout_follow_the_plate_that_paints_them)
 		const ControlBarPlate *plate = ControlBarPlateForSide( AsciiString( e->side ), ControlBar::CB_PANEL_CENTER );
 		CHECK( plate != NULL );
 		CHECK_EQ( plate->readoutShiftY, e->readout );
+		CHECK_EQ( plate->powerShiftY, e->power );
 		CHECK_EQ( plate->gridShiftX, e->grid );
 
-		// wherever they end up, both have to land on the plate rather than off an edge of it - a
-		// shift big enough to hang either one in the battlefield is the failure to catch
+		// wherever they end up, all three have to land on the plate rather than off an edge of it -
+		// a shift big enough to hang any of them in the battlefield is the failure to catch
 		CHECK( schemeTop + plate->readoutShiftY >= plate->design.lo.y );
 		CHECK( schemeBottom + plate->readoutShiftY <= plate->design.hi.y );
+		CHECK( powerTop + plate->powerShiftY >= plate->design.lo.y );
+		CHECK( powerBottom + plate->powerShiftY <= plate->design.hi.y );
 		CHECK( gridLeft + plate->gridShiftX >= plate->design.lo.x );
 		CHECK( gridRight + plate->gridShiftX <= plate->design.hi.x );
 	}
+
+	/* The shift is what puts the bar on the tube: America's window without it ends at 476, above
+		 the 479.8 the tube starts at, so the whole bar sat on the pale ledge with the tube standing
+		 empty below it.  With the shift the window starts no lower than the tube's top edge and
+		 reaches past its bottom, which is the ceiling as well as the floor - one unit further and
+		 the bar starts below the rail and reads as sitting on the button field. */
+	const ControlBarPlate *am = ControlBarPlateForSide( AsciiString( "America" ), ControlBar::CB_PANEL_CENTER );
+	CHECK( am != NULL );
+	const Int tubeTop = 480, tubeBottom = 482;		// texels 81..85 of the targa, in design units
+	CHECK( 476 < tubeTop );																	// unshifted: entirely above the tube
+	CHECK( 470 + am->powerShiftY <= tubeTop );
+	CHECK( 476 + am->powerShiftY >= tubeBottom );
 }
 
 TEST(the_minimised_panel_stops_on_the_tab_its_plate_paints)
