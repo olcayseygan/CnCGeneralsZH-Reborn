@@ -1,0 +1,76 @@
+# Photographs the same frame of the same match with two builds and counts the pixels between them.
+#
+# It exists because a tree can go missing without anything in the engine looking wrong: the buffer
+# fills, the draw call is made, and the trees are simply not on the screen.  Nothing but the picture
+# catches that.  Run it with a reference build in Run\generals_base.exe - build one from a checkout
+# without the change under test - and every view should come back within a percent or two, all of it
+# the tree shadows.  A stand of missing trees moves several percent and looks like nothing else.
+#
+#   .\tree-check.ps1                 # eight views over five maps
+#   .\tree-check.ps1 -Limit 2.5      # a tree-dense map with long shadows legitimately reaches ~3.7%
+#
+# Exit code is the number of views over the limit.
+param([double]$Limit = 1.5)
+
+Add-Type -AssemblyName System.Drawing
+$run = Join-Path $PSScriptRoot "GeneralsMD\Run"
+$shots = "$env:USERPROFILE\Documents\Command and Conquer Generals Zero Hour Data"
+$tmp = Join-Path $env:TEMP "treecheck"
+if (-not (Test-Path $tmp)) { $null = New-Item -ItemType Directory $tmp }
+
+$cases = @(
+  @{map='Flash Effect';       x='1200'; y='945';  f=400},
+  @{map='Flash Effect';       x='1816'; y='1861'; f=1200},
+  @{map='Flash Effect';       x='1378'; y='1384'; f=2400},
+  @{map='ForgottenForestZH';  x='1620'; y='1470'; f=600},
+  @{map='ForgottenForestZH';  x='1543'; y='1636'; f=1800},
+  @{map='Golden Oasis';       x='2643'; y='3580'; f=900},
+  @{map='Alpine Assault';     x='760';  y='920';  f=700},
+  @{map='Killing Fields';     x='1024'; y='1024'; f=1500}
+)
+
+function Shoot($exe, $c, $tag) {
+  $args = @('-win','-xres','1280','-yres','720','-quickstart','-noshellmap','-multiInstance',
+            '-map',"`"Maps\$($c.map)\$($c.map).map`"",'-autoskirmish','4','-aidiff','easy','-seed','5',
+            '-maxframes',($c.f+80),'-screenshot',$c.f,'-camera',$c.x,$c.y,'-logPrefix',"chk_$tag`_")
+  $p = Start-Process (Join-Path $run $exe) -ArgumentList $args -WorkingDirectory $run -PassThru
+  $null = $p.WaitForExit(400000)
+  $f = Get-ChildItem "$shots\sshot*.bmp" | Sort-Object LastWriteTime | Select-Object -Last 1
+  $img = [System.Drawing.Image]::FromFile($f.FullName)
+  $out = "$tmp\chk_$tag.png"
+  $img.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+  $img.Dispose()
+  return $out
+}
+
+function DiffPct($a, $b) {
+  $ia = New-Object System.Drawing.Bitmap($a)
+  $ib = New-Object System.Drawing.Bitmap($b)
+  $w = $ia.Width; $h = [Math]::Min($ia.Height, 520)
+  $n = 0; $t = 0
+  for ($y = 0; $y -lt $h; $y += 2) {
+    for ($x = 0; $x -lt $w; $x += 2) {
+      $pa = $ia.GetPixel($x, $y); $pb = $ib.GetPixel($x, $y)
+      $d = [Math]::Abs($pa.R - $pb.R) + [Math]::Abs($pa.G - $pb.G) + [Math]::Abs($pa.B - $pb.B)
+      $t++
+      if ($d -gt 40) { $n++ }
+    }
+  }
+  $ia.Dispose(); $ib.Dispose()
+  return [Math]::Round(100.0 * $n / $t, 2)
+}
+
+$fail = 0
+foreach ($c in $cases) {
+  $tag = ($c.map -replace '[^A-Za-z]','') + "_$($c.x)_$($c.f)"
+  $a = Shoot 'generals_base.exe' $c "base_$tag"
+  $b = Shoot 'generals.exe'      $c "new_$tag"
+  $d = DiffPct $a $b
+  $verdict = if ($d -le $Limit) { 'ok' } else { 'DIFFERENT'; }
+  if ($d -gt $Limit) { $fail++ }
+  "{0,-20} cam {1,5},{2,-5} frame {3,-5} diff {4,5}%  {5}" -f $c.map, $c.x, $c.y, $c.f, $d, $verdict
+}
+"---"
+if ($fail -eq 0) { "all $($cases.Count) views match the reference build within $Limit%" }
+else { "$fail of $($cases.Count) views differ by more than $Limit%" }
+exit $fail

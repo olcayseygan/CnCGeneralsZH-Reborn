@@ -185,6 +185,9 @@ public:
 
 	void addProp(Int id, Coord3D location, Real angle, Real scale, const AsciiString &modelName);
 	void removeProp(Int id);
+	/// Hand a model's shadow to the tree buffer, which lays its triangles on the ground.
+	Bool addModelShadow(DrawableID id, RenderObjClass *robj);
+	void removeModelShadow(DrawableID id);
 	void removeAllProps(void);
 
 	void unitMoved( Object *unit );

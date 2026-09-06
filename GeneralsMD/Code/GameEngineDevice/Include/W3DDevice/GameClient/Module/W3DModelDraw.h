@@ -356,6 +356,8 @@ public:
 	virtual void setShadowsEnabled(Bool enable);
 	virtual void releaseShadows(void);	///< frees all shadow resources used by this module - used by Options screen.
 	virtual void allocateShadows(void); ///< create shadow resources if not already present. Used by Options screen.
+	Bool registerModelShadow(void);			///< hand this model's shape to the tree buffer to cast; TRUE if it took it
+	void unregisterModelShadow(void);		///< take it back when the model changes or the drawable goes
 
 #if defined(_DEBUG) || defined(_INTERNAL)	
 	virtual void getRenderCost(RenderCost & rc) const;  ///< estimates the render cost of this draw module
@@ -499,6 +501,7 @@ private:
 	Bool													m_needRecalcBoneParticleSystems;
 	Bool													m_fullyObscuredByShroud;
 	Bool													m_shadowEnabled;	///< cached state of shadow.  Used to determine if shadows should be enabled via options screen.
+	Bool													m_hasModelShadow;	///< this drawable's shape is being cast by the tree buffer, so it wants no decal of its own
 	RenderObjClass*								m_renderObject;										///< W3D Render object for this drawable
 	Shadow*												m_shadow;													///< Updates/Renders shadows of this object
 	Shadow*												m_terrainDecal;

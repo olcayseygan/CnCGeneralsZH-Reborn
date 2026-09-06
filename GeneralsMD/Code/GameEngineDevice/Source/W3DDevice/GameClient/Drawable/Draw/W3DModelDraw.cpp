@@ -59,6 +59,7 @@
 #include "W3DDevice/GameClient/W3DDisplay.h"
 #include "W3DDevice/GameClient/W3DScene.h"
 #include "W3DDevice/GameClient/W3DShadow.h"
+#include "W3DDevice/GameClient/BaseHeightMap.h"
 #include "W3DDevice/GameClient/W3DTerrainTracks.h"
 #include "W3DDevice/GameClient/WorldHeightMap.h"
 #include "WW3D2/HAnim.h"
@@ -1729,6 +1730,7 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 	m_renderObject = NULL;
 	m_shadow = NULL;
 	m_shadowEnabled = TRUE;
+	m_hasModelShadow = FALSE;
 	m_terrainDecal = NULL;
 	m_trackRenderObject = NULL;
 	m_whichAnimInCurState = -1;
@@ -1845,6 +1847,7 @@ void W3DModelDraw::setHidden(Bool hidden)
 /**Free all data used by this model's shadow.  This is used to dynamically enable/disable shadows by the options screen*/
 void W3DModelDraw::releaseShadows(void)	///< frees all shadow resources used by this module - used by Options screen.
 {
+	unregisterModelShadow();
 	if (m_shadow)
 		m_shadow->release();
 	m_shadow = NULL;
@@ -1945,15 +1948,62 @@ static Bool fillShadowInfoFromTemplate(const ThingTemplate *tmplate, Shadow::Sha
 	return TRUE;
 }
 
+/** Is this one of the trees the map placed as a real object?
+
+	Every palm in the game is one, and there are 278 of them on Golden Oasis alone.  They are drawn
+	from their own render object and never reach W3DTreeBuffer, so the pass that lays a batched
+	tree's triangles on the ground has nothing of theirs to lay, and all they ever had was the round
+	decal their template asks for.  The tree buffer takes their meshes over instead.
+
+	The test is the template's own words: shrubbery, fixed in place, asking for a decal. */
+static Bool wantsModelShadow(const ThingTemplate *tmplate)
+{
+	return tmplate->getShadowType() == SHADOW_DECAL &&
+					TheGlobalData->m_shadowsForProps &&
+					(TheGlobalData->m_useShadowDecals || TheGlobalData->m_useShadowVolumes) &&
+					tmplate->isKindOf(KINDOF_SHRUBBERY) &&
+					tmplate->isKindOf(KINDOF_IMMOBILE);
+}
+
+/** Hand this model's shadow to the tree buffer, and say whether it took it. */
+Bool W3DModelDraw::registerModelShadow(void)
+{
+	unregisterModelShadow();
+
+	Drawable *draw = getDrawable();
+	if (draw == NULL || m_renderObject == NULL || TheTerrainRenderObject == NULL)
+		return FALSE;
+
+	const ThingTemplate *tmplate = draw->getTemplate();
+	if (tmplate == NULL || !wantsModelShadow(tmplate))
+		return FALSE;
+
+	m_hasModelShadow = TheTerrainRenderObject->addModelShadow(draw->getID(), m_renderObject);
+	return m_hasModelShadow;
+}
+
+/** Take it back: the model is changing, or the drawable is going away. */
+void W3DModelDraw::unregisterModelShadow(void)
+{
+	if (!m_hasModelShadow)
+		return;
+	m_hasModelShadow = FALSE;
+	Drawable *draw = getDrawable();
+	if (draw && TheTerrainRenderObject)
+		TheTerrainRenderObject->removeModelShadow(draw->getID());
+}
+
 /** Create shadow resources if not already present. This is used to dynamically enable/disable shadows by the options screen*/
 void W3DModelDraw::allocateShadows(void)
 {
 	const ThingTemplate *tmplate=getDrawable()->getTemplate();
 
 	//Check if we don't already have a shadow but need one for this type of model.
+	//A tree the buffer casts for us wants no decal of its own under it.
 	Shadow::ShadowTypeInfo shadowInfo;
-	if (m_shadow == NULL && m_renderObject && TheW3DShadowManager && fillShadowInfoFromTemplate(tmplate, &shadowInfo))
-	{	
+	if (!registerModelShadow() &&
+			m_shadow == NULL && m_renderObject && TheW3DShadowManager && fillShadowInfoFromTemplate(tmplate, &shadowInfo))
+	{
 		//a projectile's decal is ours rather than the template's - never trade it for a volume
 		Bool promotedToVolume = tmplate->getShadowType() != SHADOW_NONE &&
 														promoteSkinShadowToVolume(m_renderObject, &shadowInfo);
@@ -2891,6 +2941,7 @@ void W3DModelDraw::nukeCurrentRender(Matrix3D* xform)
 	m_pauseAnimation = false;
 
 	// changing geometry, so we need to remove shadow if present
+	unregisterModelShadow();
 	if (m_shadow)
 		m_shadow->release();
 	m_shadow = NULL;
@@ -3166,8 +3217,10 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 
 		// set up shadows
 		Shadow::ShadowTypeInfo shadowInfo;
-		if (m_renderObject && TheW3DShadowManager && fillShadowInfoFromTemplate(tmplate, &shadowInfo))
-		{	
+		//a tree the buffer casts for us wants no decal of its own under it
+		if (!registerModelShadow() &&
+				m_renderObject && TheW3DShadowManager && fillShadowInfoFromTemplate(tmplate, &shadowInfo))
+		{
 			//a projectile's decal is ours rather than the template's - never trade it for a volume
 			Bool promotedToVolume = tmplate->getShadowType() != SHADOW_NONE &&
 															promoteSkinShadowToVolume(m_renderObject, &shadowInfo);

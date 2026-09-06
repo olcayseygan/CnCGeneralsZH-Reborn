@@ -2324,6 +2324,33 @@ void BaseHeightMapRenderObjClass::addProp(Int id, Coord3D location, Real angle, 
 
 
 //=============================================================================
+// BaseHeightMapRenderObjClass::addModelShadow
+//=============================================================================
+/** Hands a model's shadow to the tree buffer.  Trees the map placed as real objects are drawn by
+their own draw module and never reach that buffer, so this is how their silhouette gets cast with
+the batched ones. */
+//=============================================================================
+Bool BaseHeightMapRenderObjClass::addModelShadow(DrawableID id, RenderObjClass *robj)
+{
+	if (m_treeBuffer) {
+		return m_treeBuffer->addModelShadow(id, robj);
+	}
+	return false;
+}
+
+//=============================================================================
+// BaseHeightMapRenderObjClass::removeModelShadow
+//=============================================================================
+/** Takes one back out again. */
+//=============================================================================
+void BaseHeightMapRenderObjClass::removeModelShadow(DrawableID id)
+{
+	if (m_treeBuffer) {
+		m_treeBuffer->removeModelShadow(id);
+	}
+}
+
+//=============================================================================
 // BaseHeightMapRenderObjClass::removeProp
 //=============================================================================
 /** Adds a prop to the prop buffer.*/

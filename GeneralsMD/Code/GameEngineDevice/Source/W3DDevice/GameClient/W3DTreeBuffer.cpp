@@ -84,9 +84,11 @@ enum
 #include "WW3D2/Camera.h"
 #include "WW3D2/DX8Wrapper.h"
 #include "WW3D2/DX8Renderer.h"
+#include "WW3D2/HLod.h"
 #include "WW3D2/Matinfo.h"
 #include "WW3D2/Mesh.h"
 #include "WW3D2/MeshMdl.h"
+#include "WW3D2/vertmaterial.h"
 #include "d3dx8tex.h"
 
 #ifdef _INTERNAL
@@ -253,6 +255,43 @@ void W3DTreeBuffer::W3DTreeTextureClass::Apply(unsigned int stage)
 #endif
 static ShaderClass detailAlphaShader(SC_ALPHA_DETAIL);
 static ShaderClass detailAlphaShader2X(SC_ALPHA_DETAIL_2X);
+
+// The shadow pass draws the same triangles flattened onto the ground, so it must not write z (the
+// tree standing on the shadow is drawn right after it) and must not cull: flattening a leaf card
+// reverses the winding of whichever half of the crown faces away from the sun, and culling would
+// drop it.
+#define SC_TREE_SHADOW ( SHADE_CNST(ShaderClass::PASS_LEQUAL, ShaderClass::DEPTH_WRITE_DISABLE, ShaderClass::COLOR_WRITE_ENABLE, ShaderClass::SRCBLEND_SRC_ALPHA, \
+	ShaderClass::DSTBLEND_ONE_MINUS_SRC_ALPHA, ShaderClass::FOG_DISABLE, ShaderClass::GRADIENT_MODULATE, ShaderClass::SECONDARY_GRADIENT_DISABLE, ShaderClass::TEXTURING_ENABLE, \
+	ShaderClass::ALPHATEST_ENABLE, ShaderClass::CULL_MODE_DISABLE, \
+	ShaderClass::DETAILCOLOR_DISABLE, ShaderClass::DETAILALPHA_DISABLE) )
+
+static ShaderClass treeShadowShader(SC_TREE_SHADOW);
+
+// The object trees' shadows carry their own colour on the vertex and their shape in the texture's
+// alpha, so this one blends rather than tests: an alpha test would cut the soft edge of a frond off
+// at whatever the reference happened to be.
+#define SC_MODEL_SHADOW ( SHADE_CNST(ShaderClass::PASS_LEQUAL, ShaderClass::DEPTH_WRITE_DISABLE, ShaderClass::COLOR_WRITE_ENABLE, ShaderClass::SRCBLEND_SRC_ALPHA, \
+	ShaderClass::DSTBLEND_ONE_MINUS_SRC_ALPHA, ShaderClass::FOG_DISABLE, ShaderClass::GRADIENT_MODULATE, ShaderClass::SECONDARY_GRADIENT_DISABLE, ShaderClass::TEXTURING_ENABLE, \
+	ShaderClass::ALPHATEST_DISABLE, ShaderClass::CULL_MODE_DISABLE, \
+	ShaderClass::DETAILCOLOR_DISABLE, ShaderClass::DETAILALPHA_DISABLE) )
+
+static ShaderClass modelShadowShader(SC_MODEL_SHADOW);
+
+// How dark a leaf lands on the ground, 0-255. The blob decal uses 160 and that is far too heavy for
+// a silhouette: the blob's alpha falls off towards its rim, a leaf's does not, and the crown's own
+// cards overlap so the middle of a shadow is paid for twice. Tune here.
+#define TREE_SHADOW_ALPHA 90
+
+// Where the shadow's own alpha test cuts, 0-255. Anything above the gaps between the leaves.
+#define TREE_SHADOW_ALPHAREF 12
+
+// How far the shadow floats over the tree's own base height, in world units. Without it the two
+// surfaces are coplanar at the trunk and fight for the depth buffer.
+#define TREE_SHADOW_LIFT 1.0f
+
+// A sun near the horizon projects a shadow hundreds of units long, over terrain the flat projection
+// knows nothing about. Cap the stretch at this many tree heights.
+#define TREE_SHADOW_MAX_STRETCH 3.0f
 
 
 /*
@@ -742,6 +781,8 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 		ib = lockIdxBuffer.Get_Index_Array();
 		// a failed lock - a device that has gone away - hands back nothing to write into
 		if (vb == NULL || ib == NULL) {
+			DEBUG_LOG(("TREEBUFFER lock failed on buffer %d (vb %d ib %d), %d trees not drawn\n",
+				bNdx, vb!=NULL, ib!=NULL, m_numTrees-curTree));
 			continue;
 		}
 		// Add to the index buffer & vertex buffer.
@@ -807,11 +848,15 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 
 			// If we happen to have too many trees, stop.
 			if (m_curNumTreeVertices[bNdx]+numVertex+2>= MAX_TREE_VERTEX) {
+				DEBUG_LOG(("TREEBUDGET buffer %d full at %d vertices, tree %d of %d\n",
+					bNdx, m_curNumTreeVertices[bNdx], curTree, m_numTrees));
 				break;
 			}
 			Int numIndex = m_treeTypes[type].m_mesh->Peek_Model()->Get_Polygon_Count();
 			const TriIndex *pPoly = m_treeTypes[type].m_mesh->Peek_Model()->Get_Polygon_Array();
 			if (m_curNumTreeIndices[bNdx]+3*numIndex+6 >= MAX_TREE_INDEX) {
+				DEBUG_LOG(("TREEBUDGET buffer %d full at %d indices, tree %d of %d\n",
+					bNdx, m_curNumTreeIndices[bNdx], curTree, m_numTrees));
 				break;
 			}
 
@@ -1131,6 +1176,10 @@ W3DTreeBuffer::W3DTreeBuffer(void)
 	m_treeTexture = NULL;
 	m_dwTreeVertexShader = 0;
 	m_dwTreePixelShader = 0;
+	// the memset above has its arguments the wrong way round and writes nothing, so anything
+	// clearAllTrees releases has to be null before it is called
+	m_numModelShadows = 0;
+	m_numShadowTextures = 0;
 	clearAllTrees();
 	allocateTreeBuffers();
 	m_initialized = true;
@@ -1292,6 +1341,19 @@ void W3DTreeBuffer::allocateTreeBuffers(void)
 //=============================================================================
 void W3DTreeBuffer::clearAllTrees(void)
 {
+	Int j;
+	for (j=0; j<m_numModelShadows; j++) {
+		Int k;
+		for (k=0; k<m_modelShadows[j].numMesh; k++) {
+			REF_PTR_RELEASE(m_modelShadows[j].mesh[k]);
+		}
+	}
+	m_numModelShadows = 0;
+	for (j=0; j<m_numShadowTextures; j++) {
+		REF_PTR_RELEASE(m_shadowTextures[j]);
+	}
+	m_numShadowTextures = 0;
+
 	m_numTrees=0;
 	m_bounds.lo.x = m_bounds.lo.y = 0;
 	m_bounds.hi.x = m_bounds.hi.y = 1;
@@ -1388,6 +1450,8 @@ Int W3DTreeBuffer::addTreeType(const W3DTreeDrawModuleData *data)
 
 	if (robj->Class_ID() == RenderObjClass::CLASSID_MESH)
 		m_treeTypes[m_numTreeTypes].m_mesh = (MeshClass*)robj;
+
+	DEBUG_LOG(("TREETYPE %d: %s\n", m_numTreeTypes, data->m_modelName.str()));
 
 	if (m_treeTypes[m_numTreeTypes].m_mesh==NULL) {
 		DEBUG_CRASH(("Tree %s is not simple mesh. Tell artist to re-export. Don't Ignore!!!\n", data->m_modelName.str()));
@@ -1556,6 +1620,376 @@ void W3DTreeBuffer::pushAsideTree(DrawableID id, const Coord3D *pusherPos,
 	}
 }
 
+//=============================================================================
+// W3DTreeBuffer::addShadowTexture
+//=============================================================================
+/** Finds this texture in the shadow list, adding it if it is new.  The list is what the shadow pass
+batches by: every palm on the map is two meshes and two textures, so a hundred of them cost two
+draw calls and not two hundred. */
+//=============================================================================
+Int W3DTreeBuffer::addShadowTexture(TextureClass *tex)
+{
+	Int i;
+	for (i=0; i<m_numShadowTextures; i++) {
+		if (m_shadowTextures[i] == tex) {
+			return i;
+		}
+	}
+	if (m_numShadowTextures >= MAX_SHADOW_TEXTURES) {
+		return -1;
+	}
+	m_shadowTextures[m_numShadowTextures] = NULL;
+	REF_PTR_SET(m_shadowTextures[m_numShadowTextures], tex);
+	return m_numShadowTextures++;
+}
+
+//=============================================================================
+// W3DTreeBuffer::addModelShadow
+//=============================================================================
+/** Takes over the shadow of a tree the map placed as a real object.  The meshes are held with a
+reference and their world transforms copied, because these things never move; the drawable can die
+without leaving anything dangling here, and removeModelShadow is what actually forgets it.
+
+Returns FALSE when there is nothing usable, and the caller then leaves the model with the round
+decal the template asked for. */
+//=============================================================================
+Bool W3DTreeBuffer::addModelShadow(DrawableID id, RenderObjClass *robj)
+{
+	if (!m_initialized || robj == NULL || m_numModelShadows >= MAX_MODEL_SHADOWS) {
+		return false;
+	}
+
+	TModelShadow &ms = m_modelShadows[m_numModelShadows];
+	ms.drawableID = id;
+	ms.numMesh = 0;
+	ms.visible = false;
+
+	// LOD 0 is the model as it stands closest to the camera, which is the shape worth casting
+	Int subCount = 1;
+	Bool isHLod = robj->Class_ID() == RenderObjClass::CLASSID_HLOD;
+	if (isHLod) {
+		subCount = ((HLodClass *)robj)->Get_Lod_Model_Count(0);
+	}
+
+	Int i;
+	for (i=0; i<subCount && ms.numMesh<4; i++) {
+		RenderObjClass *sub = isHLod ? ((HLodClass *)robj)->Peek_Lod_Model(0, i) : robj;
+		if (sub == NULL || sub->Class_ID() != RenderObjClass::CLASSID_MESH) {
+			continue;
+		}
+		MeshClass *mesh = (MeshClass *)sub;
+		//a skinned mesh is deformed by its bones every frame and its vertex array is not where it
+		//stands; nothing that casts one of these shadows is animated, so skip it rather than
+		//lay the bind pose on the ground
+		if (mesh->Peek_Model() == NULL || mesh->Peek_Model()->Get_Flag(MeshGeometryClass::SKIN)) {
+			continue;
+		}
+		if (mesh->Peek_Model()->Get_Vertex_Count() < 3) {
+			continue;
+		}
+
+		TextureClass *tex = NULL;
+		MaterialInfoClass *matInfo = mesh->Get_Material_Info();
+		if (matInfo) {
+			if (matInfo->Texture_Count() > 0) {
+				tex = matInfo->Peek_Texture(0);
+			}
+			REF_PTR_RELEASE(matInfo);
+		}
+		//no texture means no alpha, and the shape of a leafy sheet is entirely in its alpha
+		if (tex == NULL) {
+			continue;
+		}
+		Int texNdx = addShadowTexture(tex);
+		if (texNdx < 0) {
+			continue;
+		}
+
+		ms.mesh[ms.numMesh] = NULL;
+		REF_PTR_SET(ms.mesh[ms.numMesh], mesh);
+		ms.texNdx[ms.numMesh] = texNdx;
+		ms.numMesh++;
+	}
+
+	if (ms.numMesh == 0) {
+		return false;
+	}
+
+	//
+	// No transform and no position are read here.  This runs while the drawable is being built, and
+	// the object is not standing anywhere yet: the render object still reports its object-space
+	// bounds around the origin.  The meshes are held with a reference, so where they stand is asked
+	// of them every frame instead.
+	//
+	ms.baseZ = 0.0f;
+	ms.visible = false;
+	m_numModelShadows++;
+	return true;
+}
+
+//=============================================================================
+// W3DTreeBuffer::removeModelShadow
+//=============================================================================
+/** Forgets a model shadow.  The list is packed by moving the last entry into the hole, since
+nothing here cares what order they are in. */
+//=============================================================================
+void W3DTreeBuffer::removeModelShadow(DrawableID id)
+{
+	Int i;
+	for (i=0; i<m_numModelShadows; i++) {
+		if (m_modelShadows[i].drawableID != id) {
+			continue;
+		}
+		Int k;
+		for (k=0; k<m_modelShadows[i].numMesh; k++) {
+			REF_PTR_RELEASE(m_modelShadows[i].mesh[k]);
+		}
+		m_numModelShadows--;
+		if (i != m_numModelShadows) {
+			m_modelShadows[i] = m_modelShadows[m_numModelShadows];
+		}
+		m_modelShadows[m_numModelShadows].numMesh = 0;
+		return;
+	}
+}
+
+//=============================================================================
+// W3DTreeBuffer::drawModelShadows
+//=============================================================================
+/** Lays the object trees' triangles on the ground, the same way the batched trees are laid: every
+vertex slides along the sun by its own height and drops to the model's base.  These are done on the
+CPU rather than in Trees.vso because they are not in the tree vertex buffer and there are few of
+them on screen at once - a palm is forty vertices.
+
+Colour comes from the vertex, not the texture, so the ground gets shade and not a picture of a
+palm; alpha comes from the texture, so the gaps between the fronds are gaps in the shadow. */
+//=============================================================================
+void W3DTreeBuffer::drawModelShadows(CameraClass *camera, Real stretchX, Real stretchY)
+{
+	if (m_numModelShadows == 0 || m_numShadowTextures == 0) {
+		return;
+	}
+
+	Int i, t;
+	Int numVisible = 0;
+	for (i=0; i<m_numModelShadows; i++) {
+		TModelShadow &ms = m_modelShadows[i];
+		ms.visible = false;
+		ms.baseZ = 0.0f;
+		Int k;
+		for (k=0; k<ms.numMesh; k++) {
+			//the meshes are where the object stands now, which is the only place this is known
+			const AABoxClass &box = ms.mesh[k]->Get_Bounding_Box();
+			Real bottom = box.Center.Z - box.Extent.Z;
+			if (k == 0 || bottom < ms.baseZ) {
+				ms.baseZ = bottom;
+			}
+			if (!ms.visible && (camera == NULL || !camera->Cull_Sphere(ms.mesh[k]->Get_Bounding_Sphere()))) {
+				ms.visible = true;
+			}
+		}
+		if (ms.visible) {
+			numVisible++;
+		}
+	}
+	if (numVisible == 0) {
+		return;
+	}
+
+	const UnsignedInt shadowDiffuse = (UnsignedInt)TREE_SHADOW_ALPHA << 24;
+
+	//
+	// The world transform is the caller's, the terrain's own, and it is left alone: these vertices
+	// are built in world space exactly like the batched trees', which lean on the same thing.
+	// Setting an identity here would hand the tree pass below the wrong matrix, since it reads the
+	// world transform back out of the device to build its own.
+	//
+	VertexMaterialClass *vmat = VertexMaterialClass::Get_Preset(VertexMaterialClass::PRELIT_DIFFUSE);
+	DX8Wrapper::Set_Material(vmat);
+	REF_PTR_RELEASE(vmat);
+	DX8Wrapper::Set_Shader(modelShadowShader);
+	DX8Wrapper::Set_Texture(1, NULL);
+
+	for (t=0; t<m_numShadowTextures; t++) {
+		//two passes over the list: the dynamic buffers have to be asked for an exact size
+		Int numVertex = 0;
+		Int numIndex = 0;
+		for (i=0; i<m_numModelShadows; i++) {
+			if (!m_modelShadows[i].visible) {
+				continue;
+			}
+			Int k;
+			for (k=0; k<m_modelShadows[i].numMesh; k++) {
+				if (m_modelShadows[i].texNdx[k] != t) {
+					continue;
+				}
+				MeshModelClass *model = m_modelShadows[i].mesh[k]->Peek_Model();
+				if (numVertex + model->Get_Vertex_Count() > MAX_SHADOW_BATCH_VERTEX) {
+					continue;
+				}
+				numVertex += model->Get_Vertex_Count();
+				numIndex += 3*model->Get_Polygon_Count();
+			}
+		}
+		if (numVertex == 0 || numIndex == 0) {
+			continue;
+		}
+
+		//DynamicVBAccessClass hands out one format and one only, and asserts on it in a debug build;
+		//in Release a mismatch is silent and every vertex comes out of the buffer at the wrong stride
+		DynamicVBAccessClass vbAccess(BUFFER_TYPE_DYNAMIC_DX8, DX8_FVF_XYZNDUV2, numVertex);
+		DynamicIBAccessClass ibAccess(BUFFER_TYPE_DYNAMIC_DX8, numIndex);
+		{
+			DynamicVBAccessClass::WriteLockClass vbLock(&vbAccess);
+			DynamicIBAccessClass::WriteLockClass ibLock(&ibAccess);
+			VertexFormatXYZNDUV2 *vb = vbLock.Get_Formatted_Vertex_Array();
+			UnsignedShort *ib = ibLock.Get_Index_Array();
+			if (vb == NULL || ib == NULL) {
+				continue;
+			}
+
+			Int curVertex = 0;
+			Int curIndex = 0;
+			for (i=0; i<m_numModelShadows; i++) {
+				if (!m_modelShadows[i].visible) {
+					continue;
+				}
+				Int k;
+				for (k=0; k<m_modelShadows[i].numMesh; k++) {
+					if (m_modelShadows[i].texNdx[k] != t) {
+						continue;
+					}
+					MeshModelClass *model = m_modelShadows[i].mesh[k]->Peek_Model();
+					Int meshVerts = model->Get_Vertex_Count();
+					Int meshPolys = model->Get_Polygon_Count();
+					if (curVertex + meshVerts > numVertex || curIndex + 3*meshPolys > numIndex) {
+						continue;
+					}
+					const Vector3 *pVert = model->Get_Vertex_Array();
+					const Vector2 *uvs = model->Get_UV_Array_By_Index(0);
+					const TriIndex *pPoly = model->Get_Polygon_Array();
+					if (pVert == NULL || uvs == NULL || pPoly == NULL) {
+						continue;
+					}
+					const Matrix3D &xform = m_modelShadows[i].mesh[k]->Get_Transform();
+					Real baseZ = m_modelShadows[i].baseZ;
+
+					Int v;
+					Int startVertex = curVertex;
+					for (v=0; v<meshVerts; v++) {
+						Vector3 world;
+						Matrix3D::Transform_Vector(xform, pVert[v], &world);
+						Real height = world.Z - baseZ;
+						if (height < 0.0f) {
+							height = 0.0f;
+						}
+						Real landX = world.X + height*stretchX;
+						Real landY = world.Y + height*stretchY;
+						//
+						// The batched trees lie on a flat plane at the tree's own base, and on a
+						// slope half of that plane ends up under the ground.  Here the vertices are
+						// being built one at a time on the CPU anyway, so each one can ask the
+						// terrain how high it is where it lands, and the shadow follows the hill.
+						//
+						Real groundZ = TheTerrainRenderObject != NULL
+														? TheTerrainRenderObject->getHeightMapHeight(landX, landY, NULL)
+														: baseZ;
+						vb[curVertex].x = landX;
+						vb[curVertex].y = landY;
+						vb[curVertex].z = groundZ + TREE_SHADOW_LIFT;
+						vb[curVertex].nx = 0.0f;
+						vb[curVertex].ny = 0.0f;
+						vb[curVertex].nz = 1.0f;
+						vb[curVertex].diffuse = shadowDiffuse;
+						vb[curVertex].u1 = uvs[v].U;
+						vb[curVertex].v1 = uvs[v].V;
+						vb[curVertex].u2 = 0.0f;
+						vb[curVertex].v2 = 0.0f;
+						curVertex++;
+					}
+					for (v=0; v<meshPolys; v++) {
+						ib[curIndex++] = startVertex + pPoly[v].I;
+						ib[curIndex++] = startVertex + pPoly[v].J;
+						ib[curIndex++] = startVertex + pPoly[v].K;
+					}
+				}
+			}
+			numVertex = curVertex;
+			numIndex = curIndex;
+		}
+		if (numIndex == 0) {
+			continue;
+		}
+
+		DX8Wrapper::Set_Texture(0, m_shadowTextures[t]);
+		DX8Wrapper::Set_Index_Buffer(ibAccess, 0);
+		DX8Wrapper::Set_Vertex_Buffer(vbAccess);
+		DX8Wrapper::Draw_Triangles(0, numIndex/3, 0, numVertex);
+	}
+
+	DX8Wrapper::Invalidate_Cached_Render_States();
+}
+
+//=============================================================================
+// W3DTreeBuffer::drawTreeBuffers
+//=============================================================================
+/** Draws every buffer that has anything in it, either as the trees themselves or, with the vertex
+shader's constants set to flatten them, as their shadows.  The vertex and index buffers are the
+same ones both times - a tree's shadow is that tree's triangles. */
+//=============================================================================
+void W3DTreeBuffer::drawTreeBuffers(Bool shadowPass)
+{
+	LPDIRECT3DDEVICE8 dev = DX8Wrapper::_Get_D3D_Device8();
+	if (!dev) {
+		return;
+	}
+	Int bNdx;
+	for (bNdx=0;bNdx<MAX_BUFFERS; bNdx++) {
+		if (m_curNumTreeIndices[bNdx]==0) {
+			break;
+		}
+		DX8Wrapper::Set_Index_Buffer(m_indexTree[bNdx],0);
+		DX8Wrapper::Set_Vertex_Buffer(m_vertexTree[bNdx]);
+		// Render the waving grass
+		DX8Wrapper::Apply_Render_State_Changes();
+		if (m_dwTreeVertexShader) {
+			dev->SetVertexShader(m_dwTreeVertexShader);
+			dev->SetTextureStageState(0,  D3DTSS_TEXCOORDINDEX, 0);
+			dev->SetTextureStageState(1,  D3DTSS_TEXCOORDINDEX, 1);
+			dev->SetTextureStageState(1,  D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+		}
+		if (shadowPass) {
+			//
+			// A shadow has no colour of its own: the texture says where a leaf is, the texture
+			// factor says how dark to paint the ground there.  Taking the colour from the vertices
+			// instead would paint the tree's own lit greens flat on the grass.
+			//
+			// These go in behind DX8Wrapper's back, the way the shroud stage above does, so the
+			// caller ends drawing with Invalidate_Cached_Render_States.
+			//
+			dev->SetRenderState(D3DRS_TEXTUREFACTOR, (D3DCOLOR)(TREE_SHADOW_ALPHA<<24));
+			//
+			// ShaderClass sets the alpha test to 0x60 for the tree pass, where alpha comes straight
+			// off the texture.  Here it is that alpha scaled down to the shadow's own opacity, so
+			// every pixel in the crown would fail the same test and the shadow would be nothing at
+			// all.  Test near zero instead: what is being rejected is the gaps between leaves.
+			//
+			dev->SetRenderState(D3DRS_ALPHAREF, TREE_SHADOW_ALPHAREF);
+			dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+			dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
+			dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+			dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+			dev->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+			dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+			dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+		}
+		DX8Wrapper::Draw_Triangles(	0, m_curNumTreeIndices[bNdx]/3, 0,	m_curNumTreeVertices[bNdx]);
+	}
+	if (shadowPass) {
+		DX8Wrapper::Invalidate_Cached_Render_States();
+	}
+}
+
 DECLARE_PERF_TIMER(Tree_Render)
 
 //=============================================================================
@@ -1627,13 +2061,18 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 	}
 
 	Int curTree;
+
+	// Shadows are wanted under either option: the loop used to be gated on m_useShadowDecals alone,
+	// so with volume shadows picked trees were the one thing in the scene standing on nothing.
+	Bool drawShadows = TheGlobalData->m_useShadowDecals || TheGlobalData->m_useShadowVolumes;
+	// The silhouette pass needs the vertex shader, since flattening the tree onto the ground is the
+	// shader's own sway arithmetic with different constants.  Hardware without one keeps the blob.
+	Bool silhouetteShadows = drawShadows && m_dwTreeVertexShader != 0 && TheW3DShadowManager != NULL;
+
 	// Draw tree shadows.
 	// Trees are batched vertices with no render object of their own, so the one shared blob decal
-	// is all they can have.  The loop used to be gated on m_useShadowDecals alone, so with volume
-	// shadows picked trees were the one thing in the scene standing on nothing; draw it under
-	// either option.
-	if (m_shadow && TheW3DProjectedShadowManager &&
-			(TheGlobalData->m_useShadowDecals || TheGlobalData->m_useShadowVolumes)) {
+	// is all they can have.
+	if (m_shadow && TheW3DProjectedShadowManager && drawShadows && !silhouetteShadows) {
 		for (curTree=0; curTree<m_numTrees; curTree++) {
 			Int type = m_trees[curTree].treeType;
 			if (type<0) { // deleted.
@@ -1765,10 +2204,108 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 #endif
 
 
+	//
+	// The sun, as how far a shadow reaches sideways for every unit of height.  Both kinds of tree
+	// shadow are the same shear about the ground, and this is the number it shears by.
+	//
+	Real stretchX = 0.0f;
+	Real stretchY = 0.0f;
+	Bool haveSun = false;
+	if (TheW3DShadowManager) {
+		Vector3 &sunPos = TheW3DShadowManager->getLightPosWorld(0);
+		if (sunPos.Z > 1.0f) {
+			stretchX = -sunPos.X / sunPos.Z;
+			stretchY = -sunPos.Y / sunPos.Z;
+			Real stretchSq = stretchX*stretchX + stretchY*stretchY;
+			if (stretchSq > TREE_SHADOW_MAX_STRETCH*TREE_SHADOW_MAX_STRETCH) {
+				Real scale = TREE_SHADOW_MAX_STRETCH / WWMath::Sqrt(stretchSq);
+				stretchX *= scale;
+				stretchY *= scale;
+			}
+			haveSun = true;
+		}
+	}
+
+	//
+	// The trees the map placed as objects are not in this buffer, so they are drawn whether it has
+	// anything in it or not - a map can have them with no batched tree in sight at all.  This sits
+	// on both sides of the early return rather than before it, and after the tree pass rather than
+	// before, so that nothing it leaves on the device can reach the trees: it is its own pass and
+	// it ends with Invalidate_Cached_Render_States.
+	//
 	if (m_curNumTreeIndices[0] == 0) {
+		if (drawShadows && haveSun) {
+			drawModelShadows(camera, stretchX, stretchY);
+		}
 		return;
 	}
-	DX8Wrapper::Set_Shader(detailAlphaShader);	
+
+	D3DXMATRIX mat;
+	if (m_dwTreeVertexShader) {
+		//
+		// This has to be applied first, and the trees disappear off the side of the world without it.
+		// _Get_DX8_Transform below asks the device for the matrix, while DX8Wrapper::Set_Transform -
+		// which is how the caller handed us the terrain's world matrix - only marks its own copy
+		// dirty and sends nothing.  Read before the pending state is flushed and what comes back is
+		// whatever the last thing drawn happened to leave on the device, which is a different wrong
+		// matrix depending on where the camera is standing.  EA read these after two applies for
+		// exactly this reason; this is that, made deliberate.
+		//
+		DX8Wrapper::Apply_Render_State_Changes();
+		D3DXMATRIX matProj, matView, matWorld;
+		DX8Wrapper::_Get_DX8_Transform(D3DTS_WORLD, *(Matrix4x4*)&matWorld);
+		DX8Wrapper::_Get_DX8_Transform(D3DTS_VIEW, *(Matrix4x4*)&matView);
+		DX8Wrapper::_Get_DX8_Transform(D3DTS_PROJECTION, *(Matrix4x4*)&matProj);
+		D3DXMatrixMultiply( &mat, &matView, &matProj );
+		D3DXMatrixMultiply( &mat, &matWorld, &mat );
+	}
+
+	//
+	// The tree's own shadow, cast by the tree's own triangles.
+	//
+	// Trees.nvv already computes h = vertex Z minus the tree's base Z (the base rides in the normal
+	// slot as v1.z) and then writes position = h * c[8+swayType] + vertex.  That is a shear about
+	// the base, which is exactly what a shadow projected onto a flat ground plane is.  Hand it
+	// (sunX, sunY, -1, 0) instead of the breeze and the same instruction lays the tree down: xy
+	// slides along the ground by the sun's angle, and z collapses to the base height.  No second
+	// shader, which matters here - the .vso files come out of the shipped big files and this fork
+	// has no assembler to build a new one.
+	//
+	// The shape is the tree's own texture alpha, so leaf gaps are holes in the shadow, and the
+	// breeze is added on top of the sun so the shadow sways with the tree that casts it.  Toppling
+	// and push-aside are already baked into the vertices, so a falling tree's shadow falls with it.
+	//
+	// What this does not do is follow the terrain: the shadow is flat at the tree's own base
+	// height, so on a slope part of it sinks under the ground and is clipped by the depth test.
+	//
+	if (silhouetteShadows && haveSun) {
+		// v * translate(0,0,lift) * worldViewProj, by hand: with row vectors the product's
+		// translation row is the lift times row 3, added to row 4.
+		D3DXMATRIX shadowMat = mat;
+		shadowMat._41 += TREE_SHADOW_LIFT * shadowMat._31;
+		shadowMat._42 += TREE_SHADOW_LIFT * shadowMat._32;
+		shadowMat._43 += TREE_SHADOW_LIFT * shadowMat._33;
+		shadowMat._44 += TREE_SHADOW_LIFT * shadowMat._34;
+		D3DXMatrixTranspose( &shadowMat, &shadowMat );
+		DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  4, &shadowMat,  4 );
+
+		// c8 is the entry a tree with no sway reads, c9 and up are the sway types.
+		Vector4 flat(stretchX, stretchY, -1.0f, 0);
+		DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  8, &flat,  1 );
+		for	(i=0; i<MAX_SWAY_TYPES; i++) {
+			Vector4 flatSway(stretchX + swayFactor[i].X, stretchY + swayFactor[i].Y, -1.0f, 0);
+			DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  9+i, &flatSway,  1 );
+		}
+
+		DX8Wrapper::Set_Shader(treeShadowShader);
+		DX8Wrapper::Set_Texture(0,m_treeTexture);
+		DX8Wrapper::Set_Texture(1,NULL);
+		DX8Wrapper::Set_Vertex_Shader(m_dwTreeVertexShader);
+		DX8Wrapper::Apply_Render_State_Changes();
+		drawTreeBuffers(true);
+	}
+
+	DX8Wrapper::Set_Shader(detailAlphaShader);
 
 	DX8Wrapper::Set_Texture(0,m_treeTexture);
 	DX8Wrapper::Set_Texture(1,NULL);
@@ -1780,17 +2317,40 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 	DX8Wrapper::Apply_Render_State_Changes();
  
 	if (m_dwTreeVertexShader) {
-		D3DXMATRIX matProj, matView, matWorld;
-		DX8Wrapper::_Get_DX8_Transform(D3DTS_WORLD, *(Matrix4x4*)&matWorld);
-		DX8Wrapper::_Get_DX8_Transform(D3DTS_VIEW, *(Matrix4x4*)&matView);
-		DX8Wrapper::_Get_DX8_Transform(D3DTS_PROJECTION, *(Matrix4x4*)&matProj);
-		D3DXMATRIX mat;
-		D3DXMatrixMultiply( &mat, &matView, &matProj );
-		D3DXMatrixMultiply( &mat, &matWorld, &mat );
 		D3DXMatrixTranspose( &mat, &mat );
 
 		// c4  - Composite World-View-Projection Matrix
 		DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  4, &mat,  4 );
+
+		//
+		// The matrix the trees are about to be drawn with, checked against the one the device is
+		// actually holding at this moment.  This is not a debugging leftover: reading a transform
+		// out of the device before the wrapper has flushed its pending state hands back whatever
+		// the last thing drawn left there, the trees go off the side of the world, and nothing about
+		// the tree buffer looks wrong while it happens - the vertices are all present and the draw
+		// call is made.  Two GetTransforms a frame is a cheap price for never hunting that again.
+		//
+		{
+			D3DXMATRIX nowWorld, nowView, nowProj, nowWvp;
+			DX8Wrapper::_Get_DX8_Transform(D3DTS_WORLD, *(Matrix4x4*)&nowWorld);
+			DX8Wrapper::_Get_DX8_Transform(D3DTS_VIEW, *(Matrix4x4*)&nowView);
+			DX8Wrapper::_Get_DX8_Transform(D3DTS_PROJECTION, *(Matrix4x4*)&nowProj);
+			D3DXMatrixMultiply( &nowWvp, &nowView, &nowProj );
+			D3DXMatrixMultiply( &nowWvp, &nowWorld, &nowWvp );
+			D3DXMatrixTranspose( &nowWvp, &nowWvp );
+			Real worst = 0.0f;
+			const Real *a = (const Real *)&mat;
+			const Real *b = (const Real *)&nowWvp;
+			for (Int e=0; e<16; e++) {
+				Real d = a[e] - b[e];
+				if (d < 0.0f) d = -d;
+				if (d > worst) worst = d;
+			}
+			if (worst > 0.001f) {
+				DEBUG_LOG(("TREEMATRIX the trees are being drawn with the wrong matrix, worst term off by %f\n",
+					worst));
+			}
+		}
 		Vector4 noSway(0,0,0,0);
 		DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  8, &noSway,  1 );
 
@@ -1838,28 +2398,16 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 	}
 
 
-	Int bNdx;
-	for (bNdx=0;bNdx<MAX_BUFFERS; bNdx++) {
-		if (m_curNumTreeIndices[bNdx]==0) {
-			break;
-		}
-		DX8Wrapper::Set_Index_Buffer(m_indexTree[bNdx],0);
-		DX8Wrapper::Set_Vertex_Buffer(m_vertexTree[bNdx]);
-		// Render the waving grass
-		DX8Wrapper::Apply_Render_State_Changes();
-		if (m_dwTreeVertexShader) {
-			DX8Wrapper::_Get_D3D_Device8()->SetVertexShader(m_dwTreeVertexShader);
-			DX8Wrapper::_Get_D3D_Device8()->SetTextureStageState(0,  D3DTSS_TEXCOORDINDEX, 0);
-			DX8Wrapper::_Get_D3D_Device8()->SetTextureStageState(1,  D3DTSS_TEXCOORDINDEX, 1);
-			DX8Wrapper::_Get_D3D_Device8()->SetTextureStageState(1,  D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
-		}
-		DX8Wrapper::Draw_Triangles(	0, m_curNumTreeIndices[bNdx]/3, 0,	m_curNumTreeVertices[bNdx]);
-	}
+	drawTreeBuffers(false);
 
 	DX8Wrapper::Set_Vertex_Shader(DX8_FVF_XYZNDUV1);
 	DX8Wrapper::Set_Pixel_Shader(NULL);
 	DX8Wrapper::Invalidate_Cached_Render_States();	//code above mucks around with W3D states so make sure we reset
 
+	//the object trees' shadows, last, after the trees themselves have been drawn and the states reset
+	if (drawShadows && haveSun) {
+		drawModelShadows(camera, stretchX, stretchY);
+	}
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -188,6 +188,7 @@ found and fixed â€” EA's own, not port damage.**
 
 - 481 base-game textures at four times the resolution now beat Zero Hour's downscaled copies.
 - A long thin texture loads at the size it was drawn at. Anything wider than eight to one used to be stretched onto a bigger, blurrier one, because that was the limit of a 2002 graphics card; the card is asked now, and modern ones have no such limit.
+- Woodland stops vanishing when you look at too much of it at once. Every tree on screen was written into one buffer that held about 730 of them, and the ones that did not fit were simply not drawn, so scrolling into a dense corner made whole stands of trees blink out and come back when you left. There are four of those buffers now.
 
 ## Every replay, not just the last one
 
@@ -519,6 +520,14 @@ found and fixed â€” EA's own, not port damage.**
 - A big smoke cloud darkens the ground under it and fades as it does.
 - The soft blob shadow for trees and scenery had never been drawn at all.
 - Every one of the 128 tree types casts now, plus the bushes and palms.
+- A tree's shadow is the tree. Trunk, crown, and the gaps between the leaves, lying along the
+  ground in the direction the map's own sun points, and stretching the way a low evening sun
+  stretches one. It sways when the tree sways, leans away from the tank pushing past it, and falls
+  over with the tree when the tree comes down.
+- The palms too, and every other tree the map placed as a real object rather than scenery. There
+  are 278 of them on Golden Oasis and they had nothing under them at all; their shadow runs up and
+  over the dunes instead of lying flat, because it asks the ground how high it is at every point it
+  covers.
 - Fences, walls and props cast a real shaped shadow, worked out once.
 - Each of these switches off in `GameData.ini`.
 
@@ -826,7 +835,12 @@ found and fixed â€” EA's own, not port damage.**
 - Every fix was proved by putting the bug back and watching the test fail.
 - No debugger here: a crash symboliser, a sampling profiler, probes in live matches.
 - A graphics fix is argued with pixels: an unattended match can now be told where to point the camera and which frame to photograph, so the two builds are compared by counting the pixels between them. The river above changed 126,535 of them and the eye had been calling it "about the same".
-- Reverted and recorded: wide FOV, the whole group movement rework, tree shadows.
+- Reverted and recorded: wide FOV, the whole group movement rework, tree shadows out of a stencil
+  volume. That last one was a day spent proving the models cannot do it: a tree is a flat two-sided
+  sheet with no closed silhouette, so a palm threw its trunk and a leafy tree threw nothing. The
+  shadow trees have now is the opposite trick, and cost about thirty lines: the batch of triangles
+  the trees are already drawn from, drawn a second time with the tree laid flat on its own base and
+  slid along the sun. The shape comes free because it is the same triangles and the same texture.
 - The six-rung difficulty ladder is back down to three. The three extra rungs were built, played and taken out again: a player picks a level once and wants to know what it means, and six names that each moved one switch was a worse answer to that than three that each describe an opponent. The machinery underneath is the same, so the levels are still tunable in the data files, and Brutal kept the top rung's numbers rather than the old Brutal ones.
 - The three-piece command bar was reverted once, for having nowhere to put the painting of the bar, and is back now that the painting has been cut into three to match. Each piece is fitted by matching it against the artwork it was cut from rather than by eye: the eyeballed fit was four percent out, which nobody sees on the metal and everybody sees on the money readout.
 - The opponent's decisions are argued with a number: 20 headless matches per change, same seeds, win rate and match length before and after.

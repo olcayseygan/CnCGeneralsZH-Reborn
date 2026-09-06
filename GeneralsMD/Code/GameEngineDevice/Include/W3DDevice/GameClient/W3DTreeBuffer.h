@@ -78,6 +78,23 @@ class W3DProjectedShadow;
 //           Type Defines
 //-----------------------------------------------------------------------------
 
+/// One model that casts a shadow without being one of the batched trees.
+/**
+	A tree the map places as a real object - every palm in the game is one - is drawn by W3DModelDraw
+	from its own render object and never reaches the tree buffer, so the flattening pass that gives a
+	batched tree its silhouette has nothing to work on.  This is the same idea for those: the meshes
+	are kept, the object never moves, and the shadow pass lays a copy of their triangles on the
+	ground.
+*/
+typedef struct {
+	DrawableID	drawableID;					///< who this belongs to, and how it is removed again
+	Int					numMesh;						///< meshes taken from the model (LOD 0, unskinned)
+	MeshClass		*mesh[4];						///< held with a reference, so the drawable dying cannot dangle it
+	Int					texNdx[4];					///< index into the buffer's shadow texture list
+	Real				baseZ;							///< the ground the shadow is laid on, read from the meshes each frame
+	Bool				visible;						///< recomputed every frame
+} TModelShadow;
+
 enum W3DToppleState
 {
 	TOPPLE_UPRIGHT = 0,
@@ -192,6 +209,11 @@ public:
 		Real angle
 	);
 
+	/// Take a model's shadow over: the object keeps drawing itself, the buffer draws its shadow.
+	Bool addModelShadow(DrawableID id, RenderObjClass *robj);
+	/// Give it back, when the drawable goes away or changes its model.
+	void removeModelShadow(DrawableID id);
+
 	void setTextureLOD(Int lod);	///<used to adjust maximum mip level sent to hardware.
 	/// Empties the tree buffer. 
 	void clearAllTrees(void);
@@ -218,9 +240,20 @@ private:
 				MAX_TILES = 512,
 				NUM_SWAY_ENTRIES = 100,
 				MAX_SWAY_TYPES = 10,
-				MAX_BUFFERS = 1,
+				//
+				// Every visible tree is baked into these buffers, and a tree that does not fit is
+				// simply not drawn: the fill loop breaks and the rest of the forest is gone until
+				// the camera moves and the set changes.  One buffer is 30000 vertices, about 730
+				// trees, and a zoomed-out camera over dense woodland goes through that.  The fill,
+				// the push-aside update and the draw were all written to walk a list of buffers and
+				// then left at one; four costs about 4MB and takes the wall four times further away.
+				//
+				MAX_BUFFERS = 4,
 				SORT_ITERATIONS_PER_FRAME=10};
 	enum {PARTITION_WIDTH_HEIGHT = 100};
+	enum {MAX_MODEL_SHADOWS = 1024,		///< object trees on a map; Golden Oasis has 278 palms
+				MAX_SHADOW_TEXTURES = 32,		///< distinct textures across those models
+				MAX_SHADOW_BATCH_VERTEX = 8000};	///< per texture, per frame
 	DX8VertexBufferClass	*m_vertexTree[MAX_BUFFERS];	///<Tree vertex buffer.
 	DX8IndexBufferClass			*m_indexTree[MAX_BUFFERS];	///<indices defining a triangles for the tree drawing.
 	DWORD					m_dwTreePixelShader;	///<handle to D3D pixel shader
@@ -257,7 +290,12 @@ private:
 	Real		m_curSwayFactor[MAX_SWAY_TYPES];
 
 	W3DProjectedShadow *m_shadow;
-	
+
+	TModelShadow m_modelShadows[MAX_MODEL_SHADOWS];	///< shadows for trees the map placed as objects
+	Int m_numModelShadows;
+	TextureClass *m_shadowTextures[MAX_SHADOW_TEXTURES];	///< their textures, held with a reference
+	Int m_numShadowTextures;
+
 protected:
 	// snapshot methods
 	virtual void crc( Xfer *xfer );
@@ -269,6 +307,9 @@ protected:
 	void updateSway(const BreezeInfo& info);
 	void loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *pDynamicLightsIterator); ///< Fills the index and vertex buffers for drawing.
 	void updateVertexBuffer(void); ///< Fills the index and vertex buffers for drawing.
+	void drawTreeBuffers(Bool shadowPass); ///< Draws every filled buffer, as trees or as their shadows.
+	void drawModelShadows(CameraClass *camera, Real stretchX, Real stretchY); ///< the object trees' shadows
+	Int  addShadowTexture(TextureClass *tex);	///< index of this texture in the shadow list, adding it if new
 	void cull(const CameraClass * camera);						 ///< Culls the trees.
 	UnsignedInt  doLighting(const Vector3 *normal,  
 		const GlobalData::TerrainLighting	*objectLighting, 
