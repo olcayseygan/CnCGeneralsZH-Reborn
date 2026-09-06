@@ -822,6 +822,16 @@ found and fixed â€” EA's own, not port damage.**
 - About 5,600 graphics calls are translated to a modern path, none of them touched.
 - No disc, no registry keys, no retail installer â€” a normal install works.
 - The startup screen is this build's own, so you can see which one you launched before the menu loads.
+- The zip installs itself and takes itself back off. `install.bat` asks where the game is, offering
+  whatever the registry says, and copies the build there; anything it is about to write over goes
+  into a zip in `ZHReborn-Uninstall` first, and anything it adds that was not there is written down
+  so it can be deleted rather than restored. `uninstall.bat`, left in that same folder, puts the
+  install back the way it found it. Installing a second time on top does not bury the first backup:
+  it keeps the copy of the files as the retail game had them, not as the previous build left them.
+- Over a build that is already there it updates rather than installs, and says which number it is
+  moving you from and to. Running an older package over a newer install stops instead, since the
+  usual reason for doing that by accident is having two zips in the downloads folder; the word
+  force on the command line goes back anyway.
 - The 1.04 patch content is reachable again.
 
 ---
