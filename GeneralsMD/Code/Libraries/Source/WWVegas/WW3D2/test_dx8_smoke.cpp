@@ -273,6 +273,119 @@ int main(int argc, char **argv)
 		}
 	}
 
+	// The water reflection (WaterRenderObjClass::renderMirror) draws the world into a small
+	// off-screen target and then samples that target back as a texture in a later pass.  The
+	// checks above never do the second half: they render into a target and read it on the CPU,
+	// which passes even if the result is unusable as a shader input.  So bind a 64x64 target,
+	// fill it, restore the back buffer, then sample it across a 16x16 target and read that.
+	// Nothing here touches the back buffer's format or sample count, so it runs in the plain,
+	// -d3d12 and -msaa configurations alike.
+	//
+	// The viewport is checked on the way through because binding the mirror target has to bring
+	// its own viewport with it: 64x64 at 0,0, not the window's.  A viewport left at the window
+	// size draws the mirrored scene into one corner of the texture.  Direct3D itself enforces
+	// this (a viewport larger than the target is rejected - tried it, GetViewport still said
+	// 64x64), so what the check really pins is d3d8to9's SetRenderTarget, which is vendored
+	// code we patch.  It is not a check that has ever been made to fail here.
+	{
+		IDirect3DTexture8 * mirror = NULL, * out = NULL;
+		IDirect3DSurface8 * mirrorSurf = NULL, * mirrorZ = NULL, * outSurf = NULL;
+		IDirect3DSurface8 * bb = NULL, * autoZ = NULL, * copySurf = NULL;
+		D3DLOCKED_RECT lr;
+		bool built = SUCCEEDED(dev->CreateTexture(64, 64, 1, D3DUSAGE_RENDERTARGET, pp.BackBufferFormat,
+				D3DPOOL_DEFAULT, &mirror))
+			&& SUCCEEDED(mirror->GetSurfaceLevel(0, &mirrorSurf))
+			&& SUCCEEDED(dev->CreateDepthStencilSurface(64, 64, pp.AutoDepthStencilFormat,
+				D3DMULTISAMPLE_NONE, &mirrorZ))
+			&& SUCCEEDED(dev->CreateTexture(16, 16, 1, D3DUSAGE_RENDERTARGET, pp.BackBufferFormat,
+				D3DPOOL_DEFAULT, &out))
+			&& SUCCEEDED(out->GetSurfaceLevel(0, &outSurf))
+			&& SUCCEEDED(dev->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &bb))
+			&& SUCCEEDED(dev->CreateImageSurface(16, 16, pp.BackBufferFormat, &copySurf));
+		if (!built) {
+			printf("FAIL: could not build the reflection surfaces\n");
+			dev->Release(); d3d->Release(); DestroyWindow(hwnd);
+			return 1;
+		}
+		dev->GetDepthStencilSurface(&autoZ);	// may be NULL under -msaa's pairing, that is fine
+
+		// half of Set_Render_Target_With_Z: the mirror pass binds colour and a matching depth
+		HRESULT boundMirror = dev->SetRenderTarget(mirrorSurf, mirrorZ);
+		D3DVIEWPORT8 vp;
+		memset(&vp, 0, sizeof(vp));
+		HRESULT gotVp = dev->GetViewport(&vp);
+		printf("reflection: 64x64 target -> viewport %lux%lu at %lu,%lu\n",
+			(unsigned long)vp.Width, (unsigned long)vp.Height,
+			(unsigned long)vp.X, (unsigned long)vp.Y);
+		HRESULT clearedMirror = dev->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+			D3DCOLOR_XRGB(0, 96, 192), 1.0f, 0);
+		HRESULT restored = dev->SetRenderTarget(bb, autoZ);
+
+		// now the half nothing else covers: that target, as a texture, into another one
+		struct QuadVertex { float x, y, z, rhw; unsigned long color; float u, v; };
+		const QuadVertex quad[4] = {
+			{ 15.5f, 15.5f, 0.0f, 1.0f, 0xffffffff, 1.0f, 1.0f },
+			{ 15.5f, -0.5f, 0.0f, 1.0f, 0xffffffff, 1.0f, 0.0f },
+			{ -0.5f, 15.5f, 0.0f, 1.0f, 0xffffffff, 0.0f, 1.0f },
+			{ -0.5f, -0.5f, 0.0f, 1.0f, 0xffffffff, 0.0f, 0.0f },
+		};
+		HRESULT boundOut = dev->SetRenderTarget(outSurf, NULL);
+		dev->Clear(0, NULL, D3DCLEAR_TARGET, D3DCOLOR_XRGB(255, 0, 0), 1.0f, 0);	// red: seen if the sample fails
+		dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+		dev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+		dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+		dev->SetRenderState(D3DRS_LIGHTING, FALSE);
+		dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+		dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+		dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+		dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+		dev->SetTextureStageState(0, D3DTSS_MINFILTER, D3DTEXF_POINT);
+		dev->SetTextureStageState(0, D3DTSS_MAGFILTER, D3DTEXF_POINT);
+		dev->SetTexture(0, mirror);
+		dev->SetVertexShader(D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1);
+		dev->BeginScene();
+		HRESULT drawn = dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(QuadVertex));
+		dev->EndScene();
+		HRESULT copied = dev->CopyRects(outSurf, NULL, 0, copySurf, NULL);
+		HRESULT restoredAgain = dev->SetRenderTarget(bb, autoZ);
+		dev->SetTexture(0, NULL);
+		dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+		dev->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+		printf("reflection: bind hr=0x%08lx, clear hr=0x%08lx, restore hr=0x%08lx, resample bind hr=0x%08lx, draw hr=0x%08lx, copy hr=0x%08lx, restore hr=0x%08lx\n",
+			(unsigned long)boundMirror, (unsigned long)clearedMirror, (unsigned long)restored,
+			(unsigned long)boundOut, (unsigned long)drawn, (unsigned long)copied,
+			(unsigned long)restoredAgain);
+
+		bool sampled = false;
+		if (SUCCEEDED(copySurf->LockRect(&lr, NULL, D3DLOCK_READONLY))) {
+			const unsigned char * px = (const unsigned char *)lr.pBits + 8 * lr.Pitch + 8 * 4;
+			printf("reflection: sampled (b,g,r) = (%u,%u,%u), want (192,96,0)\n", px[0], px[1], px[2]);
+			sampled = px[0] > 184 && px[0] < 200 && px[1] > 88 && px[1] < 104 && px[2] < 8;
+			copySurf->UnlockRect();
+		}
+		const bool viewportFollowed = SUCCEEDED(gotVp) && vp.Width == 64 && vp.Height == 64
+			&& vp.X == 0 && vp.Y == 0;
+
+		copySurf->Release();
+		if (autoZ) autoZ->Release();
+		bb->Release(); outSurf->Release(); out->Release();
+		mirrorZ->Release(); mirrorSurf->Release(); mirror->Release();
+
+		if (!viewportFollowed) {
+			printf("FAIL: binding a 64x64 render target left the viewport at %lux%lu - a reflection drawn through this lands in one corner of its texture\n",
+				(unsigned long)vp.Width, (unsigned long)vp.Height);
+			dev->Release(); d3d->Release(); DestroyWindow(hwnd);
+			return 1;
+		}
+		if (FAILED(boundMirror) || FAILED(clearedMirror) || FAILED(restored)
+			|| FAILED(boundOut) || FAILED(drawn) || FAILED(copied) || FAILED(restoredAgain)
+			|| !sampled) {
+			printf("FAIL: a render target could not be sampled as a texture in a later pass (the water reflection's whole job)\n");
+			dev->Release(); d3d->Release(); DestroyWindow(hwnd);
+			return 1;
+		}
+	}
+
 	HRESULT phr = dev->Present(NULL, NULL, NULL, NULL);
 	printf("Present hr=0x%08lx\n", (unsigned long)phr);
 	if (show) {
