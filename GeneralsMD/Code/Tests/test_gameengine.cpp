@@ -8580,24 +8580,96 @@ TEST(option_catalog_clamps_and_leaves_an_absent_key_alone)
 	TheWritableGlobalData = scratch;
 
 	UserPreferences pref;
-	const OptionDef *bloom = findOptionDef( "Bloom" );
-	CHECK( bloom != NULL );
+	const OptionDef *speed = findOptionDef( "MenuTransitionSpeed" );
+	CHECK( speed != NULL );
 
-	pref[ AsciiString( "Bloom" ) ] = AsciiString( "500" );
+	pref[ AsciiString( "MenuTransitionSpeed" ) ] = AsciiString( "5000" );
 	loadOptionsFromPreferences( pref );
-	CHECK_EQ( bloom->get(), 100 );
+	CHECK_EQ( speed->get(), speed->hi );
 
-	pref[ AsciiString( "Bloom" ) ] = AsciiString( "-5" );
+	pref[ AsciiString( "MenuTransitionSpeed" ) ] = AsciiString( "-5" );
 	loadOptionsFromPreferences( pref );
-	CHECK_EQ( bloom->get(), 0 );
+	CHECK_EQ( speed->get(), speed->lo );
 
 	/* An Options.ini written before a setting existed carries no key for it, and that has to leave
 		 the GameData.ini default standing.  Treating a missing key as zero would reset every new
 		 setting to off for everyone who already has a preferences file, which is everyone. */
 	pref.clear();
-	bloom->set( 42 );
+	speed->set( 142 );
 	loadOptionsFromPreferences( pref );
-	CHECK_EQ( bloom->get(), 42 );
+	CHECK_EQ( speed->get(), 142 );
+
+	TheWritableGlobalData = saved;
+	delete scratch;
+}
+
+/** Bloom is picked as a level and stored as one, and the shader still reads the percentage it
+	 always read.  The mapping is the whole setting: get the two directions out of step and the combo
+	 box shows one thing while the screen does another, which nothing at build time would notice. */
+TEST(bloom_levels_carry_the_percentages_the_shader_reads)
+{
+	const OptionDef *bloom = findOptionDef( "Bloom" );
+	const OptionDef *threshold = findOptionDef( "BloomThreshold" );
+	CHECK( bloom != NULL && threshold != NULL );
+	CHECK_EQ( (Int)bloom->kind, (Int)OPTION_ENUM );
+	CHECK_EQ( (Int)threshold->kind, (Int)OPTION_ENUM );
+	CHECK_EQ( bloom->hi, BLOOM_LEVEL_COUNT - 1 );
+	CHECK_EQ( threshold->hi, BLOOM_THRESHOLD_LEVEL_COUNT - 1 );
+
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+
+	// what GlobalData's constructor put there, before anything below scribbles on it
+	const Int shippedIntensity = TheGlobalData->m_bloomIntensity;
+	const Int shippedThreshold = TheGlobalData->m_bloomThreshold;
+
+	// off is off, and nothing else is: a level that mapped to 0 would be a silent second Off entry
+	bloom->set( 0 );
+	CHECK_EQ( TheGlobalData->m_bloomIntensity, 0 );
+	for( Int level = 1; level < BLOOM_LEVEL_COUNT; ++level )
+	{
+		bloom->set( level );
+		CHECK( TheGlobalData->m_bloomIntensity > 0 );
+		CHECK_EQ( bloom->get(), level );
+	}
+
+	// each entry is stronger than the one above it, so the list reads in the order it is drawn
+	Int previous = -1;
+	for( Int level = 0; level < BLOOM_LEVEL_COUNT; ++level )
+	{
+		bloom->set( level );
+		CHECK( TheGlobalData->m_bloomIntensity > previous );
+		previous = TheGlobalData->m_bloomIntensity;
+	}
+
+	/* The threshold is a brightness, so it runs the other way: later entries mean more of the
+		 picture glows, which is a lower number.  This is the pair that was worth a dropdown. */
+	previous = 101;
+	for( Int level = 0; level < BLOOM_THRESHOLD_LEVEL_COUNT; ++level )
+	{
+		threshold->set( level );
+		CHECK( TheGlobalData->m_bloomThreshold < previous );
+		previous = TheGlobalData->m_bloomThreshold;
+		CHECK_EQ( threshold->get(), level );
+	}
+
+	/* GameData.ini writes these fields as raw percentages and never learns about levels, so the
+		 combo box has to answer with the nearest entry rather than the first one. */
+	TheWritableGlobalData->m_bloomIntensity = 62;
+	CHECK_EQ( bloom->get(), 2 );
+	TheWritableGlobalData->m_bloomThreshold = 66;
+	CHECK_EQ( threshold->get(), 1 );
+
+	/* The shipped default has to be one of the entries, not something between two of them.  Opening
+		 the options screen and pressing Accept without touching anything must leave the picture where
+		 it was, and it only does that if the default round trips through a level exactly. */
+	TheWritableGlobalData->m_bloomIntensity = shippedIntensity;
+	TheWritableGlobalData->m_bloomThreshold = shippedThreshold;
+	bloom->set( bloom->get() );
+	threshold->set( threshold->get() );
+	CHECK_EQ( TheGlobalData->m_bloomIntensity, shippedIntensity );
+	CHECK_EQ( TheGlobalData->m_bloomThreshold, shippedThreshold );
 
 	TheWritableGlobalData = saved;
 	delete scratch;

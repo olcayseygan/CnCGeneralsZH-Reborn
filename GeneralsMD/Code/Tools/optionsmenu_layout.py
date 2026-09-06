@@ -77,15 +77,15 @@ NAME_THE_UNNAMED = [("GUI:AntiAliasing", "AntiAliasingLabel")]
 CHECK, LABEL, COMBO, SLIDER = "CheckAlternateMouse", "DetailLabel", "ComboBoxDetail", "SliderGamma"
 
 CONTROLS = [
-    # Display: the two device settings and the two bloom knobs, in the space the audio panel left
+    # Display: the two device settings and the two bloom levels, in the space the audio panel left
     ("PageDisplay", LABEL,  "LabelWindowMode",       "GUI:WindowMode",       400, 104, 230, 24),
     ("PageDisplay", COMBO,  "ComboBoxWindowMode",    None,                   400, 128, 200, 24),
     ("PageDisplay", LABEL,  "LabelMSAA",             "GUI:MSAA",             400, 160, 230, 24),
     ("PageDisplay", COMBO,  "ComboBoxMSAA",          None,                   400, 184, 200, 24),
     ("PageDisplay", LABEL,  "LabelBloom",            "GUI:Bloom",            400, 216, 230, 24),
-    ("PageDisplay", SLIDER, "SliderBloom",           None,                   404, 240, 209, 24),
+    ("PageDisplay", COMBO,  "ComboBoxBloom",         None,                   400, 240, 200, 24),
     ("PageDisplay", LABEL,  "LabelBloomThreshold",   "GUI:BloomThreshold",   400, 272, 230, 24),
-    ("PageDisplay", SLIDER, "SliderBloomThreshold",  None,                   404, 296, 209, 24),
+    ("PageDisplay", COMBO,  "ComboBoxBloomThreshold",None,                   400, 296, 200, 24),
 
     # Gameplay: a page that did not exist at all before, and is one setting.  The eight build and
     # HUD conveniences that used to sit here are on for everybody now and left TheOptionCatalog

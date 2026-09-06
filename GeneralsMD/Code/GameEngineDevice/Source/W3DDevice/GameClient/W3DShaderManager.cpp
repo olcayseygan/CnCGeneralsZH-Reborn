@@ -164,8 +164,9 @@ W3DFilterInterface *ScreenDefaultFilterList[]=
 
 /*=========  Bloom	=============================================================*/
 /// Retail had no bloom and every texture in the game is LDR, so this is opt-in and tunable
-/// rather than a fixed look: "Bloom" in Options.ini is the strength in percent (0, off, unless
-/// it is set) and "BloomThreshold" the brightness, in percent, below which nothing glows.
+/// rather than a fixed look: m_bloomIntensity is the strength in percent (0, off, which is the
+/// default) and m_bloomThreshold the brightness, in percent, below which nothing glows.  The
+/// options screen sets both from one of a handful of named levels; nothing here knows that.
 /// It rides on ScreenDefaultFilter, which already renders the scene into a full-screen texture
 /// on the frames the smudge effects need one, so the only new work is a quarter-size bright
 /// pass, two 4-tap blur passes and one additive composite.  All fixed function on purpose - no

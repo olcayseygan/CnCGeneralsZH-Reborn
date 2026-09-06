@@ -1093,9 +1093,11 @@ GlobalData::GlobalData()
 	m_archiveReplays = TRUE;
 
 	// Bloom is the one that does NOT default on: it changes how the game looks rather than what it
-	// can do, and the artwork was painted in 2003 for a screen with no glow at all.  "Bloom = 60"
-	// in Options.ini turns it on at a restrained strength; "BloomThreshold" is the brightness,
-	// in percent, below which nothing glows.
+	// can do, and the artwork was painted in 2003 for a screen with no glow at all.  Both fields are
+	// percentages and GameData.ini sets them as such - the strength, and the brightness below which
+	// nothing glows.  The options screen offers levels instead and stores one of those in
+	// Options.ini; OptionsCatalog.cpp holds the percentage each level stands for, and 0 and 65 here
+	// are two of them.
 	m_bloomIntensity = 0;
 	m_bloomThreshold = 65;
 	

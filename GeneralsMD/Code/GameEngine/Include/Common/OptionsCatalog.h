@@ -115,6 +115,15 @@ extern unsigned msaaSamplesForLevel( Int level );
 /** The level that asks for this many samples, rounding a number in between downwards. */
 extern Int msaaLevelForSamples( unsigned samples );
 
+//-----------------------------------------------------------------------------
+// Bloom is two percentages the shader wants and neither of them is a question a player can answer.
+// "Bloom = 60" is a strength somebody has to find by experiment, and "BloomThreshold = 65" is worse:
+// it is a brightness, it runs backwards - lower means more of the screen glows - and nothing on the
+// screen tells you which way to push it.  So Options.ini stores a level, the menu offers those
+// levels by name, and the percentages the levels stand for are in OptionsCatalog.cpp.
+enum { BLOOM_LEVEL_COUNT = 4 };						///< off, subtle, normal, strong
+enum { BLOOM_THRESHOLD_LEVEL_COUNT = 3 };	///< only the brightest, bright things, most of the picture
+
 /** Options.ini -> TheWritableGlobalData, for every row.  A key that is absent leaves the field at
 	* whatever GlobalData's constructor put there, which is what makes an old Options.ini keep
 	* working when a row is added. */

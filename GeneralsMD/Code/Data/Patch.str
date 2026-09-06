@@ -397,19 +397,47 @@ TOOLTIP:MSAA
 END
 
 GUI:Bloom
-"Bloom"
+"Glow"
+END
+
+GUI:Bloom0
+"Off"
+END
+
+GUI:Bloom1
+"Subtle"
+END
+
+GUI:Bloom2
+"Normal"
+END
+
+GUI:Bloom3
+"Strong"
 END
 
 TOOLTIP:Bloom
-"How much bright surfaces glow into what is around them. Zero turns it off."
+"How far bright surfaces bleed light into what is around them. Retail had none of this, so Off is what the artwork was painted for."
 END
 
 GUI:BloomThreshold
-"Bloom Threshold"
+"What Glows"
+END
+
+GUI:BloomThreshold0
+"Only the brightest"
+END
+
+GUI:BloomThreshold1
+"Bright things"
+END
+
+GUI:BloomThreshold2
+"Most of the picture"
 END
 
 TOOLTIP:BloomThreshold
-"The brightness below which nothing glows. Lower it and more of the picture joins in."
+"How much of the screen is bright enough to glow at all. Only the brightest keeps it to muzzle flashes and lamps; most of the picture puts a haze over the whole battlefield."
 END
 
 GUI:MiddleMousePans

@@ -440,7 +440,7 @@ found and fixed â€” EA's own, not port damage.**
 ## The options screen has pages
 
 - Display, audio, controls, gameplay and network, behind five buttons across the top. The original screen was one panel with everything on it at once, and it was already full the day it shipped: the language filter, the keyboard button and four camera checkboxes are all still in there, parked off the right edge where nobody can reach them, because there was nowhere left to put them.
-- Five settings that used to need a text editor have a control now: window mode, antialiasing and the two bloom knobs on display, and who wears a health bar on gameplay.
+- Five settings that used to need a text editor have a control now: window mode, antialiasing and the two glow settings on display, and who wears a health bar on gameplay.
 - Twelve more are decided for you instead of asked about. Grid placement, nudging a blocked building, 45 degree building rotation, the placement range ring, workers going back to supply, detailed build tooltips, the HUD overlay and archived replays are simply on - every one of them is the version of the game people were choosing anyway, and a page of eight checkboxes nobody unticks is a page of eight decisions nobody wanted to make. Middle-mouse panning, zoom to cursor, edge scrolling in a window and 45 degree camera steps left the screen too; those four are still yours by name in `Options.ini` if the defaults are wrong for your setup.
 - A page no longer says its own name twice. Every tab used to open onto a heading repeating the word already written on the button you just pressed, with a rule under it dividing nothing from nothing.
 - An open dropdown covers what is under it instead of the other way round. The list of resolutions grew downwards behind the labels below it, so half the entries were readable and half were words on top of words.
@@ -538,8 +538,8 @@ found and fixed â€” EA's own, not port damage.**
 
 ## Bright things can glow
 
-- `Bloom = 60` in `Options.ini` makes bright things bleed light into the air.
-- Off until you add that line; `BloomThreshold` sets how much of the picture joins in.
+- Bright things can bleed light into the air. Off by default, because the artwork was painted in 2003 for a screen that had no glow at all.
+- Two dropdowns on the display page, not two percentages. Glow is off, subtle, normal or strong; what glows is only the brightest, bright things, or most of the picture. The numbers underneath were a strength you had to find by experiment and a brightness that ran backwards, where turning it down put more of the screen in the haze, and nothing on screen told you that.
 - Scorch marks follow the texture quality setting like everything else. The terrain and the trees
   dropped to the resolution you asked for and the burn marks did not, so on Low the ground went soft
   underneath craters that stayed sharp.

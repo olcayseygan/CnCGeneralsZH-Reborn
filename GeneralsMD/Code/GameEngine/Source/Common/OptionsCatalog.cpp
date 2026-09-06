@@ -48,8 +48,6 @@ OPTION_BOOL_ACCESSORS( m_rightMouseScroll )
 OPTION_INT_ACCESSORS( m_menuTransitionSpeed )
 OPTION_INT_ACCESSORS( m_textureFilterMode )
 OPTION_INT_ACCESSORS( m_anisotropyLevel )
-OPTION_INT_ACCESSORS( m_bloomIntensity )
-OPTION_INT_ACCESSORS( m_bloomThreshold )
 OPTION_INT_ACCESSORS( m_windowMode )
 OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_INT_ACCESSORS( m_healthBarMode )
@@ -74,6 +72,65 @@ Int msaaLevelForSamples( unsigned samples )
 			level = i;
 	}
 	return level;
+}
+
+//-----------------------------------------------------------------------------
+// Bloom, as levels.  GlobalData keeps the two percentages the shader reads and GameData.ini keeps
+// setting them directly, so nothing downstream of here knows the levels exist; what changed is
+// Options.ini and the menu, which now hold the index of one of these entries.
+//
+// The strengths are spread over the useful half of the range: past about 85 the whole picture
+// washes out, and below 30 the effect is only visible on the muzzle flashes.  The thresholds run
+// the other way round on purpose - a low number means more of the picture is bright enough to
+// glow - so the entry a player picks reads as "how much glows", which is the thing they can see.
+static const Int TheBloomPercents[ BLOOM_LEVEL_COUNT ] = { 0, 35, 60, 85 };
+static const Int TheBloomThresholdPercents[ BLOOM_THRESHOLD_LEVEL_COUNT ] = { 85, 65, 45 };
+
+static Int clampLevel( Int level, Int count )
+{
+	if( level < 0 )
+		return 0;
+	if( level >= count )
+		return count - 1;
+	return level;
+}
+
+/** The level whose percentage is nearest the one GlobalData is holding.  It has to be nearest
+	* rather than exact: GameData.ini sets these fields to any number it likes, and the combo box
+	* still has to show something rather than falling back to the first entry and reading as off. */
+static Int nearestLevel( const Int *percents, Int count, Int percent )
+{
+	Int best = 0;
+	for( Int i = 1; i < count; ++i )
+	{
+		const Int here = percents[ i ] > percent ? percents[ i ] - percent : percent - percents[ i ];
+		const Int sofar = percents[ best ] > percent ? percents[ best ] - percent : percent - percents[ best ];
+		if( here < sofar )
+			best = i;
+	}
+	return best;
+}
+
+static Int get_bloomLevel( void )
+{
+	return nearestLevel( TheBloomPercents, BLOOM_LEVEL_COUNT, TheGlobalData->m_bloomIntensity );
+}
+
+static void set_bloomLevel( Int level )
+{
+	TheWritableGlobalData->m_bloomIntensity = TheBloomPercents[ clampLevel( level, BLOOM_LEVEL_COUNT ) ];
+}
+
+static Int get_bloomThresholdLevel( void )
+{
+	return nearestLevel( TheBloomThresholdPercents, BLOOM_THRESHOLD_LEVEL_COUNT,
+											 TheGlobalData->m_bloomThreshold );
+}
+
+static void set_bloomThresholdLevel( Int level )
+{
+	TheWritableGlobalData->m_bloomThreshold =
+		TheBloomThresholdPercents[ clampLevel( level, BLOOM_THRESHOLD_LEVEL_COUNT ) ];
 }
 
 //-----------------------------------------------------------------------------
@@ -150,19 +207,19 @@ const OptionDef TheOptionCatalog[] =
 	// constructor, so there is nothing left to load or save.  Gameplay is health bars and nothing
 	// else.
 
-	// Percent, 0 = off, which is what the GameData.ini default is: the game's artwork has no HDR
-	// range in it, so how much glow looks right is a matter of taste rather than something to pick
-	// on the player's behalf.  The key is "Bloom", not "BloomIntensity" - it predates the catalog
-	// and an Options.ini in the wild already spells it this way.
-	{ "Bloom",										OPT_WND( "SliderBloom" ), "GUI:Bloom",
-		OPTION_INT, APPLY_LIVE, 0, 100,
-		get_m_bloomIntensity, set_m_bloomIntensity },
+	// Off, subtle, normal, strong.  Off is the default, which is what GameData.ini says: the game's
+	// artwork has no HDR range in it, so how much glow looks right is a matter of taste rather than
+	// something to pick on the player's behalf.  The key is "Bloom", not "BloomLevel" - it predates
+	// the levels and an Options.ini in the wild already spells it this way.
+	{ "Bloom",										OPT_WND( "ComboBoxBloom" ), "GUI:Bloom",
+		OPTION_ENUM, APPLY_LIVE, 0, BLOOM_LEVEL_COUNT - 1,
+		get_bloomLevel, set_bloomLevel },
 
-	// The brightness below which nothing blooms at all.  Lower it and more of the picture joins in;
-	// raise it and only the genuinely blinding things glow.
-	{ "BloomThreshold",						OPT_WND( "SliderBloomThreshold" ), "GUI:BloomThreshold",
-		OPTION_INT, APPLY_LIVE, 0, 100,
-		get_m_bloomThreshold, set_m_bloomThreshold },
+	// How much of the picture is bright enough to glow at all.  Three answers, because the number
+	// underneath is a brightness that runs backwards and nobody could be expected to guess that.
+	{ "BloomThreshold",						OPT_WND( "ComboBoxBloomThreshold" ), "GUI:BloomThreshold",
+		OPTION_ENUM, APPLY_LIVE, 0, BLOOM_THRESHOLD_LEVEL_COUNT - 1,
+		get_bloomThresholdLevel, set_bloomThresholdLevel },
 
 	// Fullscreen, borderless or windowed.  The old Windowed flag in GameData.ini seeds this and is
 	// then derived back from it, so the device layer keeps reading the boolean it always read.
