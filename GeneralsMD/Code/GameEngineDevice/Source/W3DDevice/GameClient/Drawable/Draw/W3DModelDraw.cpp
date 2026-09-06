@@ -49,6 +49,8 @@
 #include "GameClient/FXList.h"
 #include "GameClient/Shadow.h"
 #include "GameLogic/GameLogic.h"		// for real-time frame
+#include "Common/Player.h"
+#include "Common/PlayerList.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/WeaponSet.h"
 #include "GameLogic/FPUControl.h"
@@ -2087,14 +2089,47 @@ void W3DModelDraw::getRenderCostRecursive(RenderCost & rc,RenderObjClass * robj)
 #endif //_DEBUG || _INTERNAL
 
 //-------------------------------------------------------------------------------------------------
+/** Does this thing keep its shadow when the fog closes over it?
+
+	Anything fixed in place does.  A building you have already walked past is still standing there and
+	still standing in the same light, and the fog draws it from the snapshot the ghost took: leaving
+	the shadow out gave a town in the fog rows of buildings sitting on flat ground with nothing under
+	them.  Trees, walls and the rest of the scenery are the same case.
+
+	Anything that moves does not, and this is not a detail: a shadow crawling across fogged ground
+	is the position of a unit you are not allowed to see.
+
+	Never-seen ground is not fog and gets nothing - the check below asks for the real shroud status
+	rather than trusting the obscured flag, which cannot tell the two apart. */
+static Bool keepsShadowInFog(const Drawable *draw)
+{
+	if (draw == NULL)
+		return FALSE;
+
+	const Object *obj = draw->getObject();
+	if (obj == NULL)
+		return FALSE;
+
+	if (!obj->isKindOf(KINDOF_IMMOBILE) || obj->isKindOf(KINDOF_PROJECTILE))
+		return FALSE;
+
+	//fogged keeps it, shrouded does not
+	const Int localPlayerIndex = ThePlayerList ? ThePlayerList->getLocalPlayer()->getPlayerIndex() : 0;
+	return obj->getShroudedStatus(localPlayerIndex) < OBJECTSHROUD_SHROUDED;
+}
+
+//-------------------------------------------------------------------------------------------------
 void W3DModelDraw::setFullyObscuredByShroud(Bool fullyObscured)
 {
 	if (m_fullyObscuredByShroud != fullyObscured)
 	{
 		m_fullyObscuredByShroud = fullyObscured;
 
+		const Bool hideShadow = m_fullyObscuredByShroud && !keepsShadowInFog(getDrawable());
+
 		if (m_shadow)
-			m_shadow->enableShadowInvisible(m_fullyObscuredByShroud);
+			m_shadow->enableShadowInvisible(hideShadow);
+		//the terrain decal is a marker, not a shadow: it goes with the thing it marks
 		if (m_terrainDecal)
 			m_terrainDecal->enableShadowInvisible(m_fullyObscuredByShroud);
 

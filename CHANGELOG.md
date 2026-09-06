@@ -188,6 +188,11 @@ found and fixed â€” EA's own, not port damage.**
 
 - 481 base-game textures at four times the resolution now beat Zero Hour's downscaled copies.
 - A long thin texture loads at the size it was drawn at. Anything wider than eight to one used to be stretched onto a bigger, blurrier one, because that was the limit of a 2002 graphics card; the card is asked now, and modern ones have no such limit.
+- Anything standing still keeps its shadow in the fog. A town you have already walked through used
+  to sit on flat ground the moment you looked away, buildings and derricks and walls with nothing
+  underneath them, because the fog took the shadow off everything. Now only things that move lose
+  theirs, which they have to: a shadow crawling across fogged ground is the position of a unit you
+  are not meant to see. Ground you have never set foot on is still dark and still empty.
 - Woodland stops vanishing when you look at too much of it at once. Every tree on screen was written into one buffer that held about 730 of them, and the ones that did not fit were simply not drawn, so scrolling into a dense corner made whole stands of trees blink out and come back when you left. There are four of those buffers now.
 
 ## Every replay, not just the last one
