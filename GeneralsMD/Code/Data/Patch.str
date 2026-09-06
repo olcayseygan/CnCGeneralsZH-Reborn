@@ -560,50 +560,6 @@ TOOLTIP:HealthBars
 "Smart shows a bar over anything hurt, plus the selection and whatever is under the cursor. Selection only is what retail did."
 END
 
-GUI:Assign
-"Assign"
-END
-
-GUI:ResetAll
-"Reset All"
-END
-
-GUI:PressAKey
-"Click a command, then press the key you want"
-END
-
-GUI:CONTROL
-"Unit control"
-END
-
-GUI:INFORMATION
-"Information"
-END
-
-GUI:INTERFACE
-"Interface"
-END
-
-GUI:SELECTION
-"Selection"
-END
-
-GUI:TAUNT
-"Taunts"
-END
-
-GUI:TEAM
-"Teams"
-END
-
-GUI:MISC
-"Miscellaneous"
-END
-
-GUI:DEBUG
-"Debug"
-END
-
 // Peace time - the lobby combo box, its tooltip, the corner countdown and the three things the game
 // says while the clock runs.  Tools/peacetime_layout.py selfcheck fails if any of these goes missing.
 

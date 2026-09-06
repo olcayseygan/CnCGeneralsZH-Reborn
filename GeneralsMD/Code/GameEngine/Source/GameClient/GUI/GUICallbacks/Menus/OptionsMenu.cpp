@@ -273,22 +273,6 @@ static void showOptionsPage( Int which )
 		if( optionsTab[ i ] )
 			optionsTab[ i ]->winEnable( i != which );
 	}
-
-	//
-	// The keyboard button belongs on the controls page and is drawn over it, but it is not one of
-	// its children - it predates the pages and lives on the old flat panel with the rest of the
-	// leftovers - so it is shown and hidden by hand rather than with its page.
-	//
-	GameWindow *keys = TheWindowManager->winGetWindowFromId(
-		NULL, TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:ButtonKeyboardOptions" ) ) );
-	if( keys )
-	{
-		keys->winHide( which != OPTIONS_PAGE_CONTROLS );
-
-		// the page's own panel is painted over that old one, so the button has to come up through it
-		if( which == OPTIONS_PAGE_CONTROLS )
-			keys->winBringToTop();
-	}
 }
 
 enum Detail
@@ -1558,9 +1542,6 @@ static void saveOptions( void )
 
 static void DestroyOptionsLayout() {
 
-	// the keyboard screen is laid over this one; leaving it up would leave it over nothing
-	CloseKeyboardOptionsMenu();
-
 	SignalUIInteraction(SHELL_SCRIPT_HOOK_OPTIONS_CLOSED);
 
 	TheShell->destroyOptionsLayout();
@@ -2212,7 +2193,6 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 	static NameKeyType buttonDefaults = NAMEKEY_INVALID;
 	static NameKeyType buttonAccept = NAMEKEY_INVALID;
 	static NameKeyType buttonReplayMenu = NAMEKEY_INVALID;
-	static NameKeyType buttonKeyboardOptionsMenu = NAMEKEY_INVALID;
 
 	switch( msg ) 
 	{
@@ -2225,7 +2205,6 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 			buttonBack = TheNameKeyGenerator->nameToKey( AsciiString("OptionsMenu.wnd:ButtonBack") );
 			buttonDefaults = TheNameKeyGenerator->nameToKey( AsciiString("OptionsMenu.wnd:ButtonDefaults") );
 			buttonAccept = TheNameKeyGenerator->nameToKey( AsciiString("OptionsMenu.wnd:ButtonAccept") );
-			buttonKeyboardOptionsMenu = TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:ButtonKeyboardOptions" ) );
 
 			break;
 
@@ -2352,10 +2331,6 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 			else if (controlID == ButtonAdvancedCancelID )
 			{	
 				cancelAdvancedOptions();
-			}
-			else if ( controlID == buttonKeyboardOptionsMenu )
-			{
-				OpenKeyboardOptionsMenu();
 			}
 			else if(controlID == checkDrawAnchorID )
       {

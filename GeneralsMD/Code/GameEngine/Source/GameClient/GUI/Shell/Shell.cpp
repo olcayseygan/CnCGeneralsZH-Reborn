@@ -125,9 +125,6 @@ Shell::~Shell( void )
 
 	}  //end if
 
-	// the keyboard screen is laid over the options menu, so it goes first
-	CloseKeyboardOptionsMenu();
-
 	// delete the options menu if present.
 	if (m_optionsLayout != NULL) {
 		m_optionsLayout->destroyWindows();

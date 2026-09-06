@@ -8208,9 +8208,8 @@ TEST(the_minimised_panel_stops_on_the_tab_its_plate_paints)
 	}
 }
 
-/* The keyboard screen is opened by a button on the options menu, and that button was the only one
-	 in the layout still wearing Times New Roman while every other button on the screen wears the
-	 game's own face.  It read as a different program's dialog dropped into the menu. */
+/* Every button on the options screen wears the game's own face.  One authored in Times New Roman
+	 reads as a different program's dialog dropped into the menu, and nothing at build time notices. */
 TEST(the_options_menu_buttons_all_wear_one_font)
 {
 	FILE *fp = fopen( OPTIONS_MENU_WND, "rb" );
@@ -8222,7 +8221,7 @@ TEST(the_options_menu_buttons_all_wear_one_font)
 	static const char *const buttons[] =
 	{
 		"OptionsMenu.wnd:ButtonBack", "OptionsMenu.wnd:ButtonAccept",
-		"OptionsMenu.wnd:ButtonDefaults", "OptionsMenu.wnd:ButtonKeyboardOptions", NULL
+		"OptionsMenu.wnd:ButtonDefaults", NULL
 	};
 
 	char line[ 1024 ], name[ 256 ];
@@ -8262,7 +8261,7 @@ TEST(the_options_menu_buttons_all_wear_one_font)
 	fclose( fp );
 
 	// a scan that matched nothing would pass silently
-	CHECK_EQ( found, 4 );
+	CHECK_EQ( found, 3 );
 	CHECK_EQ( agreed, found );
 }
 

@@ -68,6 +68,11 @@ GROUPS = [
 HEADINGS = ["GUI:DisplayOptions", "GUI:AudioOptions", "GUI:ControlOptions", "GUI:NetworkOptions"]
 RULES = ["Line1", "Line2", "Line3", "Line4"]
 
+# The keyboard button opens a screen that no longer exists, so it goes out here rather than being
+# deleted from the output by hand every time this runs.  It shipped HIDDEN and off the right edge
+# with nothing behind it: the layout its code wanted was never in any .big.
+DROP = ["ButtonKeyboardOptions"]
+
 # The antialiasing label is the one control in the file EA left unnamed that still has to be
 # positioned by hand, so it gets a name on the way through.
 NAME_THE_UNNAMED = [("GUI:AntiAliasing", "AntiAliasingLabel")]
@@ -224,7 +229,7 @@ def build(layout):
                 node.name = _named(name)
 
     drop_by_text(layout.root, HEADINGS)
-    for name in RULES:
+    for name in RULES + DROP:
         detach(old, name)
 
     pages = {}
