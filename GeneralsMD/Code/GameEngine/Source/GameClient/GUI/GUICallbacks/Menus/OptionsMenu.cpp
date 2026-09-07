@@ -1570,7 +1570,19 @@ static void applyPendingShellRebuild( void )
 	// hidden, so it is put back.
 	//
 	if( TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
+	{
+		//
+		// A Shell is born active - the constructor says so, because a shell that is being built is
+		// normally a shell somebody is about to look at.  In a match nobody is, and an active shell
+		// is not a cosmetic detail: WindowXlat hands every mouse and key message to the window
+		// system and then marks it used whenever the shell is active, so nothing reaches the
+		// command translator, the selection translator or the camera.  The menus went on answering
+		// clicks while production, unit orders, the camera keys and the whole keyboard did nothing.
+		//
+		TheShell->hideShell();
+
 		ShowControlBar( TRUE );
+	}
 	else
 		TheShell->push( AsciiString("Menus/MainMenu.wnd") );
 }
@@ -1717,6 +1729,18 @@ void ResolutionDrillApply( Int xres, Int yres )
 		DEBUG_LOG(("RESDRILL: the options menu came up without its resolution dropdown\n"));
 		return;
 	}
+	//
+	// Drop the list open first, by pressing the dropdown's own button.  Setting the selection
+	// straight skips the one thing a player cannot skip: opening a combo box makes it the window
+	// manager's lone window, and the lone window is the one pointer processDestroyList does not
+	// clear when the window it names is destroyed.
+	//
+	GameWindow *dropDownButton = GadgetComboBoxGetDropDownButton( comboBoxResolution );
+	if( dropDownButton != NULL )
+		TheWindowManager->winSendSystemMsg( comboBoxResolution, GBM_SELECTED,
+																				(WindowMsgData)dropDownButton,
+																				dropDownButton->winGetWindowId() );
+
 	GadgetComboBoxSetSelectedPos( comboBoxResolution, modeIndex );
 
 	GameWindow *parent = TheWindowManager->winGetWindowFromId(
@@ -1733,6 +1757,7 @@ void ResolutionDrillApply( Int xres, Int yres )
 	QuitMenuLogPlacement( "before the mode change" );
 	resDrillLogMoney( "before the mode change" );
 	resDrillLogWindowRoots( "before the mode change" );
+	TheWindowManager->logInputOwners( "before the mode change" );
 
 	DEBUG_LOG(("RESDRILL: pressing Accept\n"));
 	TheWindowManager->winSendSystemMsg( parent, GBM_SELECTED, (WindowMsgData)accept, acceptID );
@@ -1763,6 +1788,7 @@ void ResolutionDrillDismiss( Bool accept )
 
 	resDrillLogMoney( "after the mode change" );
 	resDrillLogWindowRoots( "after the mode change" );
+	TheWindowManager->logInputOwners( "after the mode change" );
 
 	NameKeyType buttonID = TheNameKeyGenerator->nameToKey(
 		AsciiString( accept ? "MessageBox.wnd:ButtonOk" : "MessageBox.wnd:ButtonCancel" ) );
@@ -1780,6 +1806,7 @@ void ResolutionDrillDismiss( Bool accept )
 		TheDisplay->getWidth(), TheDisplay->getHeight()));
 
 	QuitMenuLogPlacement( "after the dialog" );
+	TheWindowManager->logInputOwners( "after the dialog" );
 
 	//
 	// Press Return the way a player does, then say whether the game came back.  Input enabled 0 or
@@ -1792,6 +1819,7 @@ void ResolutionDrillDismiss( Bool accept )
 		TheInGameUI->getInputEnabled() ? 1 : 0, TheGameLogic->isGamePaused() ? 1 : 0));
 
 	resDrillLogWindowRoots( "after the quit menu closed" );
+	TheWindowManager->logInputOwners( "after the quit menu closed" );
 }
 
 static void showAdvancedOptions()

@@ -784,7 +784,13 @@ void DeclineResolution()
 		// menu over a running game.
 		//
 		if( TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
+		{
+			// A new Shell is born active, and an active shell makes WindowXlat mark every mouse and
+			// key message used before a game translator sees it.  See applyPendingShellRebuild.
+			TheShell->hideShell();
+
 			ShowControlBar( TRUE );
+		}
 		else
 			TheShell->push( AsciiString("Menus/MainMenu.wnd") );
 	}

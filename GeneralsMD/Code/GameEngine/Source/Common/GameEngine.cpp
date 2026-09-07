@@ -1502,7 +1502,7 @@ static void updateResDrill( void )
 		if( dismissed || timeGetTime() - appliedTimeMs < RES_DRILL_DISMISS_DELAY_MS )
 			return;
 		dismissed = TRUE;
-		ResolutionDrillDismiss( FALSE );
+		ResolutionDrillDismiss( TheGlobalData->m_resDrillKeep );
 		return;
 	}
 	applied = TRUE;
@@ -1536,6 +1536,45 @@ static void updateResDrill( void )
 	}
 
 	ResolutionDrillApply( TheGlobalData->m_resDrillX, TheGlobalData->m_resDrillY );
+}
+
+/** -----------------------------------------------------------------------------------------------
+ * The two switches that decide whether the game answers the player at all.
+ *
+ * A paused match runs no logic: production stops, units stand still, the camera keys do nothing.
+ * A disabled UI is the other half - WindowXlat hands every mouse and key message to the window
+ * system first and only then marks it used, so the menus go on answering clicks while nothing in
+ * the game moves.  Together they are the state a player describes as "the interface works but the
+ * game does not", and neither of them shows up in any other line of the log.
+ *
+ * Written down whenever either one moves, because the player who meets this is not the person who
+ * can reproduce it on demand with a switch turned on.
+ */
+static void updateInputWatch( void )
+{
+	static Int lastInputEnabled = -1;
+	static Int lastPaused = -1;
+
+	if( TheInGameUI == NULL || TheGameLogic == NULL )
+		return;
+
+	static Int lastShellActive = -1;
+
+	const Int inputEnabled = TheInGameUI->getInputEnabled() ? 1 : 0;
+	const Int paused = TheGameLogic->isGamePaused() ? 1 : 0;
+	const Int shellActive = ( TheShell != NULL && TheShell->isShellActive() ) ? 1 : 0;
+
+	if( inputEnabled == lastInputEnabled && paused == lastPaused && shellActive == lastShellActive )
+		return;
+
+	lastInputEnabled = inputEnabled;
+	lastPaused = paused;
+	lastShellActive = shellActive;
+
+	DEBUG_LOG(("INPUTWATCH: frame %d, input enabled %d, game paused %d, shell active %d, quit menu %d, in game %d\n",
+		TheGameLogic->getFrame(), inputEnabled, paused, shellActive,
+		TheInGameUI->isQuitMenuVisible() ? 1 : 0,
+		( TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() ) ? 1 : 0));
 }
 
 static void updateAutoCamera( void )
@@ -2003,6 +2042,7 @@ void GameEngine::update( void )
 		updateAutoCamera();
 		updateUIDrill();
 		updateResDrill();
+		updateInputWatch();
 
 #ifdef DEBUG_LOGGING
 		fpsFrames++;

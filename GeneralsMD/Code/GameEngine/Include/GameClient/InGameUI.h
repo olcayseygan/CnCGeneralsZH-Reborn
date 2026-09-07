@@ -1009,8 +1009,6 @@ protected:
 
 	void drawPeaceTimer( void );					///< the lobby's peace time, counting down in the top right corner
 	void drawHudOverlay( void );					///< the small elapsed-time / fps plate (ShowHudOverlay)
-	void drawIncomeRate( void );					///< income per minute, drawn beside the money window
-	void updateIncomeEstimate( Player *player );	///< income per minute, shown beside the money
 	void drawProductionStrip( void );			///< the production queue rows above the control bar
 	///< one run of cells - a column while playing, a player's row while watching - with its left
 	///< edge at 'left' and its first cell's top edge at 'bottomY'
@@ -1025,10 +1023,8 @@ protected:
 	Bool												m_placementRangeRingUp;	///< we put a radius cursor up for a pending structure, so we owe a clear
 	Real												m_placementRingRadius;	///< the radius that ring was built at, so it is not rebuilt every frame
 
-	DisplayString *							m_hudDisplayString;			///< the ShowHudOverlay line (fps / clock / income)
+	DisplayString *							m_hudDisplayString;			///< the ShowHudOverlay line (fps / clock)
 	DisplayString *							m_peaceTimeDisplayString;	///< the peace time countdown in the corner
-	DisplayString *							m_incomeDisplayString;	///< the "(+N/min)" drawn beside the money
-	Int													m_lastIncomeDisplayed;	///< so that string is only rebuilt when the rate changes
 	Int													m_lastMoneyDisplayed;		///< so the money gadget is only written when the amount changes
 	UnsignedInt									m_hudDrawCount;					///< rendered frames counted by drawHudOverlay itself
 	UnsignedInt									m_hudLastSampleFrame;		///< m_hudDrawCount the fps sample was last refreshed on
@@ -1045,14 +1041,6 @@ protected:
 	// have passed since the freeze began and applies only the ones not applied yet.
 	UnsignedInt									m_subtitleFreezeStartMs;	///< wall clock the current freeze started on, 0 = not frozen
 	UnsignedInt									m_subtitleFreezeSteps;		///< frames already handed to the subtitle during it
-	// Income is sampled from the player's cumulative earnings every INCOME_SAMPLE_SECONDS and
-	// averaged over the whole ring, so a lumpy supply run reads as a rate instead of a spike.
-	enum { INCOME_SAMPLES = 16, INCOME_SAMPLE_SECONDS = 2 };	///< 16 buckets of 2s = a 30s window
-	Int													m_incomeSamples[ INCOME_SAMPLES ];	///< cumulative money earned, one per bucket
-	UnsignedInt									m_incomeSampleCount;		///< buckets taken so far, the ring index is this mod INCOME_SAMPLES
-	Int													m_incomeSamplePlayer;		///< whose earnings those are, so an observer switching players restarts
-	UnsignedInt									m_hudLastMoneyFrame;		///< logic frame of the last sample
-	Int													m_hudIncomePerMin;			///< most recent income estimate, cash per minute, -1 until the window is warm
 
 	//
 	// The global production strip: everything the local player has coming - queued in any factory,

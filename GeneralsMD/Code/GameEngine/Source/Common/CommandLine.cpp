@@ -1585,6 +1585,21 @@ Int parseResDrill(char *args[], int num)
 	return 1;
 }
 
+/* -resdrillkeep answers the "keep this resolution?" box with Ok instead of Cancel.
+
+	 The two answers are different code: Cancel is DeclineResolution, which puts the old mode back
+	 and rebuilds the shell and the command bar a second time, while Ok keeps the new mode and
+	 rebuilds nothing. A player who wanted the resolution he asked for presses Ok, so that branch
+	 needs a drill of its own. */
+Int parseResDrillKeep(char *args[], int)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_resDrillKeep = TRUE;
+	}
+	return 1;
+}
+
 /* -teams <n> splits an -autoskirmish lobby into n allied teams instead of a free-for-all.
 
 	 Free-for-all and 4v4 are not the same load and not the same game. Eight players each fighting
@@ -1984,6 +1999,7 @@ static CommandLineParam params[] =
 	{ "-groupdrill", parseGroupDrill },
 	{ "-uidrill", parseUIDrill },
 	{ "-resdrill", parseResDrill },
+	{ "-resdrillkeep", parseResDrillKeep },
 	{ "-replay", parseReplay },
 	{ "-loadsave", parseLoadSave },
 	{ "-netgame", parseNetGame },

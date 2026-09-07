@@ -133,6 +133,16 @@ void destroyQuitMenu()
 	}
 	noSaveLoadQuitMenuLayout = NULL;
 	quitMenuLayout = NULL;
+
+	//
+	// The save/load layout is the shell's, not this file's - it is handed over by
+	// getSaveLoadMenuLayout and destroyed with the shell.  Holding the pointer past that is holding
+	// a freed layout, and ToggleQuitMenu reads isHidden() off it before it does anything else: a
+	// read that says "showing" sends a Back press into freed memory and returns without opening the
+	// menu, leaving a paused game with nothing on screen to unpause it.
+	//
+	saveLoadMenuLayout = NULL;
+
 	isVisible = FALSE;
 }
 
@@ -150,10 +160,26 @@ void RecreateQuitMenu( void )
 
 	destroyQuitMenu();
 
+	if( !wasVisible )
+		return;
+
 	// destroyQuitMenu clears isVisible, so this takes ToggleQuitMenu's open branch.  The game is
 	// already paused and setGamePaused ignores a pause it is already holding.
-	if( wasVisible )
-		ToggleQuitMenu();
+	ToggleQuitMenu();
+
+	//
+	// ToggleQuitMenu has half a dozen ways to decline - a cinematic playing, the disconnect screen
+	// up, an options or save/load layout it thinks is still on screen - and every one of them
+	// returns without opening anything.  The menu is what holds the pause, so a menu that does not
+	// come back has to hand the pause back instead; the alternative is a match that runs no logic
+	// with nothing on screen to press.  Unpausing a game that is not paused is a no-op.
+	//
+	if( !isVisible )
+	{
+		DEBUG_LOG(("QUITMENU: it would not reopen after the resolution change, releasing the pause\n"));
+		TheGameLogic->setGamePaused( FALSE );
+		TheInGameUI->setQuitMenuVisible( FALSE );
+	}
 }
 
 //

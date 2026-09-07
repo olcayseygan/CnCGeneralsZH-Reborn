@@ -1127,8 +1127,6 @@ InGameUI::InGameUI()
 	forgetPendingPlacements();
 	m_hudDisplayString = NULL;
 	m_peaceTimeDisplayString = NULL;
-	m_incomeDisplayString = NULL;
-	m_lastIncomeDisplayed = -1;
 	m_lastMoneyDisplayed = -1;
 	m_hudDrawCount = 0;
 	m_hudLastSampleFrame = 0;
@@ -1143,12 +1141,6 @@ InGameUI::InGameUI()
 	m_hudRealClockBaseMs = 0;
 	m_hudLastDrawMs = 0;
 	m_hudOverlayBottom = 0;
-	for( Int incomeBucket = 0; incomeBucket < INCOME_SAMPLES; incomeBucket++ )
-		m_incomeSamples[ incomeBucket ] = 0;
-	m_incomeSampleCount = 0;
-	m_incomeSamplePlayer = -1;
-	m_hudLastMoneyFrame = 0;
-	m_hudIncomePerMin = -1;
 	for( Int stripRow = 0; stripRow < PRODUCTION_STRIP_ROWS; stripRow++ )
 	{
 		m_productionStripCount[ stripRow ] = 0;
@@ -2213,10 +2205,6 @@ void InGameUI::update( void )
 	if( moneyPlayer)
 	{
 		Int currentMoney = moneyPlayer->getMoney()->countMoney();
-
-		// income per minute is drawn beside this window by drawIncomeRate(), not put inside it -
-		// the money gadget wraps at its own width and a second line looked broken
-		updateIncomeEstimate( moneyPlayer );
 
 		if( m_lastMoneyDisplayed != currentMoney )
 		{
@@ -4251,7 +4239,6 @@ void InGameUI::disregardDrawable( Drawable *draw )
 void InGameUI::postDraw( void )
 {
 	// drawHudOverlay is NOT called here - it goes on top of everything, see W3DInGameUI::draw
-	drawIncomeRate();
 	drawProductionStrip();
 
 
@@ -5859,116 +5846,10 @@ void InGameUI::updateFloatingText( void )
 /** Itterates through and draws each floating text */
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-/** A one-line heads-up overlay: render rate, elapsed game time and the local player's income.
+/** A one-line heads-up overlay: render rate and elapsed game time.
 	* Off unless ShowHudOverlay is set in Options.ini.  Retail only ever showed the frame rate, and
 	* only behind -displayDebug together with a screenful of engine internals. */
 //-------------------------------------------------------------------------------------------------
-//-------------------------------------------------------------------------------------------------
-/** The ring math behind the income estimate: cash per minute from the oldest bucket we still hold
-	* to the newest.  A free function, not a member, so test_gameengine can drive it without a
-	* Player.  Returns -1 while there is only one bucket, i.e. no span to average over yet. */
-//-------------------------------------------------------------------------------------------------
-Int computeIncomePerMinute( const Int *samples, UnsignedInt ringSize, UnsignedInt count, Int sampleSeconds )
-{
-	if( samples == NULL || ringSize == 0 || count < 2 || sampleSeconds <= 0 )
-		return -1;
-
-	const UnsignedInt newest = count - 1;
-	const UnsignedInt oldest = (newest >= ringSize) ? newest - (ringSize - 1) : 0;
-	const Int span = (Int)(newest - oldest);		// buckets spanned, at least one
-
-	return (samples[ newest % ringSize ] - samples[ oldest % ringSize ]) * 60 / (span * sampleSeconds);
-}
-
-//-------------------------------------------------------------------------------------------------
-/** Income per minute for the local player, averaged over the last 30 seconds of play.
-	* Sampled off the score keeper's cumulative earnings, not off the balance: the balance falls
-	* every time you build, and a balance delta therefore reads spending as zero income - which is
-	* what you have while doing anything at all.  What the score keeper counts is money that came
-	* in (supplies, crates, oil, hackers, bounties); production refunds and script grants do not
-	* count as income, which is the answer you want when comparing a rate against a build. */
-//-------------------------------------------------------------------------------------------------
-void InGameUI::updateIncomeEstimate( Player *player )
-{
-	if( player == NULL || TheGameLogic == NULL )
-		return;
-
-	const UnsignedInt SAMPLE_FRAMES = INCOME_SAMPLE_SECONDS * LOGICFRAMES_PER_SECOND;
-	const UnsignedInt logicFrame = TheGameLogic->getFrame();
-	const Int playerIndex = player->getPlayerIndex();
-	const Int earned = player->getScoreKeeper()->getTotalMoneyEarned();
-
-	// a new game, or an observer looking at somebody else: start the window over
-	if( m_incomeSampleCount == 0 || playerIndex != m_incomeSamplePlayer || logicFrame < m_hudLastMoneyFrame )
-	{
-		m_incomeSamplePlayer = playerIndex;
-		m_incomeSamples[ 0 ] = earned;
-		m_incomeSampleCount = 1;
-		m_hudLastMoneyFrame = logicFrame;
-		m_hudIncomePerMin = -1;
-		return;
-	}
-
-	if( logicFrame < m_hudLastMoneyFrame + SAMPLE_FRAMES )
-		return;
-
-	m_incomeSamples[ m_incomeSampleCount % INCOME_SAMPLES ] = earned;
-	++m_incomeSampleCount;
-	m_hudLastMoneyFrame = logicFrame;
-
-	// average over every bucket we hold, so the number is live 2 seconds in and settles into a
-	// true 30 second rate once the ring is full
-	m_hudIncomePerMin = computeIncomePerMinute( m_incomeSamples, INCOME_SAMPLES,
-																							m_incomeSampleCount, INCOME_SAMPLE_SECONDS );
-}
-
-//-------------------------------------------------------------------------------------------------
-/** A small heads-up line in the top right: elapsed game time and the render rate, on a plate so it
-	* stays readable over terrain. Income is not here - it lives next to the money, where it is
-	* being compared to something. Off unless ShowHudOverlay is set in Options.ini. */
-//-------------------------------------------------------------------------------------------------
-void InGameUI::drawIncomeRate( void )
-{
-	if( !TheGlobalData->m_showHudOverlay || m_hudIncomePerMin < 0 )
-		return;
-
-	if( TheGameLogic == NULL || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
-		return;
-
-	static NameKeyType moneyWindowKey = TheNameKeyGenerator->nameToKey( "ControlBar.wnd:MoneyDisplay" );
-	GameWindow *moneyWin = TheWindowManager->winGetWindowFromId( NULL, moneyWindowKey );
-	if( moneyWin == NULL || moneyWin->winIsHidden() )
-		return;
-
-	if( m_incomeDisplayString == NULL )
-	{
-		m_incomeDisplayString = TheDisplayStringManager->newDisplayString();
-		m_incomeDisplayString->setFont( TheFontLibrary->getFont( m_superweaponNormalFont,
-										TheGlobalLanguageData->adjustFontSize( HUD_OVERLAY_POINT_SIZE ),
-										FALSE ) );
-	}
-
-	if( m_lastIncomeDisplayed != m_hudIncomePerMin )
-	{
-		UnicodeString buffer;
-		buffer.format( L"(+%d/min)", m_hudIncomePerMin );
-		m_incomeDisplayString->setText( buffer );
-		m_lastIncomeDisplayed = m_hudIncomePerMin;
-	}
-
-	ICoord2D pos, size;
-	moneyWin->winGetScreenPosition( &pos.x, &pos.y );
-	moneyWin->winGetSize( &size.x, &size.y );
-
-	Int textHeight = 0;
-	m_incomeDisplayString->getSize( NULL, &textHeight );
-
-	// tucked under the balance rather than after it: the money window runs to the bar's edge
-	m_incomeDisplayString->draw( pos.x + 4, pos.y + size.y - 2,
-															 GameMakeColor( 180, 235, 180, 255 ),
-															 GameMakeColor( 0, 0, 0, 255 ) );
-}
-
 //-------------------------------------------------------------------------------------------------
 /** The lobby's peace time, counting down in the top right corner: red, bold, and bigger than the
 	* clock plate under it, because for as long as it is up it is the only number on the screen that

@@ -1557,44 +1557,6 @@ TEST(blob_never_smears_wider_than_the_cap)
 	CHECK(sy <= 300.0f);
 }
 
-// ---------------------------------------------------------------------------------------------
-// The HUD income estimate (InGameUI.cpp).  It samples the score keeper's cumulative earnings
-// into a ring of buckets and averages over every bucket it holds.
-// ---------------------------------------------------------------------------------------------
-extern Int computeIncomePerMinute( const Int *samples, UnsignedInt ringSize, UnsignedInt count, Int sampleSeconds );
-
-TEST(income_one_bucket_is_not_a_rate_yet)
-{
-	const Int samples[4] = { 500, 0, 0, 0 };
-	CHECK_EQ(computeIncomePerMinute(samples, 4, 1, 2), -1);
-}
-
-TEST(income_averages_over_the_buckets_held)
-{
-	// two 2s buckets, 100 earned over them -> 100 per 2s -> 3000 a minute
-	const Int samples[4] = { 1000, 1050, 1100, 0 };
-	CHECK_EQ(computeIncomePerMinute(samples, 4, 2, 2), 1500);
-	CHECK_EQ(computeIncomePerMinute(samples, 4, 3, 2), 1500);
-}
-
-TEST(income_window_slides_once_the_ring_wraps)
-{
-	// ring of 4, so at most 3 buckets (6s) are spanned.  Earnings: 0,10,20,30 then a 300 jump.
-	Int samples[4] = { 0, 10, 20, 30 };
-	CHECK_EQ(computeIncomePerMinute(samples, 4, 4, 2), 300);		// (30-0) over 6s
-
-	samples[4 % 4] = 330;																			// bucket 4 lands on index 0
-	CHECK_EQ(computeIncomePerMinute(samples, 4, 5, 2), 3200);	// (330-10) over 6s, bucket 0 gone
-}
-
-TEST(income_is_zero_not_negative_when_nothing_comes_in)
-{
-	// cumulative earnings never fall, so a dry spell reads as a real zero
-	const Int samples[4] = { 7000, 7000, 7000, 7000 };
-	CHECK_EQ(computeIncomePerMinute(samples, 4, 4, 2), 0);
-}
-
-
 //////////////////////////////////////////////////////////////////////////////
 // The in-flight damage ledger
 //////////////////////////////////////////////////////////////////////////////

@@ -256,6 +256,10 @@ public:
 	virtual GameWindow *winGetGrabWindow( void );  ///< who is currently 'held' by mouse
 	virtual void winSetLoneWindow( GameWindow *window );  ///< set the open window
 
+	///< who owns the pointer and the keyboard, since a dead one of these eats every click
+	void logInputOwners( const char *tag );
+	void logInputOwnersOnChange( void );		///< the same line, but only when one of them moves
+
 	virtual Bool isEnabled( GameWindow *win );  ///< is window or parents enabled
 	virtual Bool isHidden( GameWindow *win );  ///< is parent or parents hidden
 	virtual void addWindowToParent( GameWindow *window, GameWindow *parent );
@@ -335,6 +339,7 @@ public:
 protected:
 
 	void processDestroyList( void );  ///< process windows waiting to be killed
+	const char *inputOwnerName( GameWindow *window );  ///< that window's name, or why it is not one
 
 	Int drawWindow( GameWindow *window );  ///< draw this window
 
@@ -351,6 +356,11 @@ protected:
 	ModalWindow *m_modalHead;			// top of windows in the modal stack
 	GameWindow *m_grabWindow;			// window that grabbed the last down event
 	GameWindow *m_loneWindow;			// Set if we just opened a Lone Window
+	// the four that can stick, as they stood on the last line logInputOwnersOnChange wrote
+	GameWindow *m_loggedCaptor;
+	GameWindow *m_loggedLone;
+	GameWindow *m_loggedFocus;
+	GameWindow *m_loggedModal;
 	GameWindowList m_tabList;			// we have to register a tab list to make a tab list.
 	const Image *m_cursorBitmap;
 	UnsignedInt m_captureFlags;

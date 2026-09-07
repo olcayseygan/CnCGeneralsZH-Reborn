@@ -194,6 +194,11 @@ GameWindowManager::GameWindowManager( void )
 	m_grabWindow = NULL;			// window that grabbed the last down event
 	m_loneWindow = NULL;		// Set if we just opened a combo box
 
+	m_loggedCaptor = NULL;
+	m_loggedLone = NULL;
+	m_loggedFocus = NULL;
+	m_loggedModal = NULL;
+
 	m_cursorBitmap = NULL;
 	m_captureFlags = 0;
 
@@ -244,6 +249,10 @@ void GameWindowManager::update( void )
 
 	// Process windows waiting to be destroyed
 	processDestroyList();
+
+	// after the destroy pass, so a pointer left holding a freed window reads as DESTROYED here
+	logInputOwnersOnChange();
+
 	if(TheTransitionHandler)
 		TheTransitionHandler->update();
 }  // end update
@@ -1673,6 +1682,61 @@ void GameWindowManager::winSetGrabWindow( GameWindow *window )
 
 //-------------------------------------------------------------------------------------------------
 /** Explicitly set the grab window */
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+/** Five pointers decide where a click goes before the window list is ever walked, and any one of
+	* them left holding a window that has been destroyed swallows every click and every key on the
+	* way to it.  processDestroyList clears four of them; the lone window, which a combo box sets
+	* when its list drops down, is not one of the four.  A "DESTROYED" here is the interface gone
+	* deaf. */
+//-------------------------------------------------------------------------------------------------
+const char *GameWindowManager::inputOwnerName( GameWindow *window )
+{
+	if( window == NULL )
+		return "none";
+	if( BitTest( window->m_status, WIN_STATUS_DESTROYED ) )
+		return "DESTROYED";
+
+	return window->winGetInstanceData()->m_decoratedNameString.str();
+}
+
+void GameWindowManager::logInputOwners( const char *tag )
+{
+	DEBUG_LOG(("WINOWNERS: %s, captor %s, grab %s, lone %s, focus %s, modal %s\n",
+		tag,
+		inputOwnerName( m_mouseCaptor ),
+		inputOwnerName( m_grabWindow ),
+		inputOwnerName( m_loneWindow ),
+		inputOwnerName( m_keyboardFocus ),
+		inputOwnerName( m_modalHead ? m_modalHead->window : NULL )));
+}
+
+//
+// Called every pass.  A player who says the game stopped answering him has one of these holding a
+// window he cannot see or cannot reach, and the line that says which one has to already be in the
+// log by the time he says it - there is no asking him to reproduce it with a switch on.  Only a
+// change writes a line, so a quiet game writes none.
+//
+// The grab window is printed but not compared: it is set on every button press and cleared on the
+// release, so testing it would put two lines in the log for every click anyone makes.  It also
+// cannot be what is holding a game deaf, for the same reason - the release clears it.
+//
+void GameWindowManager::logInputOwnersOnChange( void )
+{
+	GameWindow *modalWindow = m_modalHead ? m_modalHead->window : NULL;
+
+	if( m_loggedCaptor == m_mouseCaptor && m_loggedLone == m_loneWindow
+			&& m_loggedFocus == m_keyboardFocus && m_loggedModal == modalWindow )
+		return;
+
+	m_loggedCaptor = m_mouseCaptor;
+	m_loggedLone = m_loneWindow;
+	m_loggedFocus = m_keyboardFocus;
+	m_loggedModal = modalWindow;
+
+	logInputOwners( "changed" );
+}
+
 //-------------------------------------------------------------------------------------------------
 void GameWindowManager::winSetLoneWindow( GameWindow *window )
 {

@@ -707,6 +707,7 @@ GlobalData::GlobalData()
 	m_resDrillFrame = 0; // the resolution stays where it started unless -resdrill changes it mid-match
 	m_resDrillX = 0;
 	m_resDrillY = 0;
+	m_resDrillKeep = FALSE;
 	m_netGameHosts.clear(); // no network game from the command line
 	m_netGameLocalSlot = 0;
 	m_lanPlayerName.clear(); // the lobby name comes out of the preferences unless -lanname says otherwise

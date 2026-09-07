@@ -400,6 +400,7 @@ public:
 	Int m_resDrillFrame;					///< -resdrill <frame> [w] [h]: change the resolution at that logic frame, from inside a running match (0 = off)
 	Int m_resDrillX;							///< the width -resdrill asks for (0 = the next mode the device offers)
 	Int m_resDrillY;							///< the height -resdrill asks for
+	Bool m_resDrillKeep;					///< -resdrillkeep: answer the confirmation with Ok and stay on the new mode
 	AsciiString m_netGameHosts;				///< -netgame <ip>[,<ip>...]: the slot list of a LAN game started from the command line (empty = off)
 	Int m_netGameLocalSlot;						///< -netslot <n>: which of those addresses this copy of the game is
 	AsciiString m_lanPlayerName;			///< -lanname <name>: the name this copy takes in the LAN lobby (empty = the one in the preferences)
