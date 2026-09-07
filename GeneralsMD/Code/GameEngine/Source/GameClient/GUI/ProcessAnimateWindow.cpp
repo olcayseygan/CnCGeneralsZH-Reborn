@@ -218,8 +218,17 @@ Bool ProcessAnimateWindowSlideFromRight::updateAnimateWindow( AnimateWindow *ani
 
 	if(curPos.x < endPos.x)
 	{
+		//
+		// the step that carries the window past its resting place is the one that has to put it
+		// there.  Without this the window keeps the last position it was actually written at, which
+		// is up to one velocity step short: the general's powers bar stopped 21 pixels right of the
+		// screen edge at 1024x768 and drew its rightmost column half off the monitor.  Every
+		// vertical slide already does this; the three horizontal ones did not.
+		//
 		curPos.x = endPos.x;
 		animWin->setFinished( TRUE );
+		win->winSetPosition(curPos.x, curPos.y);
+		animWin->setCurPos(curPos);
 		return TRUE;
 	}
 	win->winSetPosition(curPos.x, curPos.y);
@@ -396,8 +405,11 @@ Bool ProcessAnimateWindowSlideFromLeft::updateAnimateWindow( AnimateWindow *anim
 
 	if(curPos.x > endPos.x)
 	{
+		// see ProcessAnimateWindowSlideFromRight::updateAnimateWindow - the last step has to be written
 		curPos.x = endPos.x;
 		animWin->setFinished( TRUE );
+		win->winSetPosition(curPos.x, curPos.y);
+		animWin->setCurPos(curPos);
 		return TRUE;
 	}
 	win->winSetPosition(curPos.x, curPos.y);
@@ -1477,8 +1489,11 @@ Bool ProcessAnimateWindowSlideFromRightFast::updateAnimateWindow( AnimateWindow 
 
 	if(curPos.x < endPos.x)
 	{
+		// see ProcessAnimateWindowSlideFromRight::updateAnimateWindow - the last step has to be written
 		curPos.x = endPos.x;
 		animWin->setFinished( TRUE );
+		win->winSetPosition(curPos.x, curPos.y);
+		animWin->setCurPos(curPos);
 		return TRUE;
 	}
 	win->winSetPosition(curPos.x, curPos.y);
