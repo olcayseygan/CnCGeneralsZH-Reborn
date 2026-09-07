@@ -655,9 +655,15 @@ Render2DSentenceClass::Allocate_New_Surface (const WCHAR *text, bool justCalcExt
 	//
 	//	Find the best texture size for the remaining text
 	//
+	//
+	//	64 to 512 square.  EA stopped at 256, which fits a line of text up to 255 pixels tall; a
+	//	font past that gave every candidate size a rows_per_texture of zero, so none of them was
+	//	ever picked, the 256 default stood, and the glyph was blitted outside the surface it was
+	//	locked into.  512 covers every point size loadFontData will now build.
+	//
 	CurrTextureSize = 256;
 	int best_tex_mem_usage = 999999999;
-	for (int pow2 = 6; pow2 <= 8; pow2 ++) {		
+	for (int pow2 = 6; pow2 <= 9; pow2 ++) {
 		
 		int size					= 1 << pow2;
 		int row_count			= (text_width / size) + 1;

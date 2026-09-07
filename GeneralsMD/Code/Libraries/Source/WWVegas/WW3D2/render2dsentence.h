@@ -65,7 +65,13 @@ public:
 	uint16 *		Buffer;
 };
 
-enum { CHAR_BUFFER_LEN		= 32768 };
+// One glyph is rasterised straight into this buffer, width times height 16-bit pixels, and nothing
+// on the way in asks whether it fits: Update_Current_Buffer only starts a new buffer when the
+// *offset* would run past the end, so a character bigger than the whole buffer walks off it and
+// corrupts the heap.  EA's 32768 holds a glyph up to about 190 pixels square, which is a 128 point
+// font - reachable now that the interface scales its text with the screen.  Four times that covers
+// a 360 pixel glyph, and W3DFontLibrary::loadFontData caps the point size to match.
+enum { CHAR_BUFFER_LEN		= 131072 };
 
 class FontCharsBuffer : public W3DMPO
 {

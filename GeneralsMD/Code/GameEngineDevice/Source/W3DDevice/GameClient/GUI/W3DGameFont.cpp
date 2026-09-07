@@ -60,6 +60,9 @@
 
 // PRIVATE DATA ///////////////////////////////////////////////////////////////
 
+// the biggest font WW3D2's glyph cache can build; loadFontData below says why
+enum { FONT_MAX_POINT_SIZE = 240 };
+
 // PUBLIC DATA ////////////////////////////////////////////////////////////////
 
 // PRIVATE PROTOTYPES /////////////////////////////////////////////////////////
@@ -82,12 +85,20 @@ Bool W3DFontLibrary::loadFontData( GameFont *font )
 	// 100 points was "probably wrong" on a 1024x768 screen.  On a 4K display the interface scales
 	// past it and the font simply fails to load, which is a missing string on screen.  A size of
 	// zero is still refused - that one really is wrong.
-	if (font->pointSize < 1)
+	//
+	// The ceiling is real, though, and it is the glyph cache's rather than a guess about screens.
+	// A character is rasterised into a CHAR_BUFFER_LEN buffer and blitted into a texture at most
+	// 512 square (render2dsentence.h), and neither is checked on the way in: at 184 points a digit
+	// measures 280 pixels tall, a wide glyph writes past the end of the buffer, and the process
+	// dies of a corrupt heap. 240 points is the largest that leaves every character inside both.
+	const Int pointSize = font->pointSize < FONT_MAX_POINT_SIZE ? font->pointSize : FONT_MAX_POINT_SIZE;
+
+	if (pointSize < 1)
 		fontChar = NULL;
 	else
 	{	// get the font data from the asset manager
 		fontChar = WW3DAssetManager::
-									Get_Instance()->Get_FontChars( font->nameString.str(), font->pointSize,
+									Get_Instance()->Get_FontChars( font->nameString.str(), pointSize,
 																								 font->bold ? true : false );
 	}
 
@@ -110,11 +121,11 @@ Bool W3DFontLibrary::loadFontData( GameFont *font )
 	// load unicode of same point size
 	if(TheGlobalLanguageData)
 		unicodeFontChar = WW3DAssetManager::
-									Get_Instance()->Get_FontChars( TheGlobalLanguageData->m_unicodeFontName.str(), font->pointSize,
+									Get_Instance()->Get_FontChars( TheGlobalLanguageData->m_unicodeFontName.str(), pointSize,
 																								 font->bold ? true : false );
 	else
 		unicodeFontChar = WW3DAssetManager::
-									Get_Instance()->Get_FontChars( "Arial Unicode MS", font->pointSize,
+									Get_Instance()->Get_FontChars( "Arial Unicode MS", pointSize,
 																								 font->bold ? true : false );
 
 	if ( unicodeFontChar )
