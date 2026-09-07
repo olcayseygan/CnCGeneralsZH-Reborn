@@ -43,6 +43,7 @@
 #include "Common/Energy.h"
 #include "Common/RandomValue.h"
 #include "GameLogic/ScenarioDrill.h"
+#include "Common/ControlServer.h"
 #include "GameLogic/LogicRandomValue.h"
 #include "GameClient/ClientRandomValue.h"
 #include "Common/ThingTemplate.h"
@@ -10334,4 +10335,33 @@ TEST(scenario_refuses_a_line_it_cannot_read)
 
 	// and every refusal has something to say for itself in the log
 	CHECK_STR( ScenarioDrill_parseResultName( SCENARIO_PARSE_BAD_FRAME ), "frame is not a whole number" );
+}
+
+/* -control's WebSocket handshake.
+ *
+ * The reply to a client key is SHA-1 of the key and the protocol's GUID, base64'd. Nothing in
+ * GameEngine had either of those, so both are written out in ControlServer.cpp and both are the
+ * kind of thing that is either exactly right or silently useless - a wrong byte gives a reply the
+ * client refuses, and the only symptom is a socket that never talks.
+ *
+ * RFC 6455 section 1.3 ships a worked example, which is what this checks against.
+ */
+TEST(control_server_answers_the_rfc_handshake_example)
+{
+	char accept[ 64 ];
+
+	CHECK( ControlServer_computeAcceptKey( "dGhlIHNhbXBsZSBub25jZQ==", accept, sizeof( accept ) ) );
+	CHECK_STR( accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=" );
+
+	// a second known pair, so that a SHA-1 that happens to be right for one input is not enough
+	CHECK( ControlServer_computeAcceptKey( "x3JJHMbDL1EzLkh9GBhXDw==", accept, sizeof( accept ) ) );
+	CHECK_STR( accept, "HSmrc0sMlYUkAGmm5OPpG2HaGWk=" );
+
+	// and an empty key still hashes rather than walking off the end of anything
+	CHECK( ControlServer_computeAcceptKey( "", accept, sizeof( accept ) ) );
+	CHECK_EQ( (Int)strlen( accept ), 28 );
+
+	// a buffer too small to hold the 28 characters and the terminator is refused, not overrun
+	char tooSmall[ 8 ];
+	CHECK( !ControlServer_computeAcceptKey( "dGhlIHNhbXBsZSBub25jZQ==", tooSmall, sizeof( tooSmall ) ) );
 }

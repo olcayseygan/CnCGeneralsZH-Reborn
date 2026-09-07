@@ -85,6 +85,7 @@
 #include "GameLogic/Weapon.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Locomotor.h"
+#include "Common/ControlServer.h"		// -control: the WebSocket that drives the game from outside
 #include "GameLogic/RankInfo.h"
 #include "GameLogic/ScenarioDrill.h"		// -scenario says at the end how much of the file ran
 #include "GameLogic/ScriptEngine.h"
@@ -217,6 +218,9 @@ GameEngine::~GameEngine()
 	extern bool DX8Wrapper_IsWindowed;
 	DX8Wrapper_IsWindowed = false;
 
+	// close the control socket before anything it can reach is torn down
+	ControlServer_shutdown();
+
 	delete TheMapCache;
 	TheMapCache = NULL;
 
@@ -342,7 +346,7 @@ static void startPendingSaveGame( void )
  * populateRandomStartPosition).  Meant for unattended runs - eight AI players fighting at whatever
  * frame rate the machine gives, with the local slot watching.
  */
-static void startAutoSkirmish( void )
+static void startAutoSkirmish( Int numPlayersWanted )
 {
 	AsciiString mapName = TheGlobalData->m_mapName;
 	if (mapName.isEmpty())
@@ -363,7 +367,7 @@ static void startAutoSkirmish( void )
 		return;
 	}
 
-	Int numPlayers = TheGlobalData->m_autoSkirmishPlayers;
+	Int numPlayers = numPlayersWanted;
 	if (numPlayers > md->m_numPlayers)
 	{
 		DEBUG_LOG(("-autoskirmish: '%s' holds %d players, not %d\n", mapName.str(), md->m_numPlayers, numPlayers));
@@ -496,6 +500,17 @@ static void startAutoSkirmish( void )
 		observing ? "every slot AI, watching from the free camera" : "slot 0 is the local player",
 		takeover ? ", seats driverless" : "",
 		fixedStartPositions ? ", start positions fixed to slot order" : ""));
+}
+
+/** -----------------------------------------------------------------------------------------------
+ * The same door, for -control's "skirmish" command.  The player count is a parameter rather than
+ * the global that -autoskirmish sets, because that global is also what marks a run unattended: a
+ * match somebody is driving down a socket has to stay up when it ends, not write its numbers out
+ * and quit.
+ */
+void GameEngine_startSkirmish( Int numPlayers )
+{
+	startAutoSkirmish( numPlayers );
 }
 
 /** -----------------------------------------------------------------------------------------------
@@ -1011,7 +1026,7 @@ void GameEngine::init( int argc, char *argv[] )
 		}
 		else if (TheGlobalData->m_autoSkirmishPlayers > 0)
 		{
-			startAutoSkirmish();
+			startAutoSkirmish( TheGlobalData->m_autoSkirmishPlayers );
 		}
 
 		// 
@@ -1761,6 +1776,13 @@ static void updateHeadlessRun( void )
 		 its numbers down is not a measurement.  This still cannot fire on a game a person started:
 		 reaching here needs -headless or -autoskirmish, and neither is on a menu. */
 	const Bool unattended = TheGlobalData->m_headless || TheGlobalData->m_autoSkirmishPlayers > 0;
+
+	/* Except that a run with a control socket open is not unattended at all - somebody is driving
+		 it from the other end, and tearing the process down the moment a match is decided takes the
+		 socket with it.  Whoever is driving says when it ends, by sending "quit". */
+	if (TheGlobalData->m_controlPort > 0)
+		return;
+
 	if (!unattended || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame())
 		return;
 
@@ -2097,6 +2119,9 @@ void GameEngine::update( void )
 		updateUIDrill();
 		updateResDrill();
 		updateInputWatch();
+		// -control: read whatever came down the socket. What it asks for is carried out on the next
+		// logic frame, by ControlServer_runCommands, because that is where making an object is safe.
+		ControlServer_poll();
 
 #ifdef DEBUG_LOGGING
 		fpsFrames++;

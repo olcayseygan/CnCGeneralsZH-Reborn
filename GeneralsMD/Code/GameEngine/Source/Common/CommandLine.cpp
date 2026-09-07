@@ -1600,6 +1600,34 @@ Int parseResDrillKeep(char *args[], int)
 	return 1;
 }
 
+/* -control [port] opens a WebSocket on 127.0.0.1 and lets something outside the game drive it.
+
+	 The scenario file answers "play this match the same way twice". This answers the other half:
+	 poke a running game and ask it what happened. Start a match, spawn a unit, send a selection
+	 somewhere, take a picture, read the frame number and everybody's money back - from Python, from
+	 a browser console, from anything that speaks WebSocket.
+
+	 Loopback only, and deliberately so: the socket can create units, so it has to be unreachable
+	 from another machine, and binding to 127.0.0.1 is what makes that true rather than a promise.
+	 There is no authentication and none would help; anything that can reach the port can already
+	 run programs on this machine. */
+Int parseControlPort(char *args[], int num)
+{
+	const Int CONTROL_DEFAULT_PORT = 8787;
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_controlPort = CONTROL_DEFAULT_PORT;
+		if (num > 1 && args[1] && args[1][0] >= '0' && args[1][0] <= '9')
+		{
+			const Int port = atoi(args[1]);
+			if (port > 0 && port < 65536)
+				TheWritableGlobalData->m_controlPort = port;
+			return 2;
+		}
+	}
+	return 1;
+}
+
 /* -nodevice runs the whole game without a Direct3D device.
 
 	 -headless already draws nothing, but it still takes a 100x100 windowed device, and D3D9 answers
@@ -2080,6 +2108,7 @@ static CommandLineParam params[] =
 	{ "-uidrill", parseUIDrill },
 	{ "-resdrill", parseResDrill },
 	{ "-resdrillkeep", parseResDrillKeep },
+	{ "-control", parseControlPort },
 	{ "-nodevice", parseNoDevice },
 	{ "-scenario", parseScenario },
 	{ "-side", parseSide },

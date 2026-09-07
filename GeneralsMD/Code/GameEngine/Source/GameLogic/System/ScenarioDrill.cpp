@@ -553,7 +553,7 @@ static Bool executeOrder( const ScenarioAction &action, Player *player )
 	return ordered;
 }
 
-static Bool executeAction( const ScenarioAction &action )
+Bool ScenarioDrill_execute( const ScenarioAction &action )
 {
 	Player *player = findPlayerForSlot( action.slot );
 	if (player == NULL)
@@ -595,7 +595,7 @@ void ScenarioDrill_tick( void )
 	while (theScenarioCursor < (Int)theScenarioActions.size()
 				 && theScenarioActions[ theScenarioCursor ].frame <= now)
 	{
-		if (executeAction( theScenarioActions[ theScenarioCursor ] ))
+		if (ScenarioDrill_execute( theScenarioActions[ theScenarioCursor ] ))
 			++theScenarioActionsRun;
 		else
 			++theScenarioActionsFailed;

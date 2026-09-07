@@ -93,6 +93,7 @@
 #include "GameLogic/Module/DestroyModule.h"
 #include "GameLogic/Module/OpenContain.h"
 #include "GameLogic/PartitionManager.h"
+#include "Common/ControlServer.h"
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/ScenarioDrill.h"
 #include "GameLogic/ScriptActions.h"
@@ -4267,6 +4268,10 @@ void GameLogic::update( void )
 		 scenario file plays out on the same frames however fast the machine draws - which is the whole
 		 point of measuring two builds against it. */
 	ScenarioDrill_tick();
+
+	/* And whatever arrived down the control socket since the last logic frame.  Reading a socket
+		 happens on a render pass and making an object has to happen in here, so the two are split. */
+	ControlServer_runCommands();
 
 	QueryPerformanceCounter( (LARGE_INTEGER *)&tScripts );
 

@@ -101,6 +101,11 @@ extern const char *ScenarioDrill_parseResultName( ScenarioParseResult result );
 /** Run whatever the file asks for on this logic frame.  Called from GameLogic::update. */
 extern void ScenarioDrill_tick( void );
 
+/** Carry out one action now.  The scenario file is one caller; the control server is the other, so
+	  that a command typed down a socket means exactly what the same line means in a file.  Only safe
+	  from inside a logic frame, and only while a match is running. */
+extern Bool ScenarioDrill_execute( const ScenarioAction &action );
+
 /** One line for the end-of-run summary: how much of the file actually happened. */
 extern const char *ScenarioDrill_report( void );
 
