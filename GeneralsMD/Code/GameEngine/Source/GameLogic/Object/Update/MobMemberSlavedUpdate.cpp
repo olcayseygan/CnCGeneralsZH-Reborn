@@ -67,6 +67,18 @@
 const Real CLOSE_ENOUGH = 15;				// Our moveTo commands and pathfinding can't handle people in the way, so quit trying to hump someone on your spot
 const Real CLOSE_ENOUGH_SQR = (CLOSE_ENOUGH * CLOSE_ENOUGH);
 
+/* How often a mob member reconsiders where it is standing.  EA already ran the expensive half of
+	 update() once every sixteen frames; what it did not do was sleep, so the module was still
+	 dispatched on the other fifteen - a heap pop and a re-sift each, for every member of every mob
+	 alive.  An Angry Mob is a nexus and ten members, so a match with several of them per player is
+	 hundreds of objects paying that for nothing.  Sleeping is what the `@todo srj use SLEEPY_UPDATE
+	 here` at the top of update() has been asking for. */
+const Int MOB_MEMBER_UPDATE_RATE = 16;
+
+/* m_framesToWait was the counter that got ticked to sixteen.  It now carries the one-time stagger
+	 the constructor drew, and this once it has been spent. */
+const Int MOB_MEMBER_STAGGER_SPENT = -1;
+
 //-------------------------------------------------------------------------------------------------
 MobMemberSlavedUpdate::MobMemberSlavedUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
@@ -133,37 +145,47 @@ void MobMemberSlavedUpdate::onSlaverDamage( const DamageInfo *info )
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime MobMemberSlavedUpdate::update( void )
 {
-/// @todo srj use SLEEPY_UPDATE here
+	/* The constructor drew a number so that the ten members of one mob would not all do their
+		 expensive frame together.  Keep that, but spend it as a first sleep instead of as a counter
+		 that has to be ticked every frame in order to be read. */
+	if( m_framesToWait >= 0 )
+	{
+		const Int stagger = 1 + (m_framesToWait % MOB_MEMBER_UPDATE_RATE);
+		m_framesToWait = MOB_MEMBER_STAGGER_SPENT;
+		return UPDATE_SLEEP( stagger );
+	}
 
 	const MobMemberSlavedUpdateModuleData* data = getMobMemberSlavedUpdateModuleData();
 	Object *me = getObject();
 	if( !me )
-	{ 
-		return UPDATE_SLEEP_NONE;
+	{
+		return UPDATE_SLEEP( MOB_MEMBER_UPDATE_RATE );
 	}
 
 	Object *master = TheGameLogic->findObjectByID( m_slaver );
 	if( master == NULL )
 	{
 		stopSlavedEffects();
-		
+
 		//TheGameLogic->destroyObject( me );
 		me->kill();
-		return UPDATE_SLEEP_NONE;	// you cannot return SLEEP_FOREVER unless you make yourself sleepy...
+		// EA's note here read "you cannot return SLEEP_FOREVER unless you make yourself sleepy..."
+		// - so now that we are sleepy, a member whose nexus is gone stops being dispatched at all
+		return UPDATE_SLEEP_FOREVER;
 	}
 
 	AIUpdateInterface *myAI = me->getAIUpdateInterface();
 	AIUpdateInterface *masterAI = master->getAIUpdateInterface();
 	if( ! myAI || ! masterAI)
 	{
-		return UPDATE_SLEEP_NONE;
+		return UPDATE_SLEEP( MOB_MEMBER_UPDATE_RATE );
 	}
 
 	Drawable *myDraw = me->getDrawable();
 	Drawable *masterDraw = master->getDrawable();
 	if ( ! myDraw || ! masterDraw)
 	{
-		return UPDATE_SLEEP_NONE;
+		return UPDATE_SLEEP( MOB_MEMBER_UPDATE_RATE );
 	}
 
 //	myDraw->colorTint( &m_personalColor );
@@ -184,16 +206,10 @@ UpdateSleepTime MobMemberSlavedUpdate::update( void )
 
 
 
-	if ( ++m_framesToWait < 16)
-		return UPDATE_SLEEP_NONE;
-	
-	m_framesToWait = 0;
-
-	
 	Locomotor *locomotor = myAI->getCurLocomotor();
 	if( !locomotor )
 	{
-		return UPDATE_SLEEP_NONE;
+		return UPDATE_SLEEP( MOB_MEMBER_UPDATE_RATE );
 	}
 
 	Object *victim = getObject()->getAIUpdateInterface()->getCurrentVictim();
@@ -259,7 +275,7 @@ UpdateSleepTime MobMemberSlavedUpdate::update( void )
 			if ( m_catchUpCrisisTimer > data->m_catchUpCrisisBailTime)
 			{
 				me->kill();
-				return UPDATE_SLEEP_NONE;
+				return UPDATE_SLEEP_FOREVER;
 
 				// Here is the rethink:
 				// If the nexus has outrun me to the target by so much, //
@@ -314,7 +330,7 @@ UpdateSleepTime MobMemberSlavedUpdate::update( void )
 				myAI->aiIdle(CMD_FROM_AI);
 				primaryVictim = NULL;
 				m_primaryVictimID = INVALID_ID;
-				return UPDATE_SLEEP_NONE;
+				return UPDATE_SLEEP( MOB_MEMBER_UPDATE_RATE );
 			}
 
 			if ( spawnerBehavior->maySpawnSelfTaskAI( m_squirrellinessRatio ) ) // if mommy says it is okay
@@ -351,7 +367,7 @@ UpdateSleepTime MobMemberSlavedUpdate::update( void )
 		}
 	}
 
-	return UPDATE_SLEEP_NONE;
+	return UPDATE_SLEEP( MOB_MEMBER_UPDATE_RATE );
 }
 
 
