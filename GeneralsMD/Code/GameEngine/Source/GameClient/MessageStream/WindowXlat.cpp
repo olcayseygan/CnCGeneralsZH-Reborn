@@ -236,6 +236,16 @@ GameMessageDisposition WindowTranslator::translateGameMessage(const GameMessage 
 		{
 			// all window events have the position of the mouse as arg 0
 			ICoord2D mousePos = msg->getArgument( 0 )->pixel;
+
+			// A formation line owns the mouse until the button comes back up.  Without this the
+			// window under the cursor eats the moves and the release, so a line dragged over the
+			// command bar freezes there and never lets go.
+			if( TheInGameUI && TheInGameUI->isFormationDragging()
+					&& ( msg->getType() == GameMessage::MSG_RAW_MOUSE_POSITION
+							 || msg->getType() == GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_UP ) )
+			{
+				forceKeepMessage = TRUE;
+			}
 #if defined(_DEBUG) || defined(_INTERNAL)	//debug hack to view object under mouse stats
 			TheMousePos.x = mousePos.x;
 			TheMousePos.y = mousePos.y;

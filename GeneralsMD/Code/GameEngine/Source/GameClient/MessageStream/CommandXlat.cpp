@@ -113,7 +113,10 @@ Bool CommandXlat_isForceAttackTargeting( Bool ctrlHeld, Bool attackMoveArmed )
 
 static Bool isForceAttackTargeting( void )
 {
-	return CommandXlat_isForceAttackTargeting( TheInGameUI->isInForceAttackMode(),
+	// ctrl still does it while held; the attack key arms the same thing for one click, which is
+	// what leaves ctrl free to mean something else on a plain move
+	return CommandXlat_isForceAttackTargeting( TheInGameUI->isInForceAttackMode()
+																						 || TheInGameUI->isForceAttackArmed(),
 																						 TheInGameUI->isInAttackMoveToMode() );
 }
 
@@ -126,6 +129,25 @@ static Bool isForceAttackTargeting( void )
 Bool Command_stopMeansCancelConstruction( Int selectionCount, Bool locallyControlled, Bool underConstruction )
 {
 	return selectionCount == 1 && locallyControlled && underConstruction;
+}
+
+//-------------------------------------------------------------------------------------------------
+/**
+ * Is this right-button press the start of a formation line?
+ * A GUI command waiting for a target owns the next click, and with nothing of your own selected
+ * there is nobody to spread, so both of those leave the drag meaning nothing.
+ */
+Bool Command_formationDragArmed( Bool setting, Bool haveMovableSelection, Bool guiCommandPending )
+{
+	return setting && !guiCommandPending && haveMovableSelection;
+}
+
+static Bool isFormationDragArmed( void )
+{
+	return Command_formationDragArmed( TheGlobalData->m_formationDrag,
+																		 TheInGameUI->getSelectCount() > 0
+																			&& TheInGameUI->areSelectedObjectsControllable(),
+																		 TheInGameUI->getGUICommand() != NULL );
 }
 
 
@@ -907,7 +929,20 @@ GameMessage::Type CommandTranslator::issueMoveToLocationCommand( const Coord3D *
 
 	if (m_teamExists)
 	{
-		if( TheInGameUI->isInWaypointMode() )
+		// under shift, an attack (force-attack on an attackable, or attack-move) joins the shift
+		// queue instead of the plain waypoint path - that path is a bare list of points with no
+		// order type, so it cannot carry an attack.  See InGameUI::queueAttackWaypoint.
+		Bool forceAttackHere = isForceAttackTargeting() && isForceAttackable;
+		Bool queuedAttack = TheInGameUI->isInWaypointMode()
+												 && ( TheInGameUI->isInAttackMoveToMode() || forceAttackHere );
+
+		if( queuedAttack )
+		{
+			msgType = forceAttackHere ? GameMessage::MSG_DO_ATTACK_OBJECT : GameMessage::MSG_DO_ATTACKMOVETO;
+			if( commandType == DO_COMMAND )
+				TheInGameUI->queueAttackWaypoint( pos, forceAttackHere ? obj : NULL );
+		}
+		else if( TheInGameUI->isInWaypointMode() )
 		{
 			msgType = GameMessage::MSG_ADD_WAYPOINT;
 		}
@@ -915,11 +950,11 @@ GameMessage::Type CommandTranslator::issueMoveToLocationCommand( const Coord3D *
 		{
 			msgType = GameMessage::MSG_DO_ATTACKMOVETO;
 		}
-		else if( TheInGameUI->isInForceMoveToMode() ) 
+		else if( TheInGameUI->isInForceMoveToMode() )
 		{
 			msgType = GameMessage::MSG_DO_FORCEMOVETO;
 		}
-		else if( isForceAttackTargeting() && isForceAttackable )
+		else if( forceAttackHere )
 		{
 			msgType = GameMessage::MSG_DO_ATTACK_OBJECT;
 		}
@@ -927,7 +962,7 @@ GameMessage::Type CommandTranslator::issueMoveToLocationCommand( const Coord3D *
 		{
 			msgType = GameMessage::MSG_DO_MOVETO;
 		}
-		if( commandType == DO_COMMAND )
+		if( commandType == DO_COMMAND && !queuedAttack )
 		{
 			GameMessage *movemsg = TheMessageStream->appendMessage( msgType );
 			if (msgType == GameMessage::MSG_DO_ATTACK_OBJECT)
@@ -941,7 +976,7 @@ GameMessage::Type CommandTranslator::issueMoveToLocationCommand( const Coord3D *
 				movemsg->appendBooleanArgument( TheInGameUI->isInForceAttackMode() );
 
 		}  // end if
-	} 
+	}
 	
 	// only make sounds if we really did the command messages
 	if( commandType == DO_COMMAND )
@@ -1357,7 +1392,8 @@ CommandTranslator::CommandTranslator() :
 	m_objective(0),
 	m_teamExists(false),
 	m_mouseRightDown(0),
-	m_mouseRightUp(0)
+	m_mouseRightUp(0),
+	m_formationDragArmed(FALSE)
 {
 	m_mouseRightDragAnchor.x = 0;
 	m_mouseRightDragAnchor.y = 0;
@@ -3361,6 +3397,12 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			break;
 
 		//-----------------------------------------------------------------------------------------
+		// the attack key, which arms force fire the same way the key above arms an attack move
+		case GameMessage::MSG_META_TOGGLE_FORCEATTACK:
+			TheInGameUI->toggleForceAttackArmed( );
+			break;
+
+		//-----------------------------------------------------------------------------------------
 		// the general's promotion screen. It is one click away on the stars button and nowhere on
 		// the keyboard, which is the wrong way round for something you open the moment a promotion
 		// lands - and the star only flashes until you look at it.
@@ -3871,6 +3913,32 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			m_mouseRightDragAnchor = msg->getArgument( 0 )->pixel;
 			m_mouseRightDown = (UnsignedInt) msg->getArgument( 2 )->integer;
 
+			m_formationDragArmed = isFormationDragArmed();
+
+			break;
+		}
+
+		//-----------------------------------------------------------------------------
+		case GameMessage::MSG_RAW_MOUSE_POSITION:
+		{
+			// the line only appears once the cursor has travelled far enough that this is a drag and
+			// not a click that wobbled
+			if( m_formationDragArmed )
+			{
+				const ICoord2D& here = msg->getArgument( 0 )->pixel;
+				if( TheInGameUI->isFormationDragging() )
+				{
+					// once it is a drag, every position message is a point on the curve
+					TheInGameUI->addFormationDragPoint( here );
+				}
+				else if( (UnsignedInt)abs( here.x - m_mouseRightDragAnchor.x ) > TheMouse->m_dragTolerance
+								 || (UnsignedInt)abs( here.y - m_mouseRightDragAnchor.y ) > TheMouse->m_dragTolerance )
+				{
+					TheInGameUI->addFormationDragPoint( m_mouseRightDragAnchor );
+					TheInGameUI->addFormationDragPoint( here );
+				}
+			}
+
 			break;
 		}
 
@@ -3880,6 +3948,53 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			// register this event for determining if the click was fast or short enough not to be a drag
 			m_mouseRightDragLift = msg->getArgument( 0 )->pixel;
 			m_mouseRightUp = (UnsignedInt) msg->getArgument( 2 )->integer;
+
+			if( m_formationDragArmed )
+			{
+				const Bool wasDrag = TheInGameUI->isFormationDragging();
+
+				if( wasDrag )
+					TheInGameUI->addFormationDragPoint( m_mouseRightDragLift );
+
+				// copied out before the drag is cleared, which throws the curve away
+				std::vector<ICoord2D> curve = TheInGameUI->getFormationDragPoints();
+
+				// the preview goes with the drag; from here on the units' own goals are what gets drawn,
+				// so the picture carries on without a break
+				TheInGameUI->clearFormationDrag();
+				m_formationDragArmed = FALSE;
+
+				if( wasDrag && curve.size() >= 2 )
+				{
+					// the same curve means "attack along this" while one of the attack modes is armed, which
+					// is the artillery gesture: a line of fire instead of a line of tanks.  Attack move
+					// walks it and shoots what it meets; the attack key fires on the line where it stands
+					GameMessage::Type formationType = GameMessage::MSG_DO_FORMATION_MOVETO;
+					if( TheInGameUI->isInAttackMoveToMode() )
+						formationType = GameMessage::MSG_DO_FORMATION_ATTACKMOVETO;
+					else if( TheInGameUI->isForceAttackArmed() )
+						formationType = GameMessage::MSG_DO_FORMATION_FORCEATTACK;
+
+					// the traced curve becomes world points; who stands where along it is decided on
+					// the logic side, where every machine decides it the same way
+					GameMessage *newMsg = TheMessageStream->appendMessage( formationType );
+					for( std::vector<ICoord2D>::const_iterator it = curve.begin(); it != curve.end(); ++it )
+					{
+						Coord3D world;
+						TheTacticalView->screenToTerrain( &(*it), &world );
+						newMsg->appendLocationArgument( world );
+					}
+
+					TheInGameUI->clearAttackMoveToMode();
+					TheInGameUI->clearAttackQueue();
+
+					const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
+					if( selected && !selected->empty() )
+						pickAndPlayUnitVoiceResponse( selected, GameMessage::MSG_DO_MOVETO );
+
+					break;
+				}
+			}
 
 			//Kris: July 7, 2003. Added this code to deselect build placement mode when right clicked. This fixes
 			//a bug where you couldn't cancel the sneak attack mode via right click. This only happened when you
@@ -3896,9 +4011,9 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_MOUSE_RIGHT_DOUBLE_CLICK:
 		{
-			if( TheGlobalData->m_useAlternateMouse && TheGlobalData->m_doubleClickAttackMove )
+			if( TheGlobalData->m_doubleClickAttackMove )
 			{
-				// create the message and append arguments for a guard location	
+				// create the message and append arguments for a guard location
 				GameMessage *newMsg = TheMessageStream->appendMessage( GameMessage::MSG_DO_GUARD_POSITION );
 				Coord3D pos;
 				TheTacticalView->screenToTerrain( &msg->getArgument( 0 )->pixel, &pos );
@@ -3915,9 +4030,10 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		}
 		case GameMessage::MSG_MOUSE_RIGHT_CLICK:
 		{
-			// right click is only actioned here if we're in alternate mouse mode
-			if (TheGlobalData->m_useAlternateMouse 
-				&& TheMouse->isClick(&m_mouseRightDragAnchor, &m_mouseRightDragLift, m_mouseRightDown, m_mouseRightUp))
+			// The right button is the order button, always.  It used to depend on UseAlternateMouse,
+			// which is gone: a click here commands, a drag draws a formation line, and neither of
+			// them scrolls.
+			if (TheMouse->isClick(&m_mouseRightDragAnchor, &m_mouseRightDragLift, m_mouseRightDown, m_mouseRightUp))
 			{
 				Bool isPoint = (msg->getArgument(0)->pixelRegion.height() == 0 && msg->getArgument(0)->pixelRegion.width() == 0);
 
@@ -3950,6 +4066,8 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 
 					disp = DESTROY_MESSAGE;
 					TheInGameUI->clearAttackMoveToMode();
+					// a hand-given order ends whatever list the circle was working through
+					TheInGameUI->clearAttackQueue();
 				}
 			}
 
@@ -3959,21 +4077,9 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_MOUSE_LEFT_DOUBLE_CLICK:
 		{
-			if( !TheGlobalData->m_useAlternateMouse && TheGlobalData->m_doubleClickAttackMove )
-			{
-				// create the message and append arguments for a guard location	
-				GameMessage *newMsg = TheMessageStream->appendMessage( GameMessage::MSG_DO_GUARD_POSITION );
-				Coord3D pos;
-				TheTacticalView->screenToTerrain( &msg->getArgument( 0 )->pixel, &pos );
-				newMsg->appendLocationArgument(pos);
-				newMsg->appendIntegerArgument(GUARDMODE_NORMAL);
-
-				ThePlayerList->getLocalPlayer()->getAcademyStats()->recordDoubleClickAttackMoveOrderGiven();
-
-        TheInGameUI->triggerDoubleClickAttackMoveGuardHint();
-
-				break;
-			}
+			// The double-click attack move used to sit here as well, for the classic mouse.  There is
+			// only one mouse now and its orders are on the right button, so this case does nothing of
+			// its own.
 			//intentional fall through
 		}
 		case GameMessage::MSG_MOUSE_LEFT_CLICK:
@@ -3993,7 +4099,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			TheTacticalView->screenToTerrain( &msg->getArgument( 0 )->pixel, &pos );
 
 			const CommandButton *command = TheInGameUI->getGUICommand();
-			// maintain this as the list of GUI button initiated commands that fire with left click in alt mouse mode
+			// maintain this as the list of GUI button initiated commands that fire with left click
   			Bool isFiringGUICommand = (command	&& (command->getCommandType() == GUI_COMMAND_SPECIAL_POWER
   												|| command->getCommandType() == GUI_COMMAND_SPECIAL_POWER_FROM_SHORTCUT
  												|| command->getCommandType() == GUI_COMMAND_FIRE_WEAPON
@@ -4001,8 +4107,10 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 												|| command->getCommandType() == GUICOMMANDMODE_HIJACK_VEHICLE
 												|| command->getCommandType() == GUICOMMANDMODE_CONVERT_TO_CARBOMB));
 
-			// in alternate mouse mode, this left click is only actioned here if we're firing a gui command
-			if ((TheGlobalData->m_useAlternateMouse) && (! isFiringGUICommand))
+			// The left button selects and nothing else.  The one exception is a GUI command that is
+			// already armed and waiting for a target, which is aimed with the left button because the
+			// right one cancels it.
+			if( !isFiringGUICommand )
 				break;
 
 			Bool controllable = TheInGameUI->areSelectedObjectsControllable()

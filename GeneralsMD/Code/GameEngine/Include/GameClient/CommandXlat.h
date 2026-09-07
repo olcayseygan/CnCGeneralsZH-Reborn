@@ -58,7 +58,12 @@ private:
 	ICoord2D m_mouseRightDragLift;			// the location of a possible mouse drag end
 	UnsignedInt m_mouseRightDown;	// when the mouse down happened
 	UnsignedInt m_mouseRightUp;		// when the mouse up happened
-  
+
+	// latched the moment the right button goes down: whether this drag is drawing a formation line.
+	// Latched rather than asked again, so a selection that changes mid-drag cannot abandon a line
+	// the player is already dragging.
+	Bool m_formationDragArmed;
+
 	GameMessage::Type createMoveToLocationMessage( Drawable *draw, const Coord3D *dest, CommandEvaluateType commandType );
 	GameMessage::Type createAttackMessage( Drawable *draw, Drawable *other, CommandEvaluateType commandType );
 	GameMessage::Type createEnterMessage( Drawable *enter, CommandEvaluateType commandType );
@@ -128,6 +133,10 @@ extern void pickAndPlayUnitVoiceResponse( const DrawableList *list, GameMessage:
 
 ///< does the stop key cancel a building that is going up, rather than stopping a unit?
 extern Bool Command_stopMeansCancelConstruction( Int selectionCount, Bool locallyControlled, Bool underConstruction );
+
+/** Does this right-button press start a formation line?  setting is TheGlobalData->m_formationDrag. */
+extern Bool Command_formationDragArmed( Bool setting, Bool haveMovableSelection,
+																				Bool guiCommandPending );
 
 class Player;
 /** Single-player test hook: make this player the one at the keyboard, throwing away any AI behind

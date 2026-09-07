@@ -198,9 +198,8 @@ GlobalData* GlobalData::m_theOriginal = NULL;
 	{ "MoneyPerMinute",						INI::parseInt,				NULL,			offsetof( GlobalData, m_moneyPerMinute ) },
 	{ "BuildPlacementOpacity",		INI::parseReal,				NULL,			offsetof( GlobalData, m_buildPlacementOpacity ) },
 	{ "BuildPlacementShadows",		INI::parseBool,				NULL,			offsetof( GlobalData, m_buildPlacementShadows ) },
-	{ "MiddleMousePans",					INI::parseBool,				NULL,			offsetof( GlobalData, m_middleMousePans ) },
 	{ "ZoomToCursor",							INI::parseBool,				NULL,			offsetof( GlobalData, m_zoomToCursor ) },
-	{ "RightMouseScroll",					INI::parseBool,				NULL,			offsetof( GlobalData, m_rightMouseScroll ) },
+	{ "FormationDrag",						INI::parseBool,				NULL,			offsetof( GlobalData, m_formationDrag ) },
 	{ "ShowHudOverlay",						INI::parseBool,				NULL,			offsetof( GlobalData, m_showHudOverlay ) },
 	{ "ShowPlacementRangeRing",		INI::parseBool,				NULL,			offsetof( GlobalData, m_showPlacementRangeRing ) },
 	{ "WorkersReturnToSupply",		INI::parseBool,				NULL,			offsetof( GlobalData, m_workersReturnToSupply ) },
@@ -1089,10 +1088,9 @@ GlobalData::GlobalData()
 	//
 	m_edgeScrollInWindowedMode = TRUE;
 	m_snapCameraRotateTo45 = TRUE;
-	// middle-drag stays a rotate by default (it snaps to 45 degrees on release); pan is opt-in
-	m_middleMousePans = FALSE;
 	m_zoomToCursor = TRUE;
-	m_rightMouseScroll = TRUE;
+	// the right button no longer scrolls, so a right-drag is free to mean something
+	m_formationDrag = TRUE;
 	m_menuTransitionSpeed = 100;
 	m_textureFilterMode = 2;	// anisotropic; retail shipped bilinear on a 2003 fill-rate budget
 	m_anisotropyLevel = 0;		// whatever the card offers, capped at 16 in _Init_Filters
@@ -1376,7 +1374,6 @@ void GlobalData::parseGameDataDefinition( INI* ini )
 
 	// override INI values with user preferences
 	OptionPreferences optionPref;
-	TheWritableGlobalData->m_useAlternateMouse = optionPref.getAlternateMouseModeEnabled();
 	TheWritableGlobalData->m_clientRetaliationModeEnabled = optionPref.getRetaliationModeEnabled();
 	TheWritableGlobalData->m_doubleClickAttackMove = optionPref.getDoubleClickAttackMoveEnabled();
 	TheWritableGlobalData->m_keyboardScrollFactor = optionPref.getScrollFactor();

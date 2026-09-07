@@ -195,56 +195,11 @@ extern Bool contextCommandForNewSelection(const DrawableList *currentlySelectedD
 		return FALSE;
 	}
 
-	if (TheGlobalData->m_useAlternateMouse) {
-		// context sensitive commands never apply when selecting in alternate mouse mode
-		return FALSE;
-	}
-
-	if (outSelectionInfo->currentCountMine > 0) {
-		if (outSelectionInfo->newCountEnemies > 0) {
-			if (outSelectionInfo->newCountEnemies == 1 && selectionIsPoint) {
-				return TheGameClient->evaluateContextCommand(newEnemy, newEnemy->getPosition(), CommandTranslator::EVALUATE_ONLY) != GameMessage::MSG_INVALID;
-			}
-
-			return selectionIsPoint;
-		}
-
-		if (outSelectionInfo->newCountMine > 0) {
-			if (outSelectionInfo->newCountMine == 1 && selectionIsPoint && !TheInGameUI->isInPreferSelectionMode()) {
- 				return TheGameClient->evaluateContextCommand(newMine, newMine->getPosition(), CommandTranslator::EVALUATE_ONLY) != GameMessage::MSG_INVALID;
-			}
-
-			return FALSE;
-		}
-
-		if (outSelectionInfo->newCountFriends > 0) {
-			if (outSelectionInfo->newCountFriends == 1 && selectionIsPoint) {
-				return TheGameClient->evaluateContextCommand(newFriendly, newFriendly->getPosition(), CommandTranslator::EVALUATE_ONLY) != GameMessage::MSG_INVALID;
-			}
-			return FALSE;
-		}
-
-		if (outSelectionInfo->currentCountMineInfantry > 0 && outSelectionInfo->newCountGarrisonableBuildings == 1) {
-			return TRUE;
-		}
-
-		if (outSelectionInfo->newCountCivilians > 0) {
-			if (outSelectionInfo->newCountCivilians == 1 && selectionIsPoint) {
-				return TheGameClient->evaluateContextCommand(newCivilian, newCivilian->getPosition(), CommandTranslator::EVALUATE_ONLY) != GameMessage::MSG_INVALID;
-			}
-			return FALSE;
-		}
-
-		if (outSelectionInfo->newCountCrates > 0) {
-			return (outSelectionInfo->newCountCrates == 1 && selectionIsPoint);
-		}
-	}
-
-	if (outSelectionInfo->currentCountMine == 0) {
-		return FALSE;
-	}
-
-	return selectionIsPoint;
+	// Everything below this line used to work out whether a left click on an enemy, an ally, a
+	// garrisonable building or a crate should command instead of select.  It cannot any more: the
+	// left button selects and the right button orders, so the answer is always no.  The counting
+	// above is still wanted - the caller reads the counts for the cursor and the selection filters.
+	return FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------

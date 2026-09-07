@@ -246,8 +246,7 @@ void AcademyStats::init( const Player *player )
 	//| Tier 3 (Advanced advice) |
 	//+--------------------------+
 
-	//25) Did the player use the new alternate interface in the options?
-	//Uses TheGlobalData->m_useAlternateMouse
+	//25) retired: there is only one mouse interface now, so there is nothing to ask about.
 
 	//26) Player did not use the new "double click location attack move/guard" 
 	m_doubleClickAttackMoveOrdersGiven = 0;
@@ -892,21 +891,10 @@ void AcademyStats::evaluateTier3Advice( AcademyAdviceInfo *info, Int numAvailabl
 	Bool choosing = numAvailableTips != -1;
 	Int availableTips = 0;
 
-	//25) Did the player use the new alternate interface in the options?
-	if( !TheGlobalData->m_useAlternateMouse ) 
-	{
-		availableTips++;
-		Int rand = GameClientRandomValue( 0, numAvailableTips - 1 );
-		Int limit = maxAdviceTips - info->numTips;
-		if( choosing &&  rand < limit )
-		{
-			info->advice[ info->numTips ].concat( TheGameText->fetch( "ACADEMY:AlternateMouseInterface" ) );
-			info->numTips++;
-		}
-		numAvailableTips--;
-	}
+	//25) used to nag the player about the alternate mouse interface in the options.  There is no
+	//    option and no other interface now, so there is nothing to advise.
 
-	//26) Player did not use the new "double click location attack move/guard" 
+	//26) Player did not use the new "double click location attack move/guard"
 	if( !m_doubleClickAttackMoveOrdersGiven ) 
 	{
 		availableTips++;
@@ -1221,8 +1209,7 @@ void AcademyStats::xfer( Xfer *xfer )
 	//| Tier 3 (Advanced advice) |
 	//+--------------------------+
 
-	//25) Did the player use the new alternate interface in the options?
-	//Uses TheGlobalData->m_useAlternateMouse
+	//25) retired: there is only one mouse interface now, so there is nothing to ask about.
 
 	//26) Player did not use the new "double click location attack move/guard" 
 	xfer->xferUnsignedInt( &m_doubleClickAttackMoveOrdersGiven );

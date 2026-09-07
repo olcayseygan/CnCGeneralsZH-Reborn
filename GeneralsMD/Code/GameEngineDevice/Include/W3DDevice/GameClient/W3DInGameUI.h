@@ -79,6 +79,9 @@ protected:
 	virtual void drawAttackHints( View *view );		///< draw attack hint visual feedback
 	virtual void drawPlaceAngle( View *view ); 		///< draw place building angle if needed
 	virtual void drawBuildGrid( void );						///< the pathfinder's build grid under a pending structure
+	virtual void drawFormationLine( void );				///< the line a right drag is spreading the selection along
+	virtual void drawOrderHints( void );					///< a line from each selected unit to where its order sends it
+	virtual void drawAttackCircle( void );				///< the circle a left drag is sweeping targets out of
 
 	RenderObjClass *m_moveHintRenderObj[ MAX_MOVE_HINTS ];
 	HAnimClass		 *m_moveHintAnim[ MAX_MOVE_HINTS ];

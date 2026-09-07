@@ -238,8 +238,7 @@ private:
 	//| Tier 3 (Advanced advice) |
 	//+--------------------------+
 
-	//25) Did the player use the new alternate interface in the options?
-	//Uses TheGlobalData->m_useAlternateMouse
+	//25) retired: there is only one mouse interface now, so there is nothing to ask about.
 
 	//26) Player did not use the new "double click location attack move/guard" 
 	UnsignedInt m_doubleClickAttackMoveOrdersGiven;

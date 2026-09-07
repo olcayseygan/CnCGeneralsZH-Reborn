@@ -43,9 +43,10 @@
 
 OPTION_BOOL_ACCESSORS( m_edgeScrollInWindowedMode )
 OPTION_BOOL_ACCESSORS( m_snapCameraRotateTo45 )
-OPTION_BOOL_ACCESSORS( m_middleMousePans )
 OPTION_BOOL_ACCESSORS( m_zoomToCursor )
-OPTION_BOOL_ACCESSORS( m_rightMouseScroll )
+OPTION_BOOL_ACCESSORS( m_formationDrag )
+OPTION_INT_ACCESSORS( m_bloomIntensity )
+OPTION_INT_ACCESSORS( m_bloomThreshold )
 OPTION_INT_ACCESSORS( m_menuTransitionSpeed )
 OPTION_INT_ACCESSORS( m_textureFilterMode )
 OPTION_INT_ACCESSORS( m_anisotropyLevel )
@@ -167,20 +168,18 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_snapCameraRotateTo45, set_m_snapCameraRotateTo45 },
 
-	{ "MiddleMousePans",					"", "",
-		OPTION_BOOL, APPLY_LIVE, 0, 1,
-		get_m_middleMousePans, set_m_middleMousePans },
-
+	// MiddleMousePans used to sit here.  The middle button is the only camera drag there is now, so
+	// there is nothing left to choose: it pans, and Ctrl turns the same drag into a rotate.
 	{ "ZoomToCursor",							"", "",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_zoomToCursor, set_m_zoomToCursor },
 
-	// Alternate mouse mode moves commands onto the left button and selection onto the right, and
-	// then the right button is doing two jobs at once - every command drag also drags the camera.
-	// Turning this off leaves the middle button and the screen edge to scroll with.
-	{ "RightMouseScroll",					"", "",
+	// A right drag over the ground spreads the selection along the line drawn instead of sending
+	// everyone to one point.  On by default - the right button stopped scrolling, so the drag was
+	// free - and here for anyone who would rather a slipped click did nothing at all.
+	{ "FormationDrag",						"", "",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
-		get_m_rightMouseScroll, set_m_rightMouseScroll },
+		get_m_formationDrag, set_m_formationDrag },
 
 	// Percent of the speed the menu slides and fades were authored at. 100 is what the artists
 	// drew; higher gets you through the shell faster, and nothing about a menu animation is worth

@@ -138,7 +138,6 @@ public:
 	Bool m_enableDynamicLOD;
 	Bool m_enableStaticLOD;
 	Int m_terrainLODTargetTimeMS;
-	Bool m_useAlternateMouse;
 	Bool m_clientRetaliationModeEnabled;
 	Bool m_doubleClickAttackMove;
 	Bool m_rightMouseAlwaysScrolls;
@@ -359,9 +358,8 @@ public:
 	Int m_moneyPerMinute;				///< income every player gets once a minute regardless of supply lines; 0 = off
 	Real m_buildPlacementOpacity;		///< how solid the structure riding the cursor is drawn, 0..1
 	Bool m_buildPlacementShadows;		///< whether that structure casts a shadow while it rides the cursor
-	Bool m_middleMousePans;				///< middle-button drag pans the camera instead of rotating it
 	Bool m_zoomToCursor;				///< the mouse wheel zooms toward whatever the cursor is over
-	Bool m_rightMouseScroll;			///< holding the right button drags the camera; off frees it for alternate mouse mode
+	Bool m_formationDrag;				///< dragging the right button spreads the selection along the line drawn
 	Int m_menuTransitionSpeed;			///< percent of the authored speed the menus slide and fade at; 100 = as drawn
 	Int m_textureFilterMode;			///< 0 bilinear, 1 trilinear, 2 anisotropic
 	Int m_anisotropyLevel;				///< samples anisotropic filtering may take; 0 = whatever the card offers

@@ -137,9 +137,9 @@ LookAtTranslator::~LookAtTranslator()
 		TheLookAtTranslator = NULL;
 }
 
-const ICoord2D* LookAtTranslator::getRMBScrollAnchor(void)
+const ICoord2D* LookAtTranslator::getScrollAnchor(void)
 {
-	if (m_isScrolling && m_scrollType == SCROLL_RMB)
+	if (m_isScrolling && m_scrollType == SCROLL_MMB)
 	{
 		return &m_anchor;
 	}
@@ -285,31 +285,13 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 		}
 
 		//-----------------------------------------------------------------------------
+		// The right button belongs to the order layer now - a click commands, a drag draws a
+		// formation line - so nothing here touches the camera.  Both cases stay only to keep the
+		// idle timer honest: a player who is right-clicking is not away from the keyboard.
 		case GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_DOWN:
-		{
-			m_lastMouseMoveFrame = TheGameLogic->getFrame();
-
-			m_anchor = msg->getArgument( 0 )->pixel;
-			m_currentPos = msg->getArgument( 0 )->pixel;
-
-			// `RightMouseScroll = no` in Options.ini frees the right button. In alternate mouse
-			// mode it is the selection button, so every selection drag was also a camera drag.
-			if (TheGlobalData->m_rightMouseScroll && !TheInGameUI->isSelecting() && !m_isScrolling)
-			{
-				setScrolling(SCROLL_RMB);
-			}
-			break;
-		}
-
-		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_UP:
 		{
 			m_lastMouseMoveFrame = TheGameLogic->getFrame();
-
-			if (m_scrollType == SCROLL_RMB)
-			{
-				stopScrolling();
-			}
 			break;
 		}
 
@@ -323,9 +305,12 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 			m_currentPos = msg->getArgument( 0 )->pixel;
 			m_timestamp = TheGameClient->getFrame();
 
-			// MiddleMousePans in Options.ini swaps the middle-drag from rotate to pan; the
-			// click-to-reset below still works either way.
-			if( TheGlobalData->m_middleMousePans )
+			// The middle button is the camera: drag it and the map follows the cursor, hold ctrl and
+			// the drag turns the camera instead.  It used to be the other way round, with a
+			// MiddleMousePans switch in Options.ini deciding; there is no switch now because the
+			// right button no longer scrolls anything and the pan has to live somewhere.  The
+			// click-to-reset below works either way.
+			if( !TheKeyboard->isCtrl() )
 			{
 				m_isRotating = false;
 				if (!TheInGameUI->isSelecting() && !m_isScrolling)
@@ -542,16 +527,11 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 				{
 				case SCROLL_MMB:
 					{
-						// straight drag-the-world pan: no anchor chasing and no keyboard minimum,
-						// so the map follows the cursor one-to-one.
-						offset.x = -TheGlobalData->m_horizontalScrollSpeedFactor * (m_currentPos.x - m_anchor.x);
-						offset.y = -TheGlobalData->m_verticalScrollSpeedFactor * (m_currentPos.y - m_anchor.y);
-						m_anchor = m_currentPos;
-					}
-					break;
-				case SCROLL_RMB:
-					{
-						if (TheInGameUI->shouldMoveRMBScrollAnchor())
+						// The anchor stays where the button went down and the camera runs away from it,
+						// faster the further the cursor gets.  This is what the right button used to do,
+						// and it is what the hand expects; a one-to-one drag of the world is not the same
+						// gesture and reads as sluggish at these scroll factors.
+						if (TheInGameUI->shouldMoveScrollAnchor())
 						{
 							Int maxX = TheDisplay->getWidth()/2;
 							Int maxY = TheDisplay->getHeight()/2;

@@ -47,6 +47,7 @@ private:
 
 	Bool m_leftMouseButtonIsDown;
 	Bool m_dragSelecting;
+	Bool m_attackCircleJustIssued;			///< a circle drag just went out, so eat the click that ends it (fork)
 	UnsignedInt m_lastGroupSelTime;
 	Int m_lastGroupSelGroup;
 	ICoord2D m_selectFeedbackAnchor;		// Note: Used for drawing feedback only.

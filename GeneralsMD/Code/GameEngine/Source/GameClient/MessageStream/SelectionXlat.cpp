@@ -268,6 +268,7 @@ SelectionTranslator::SelectionTranslator()
 {
 	m_leftMouseButtonIsDown = FALSE;
 	m_dragSelecting = FALSE;
+	m_attackCircleJustIssued = FALSE;
 	m_lastGroupSelTime = 0;
 	m_lastGroupSelGroup = -1;
 	m_selectFeedbackAnchor.x = 0;
@@ -412,6 +413,13 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 
 			// modifier appears to be unused, and the argument doesn't exist.  jba.
 			//Int modifier = msg->getArgument( 1 )->integer;
+
+			// an attack circle owns the button while it is being dragged, so no box grows behind it
+			if( TheInGameUI->isAttackCircling() )
+			{
+				TheInGameUI->updateAttackCircle( pixel );
+				break;
+			}
 
 			if (m_leftMouseButtonIsDown)
 			{
@@ -620,6 +628,16 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_MOUSE_LEFT_CLICK:
 		{
+			// the release that ended an attack circle still arrives here as a click.  Letting it
+			// through would reselect whatever sat under the anchor, and a changed selection is exactly
+			// what drops the queue that was just built
+			if( m_attackCircleJustIssued )
+			{
+				m_attackCircleJustIssued = FALSE;
+				disp = DESTROY_MESSAGE;
+				break;
+			}
+
 			// If the quit menu is visible, we need to not process left clicks through the selection translator.
 			if (TheInGameUI->isQuitMenuVisible()) 
 			{
@@ -645,9 +663,73 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			// if there were drawables in the region, then we should determine if there is a context 
 			// sensitive command that should take place. If there is, then this isn't a selection thing
 			const DrawableList *currentList = TheInGameUI->getAllSelectedDrawables();
-			if (!currentlyLookingForSelection()) 
+			if (!currentlyLookingForSelection())
 			{
 				break;
+			}
+
+			/* Box select modifiers, taken from Beyond All Reason, where they are the difference
+				 between a selection and the right selection.  Shift already adds, so what was missing
+				 was a way to take things back out and a way to leave the base staff behind: Alt keeps
+				 only what can shoot, Ctrl removes the box from the selection instead of replacing it.
+				 Both are drag-only.  A point click has to stay exactly what it was - a filter that eats
+				 single clicks reads as a broken mouse, and Ctrl on a point click is force fire. */
+			if (!isPoint)
+			{
+				if (TheKeyboard->isAlt())
+				{
+					DrawableListIt fit = drawablesThatWillSelect.begin();
+					while (fit != drawablesThatWillSelect.end())
+					{
+						Object *candidate = (*fit) ? (*fit)->getObject() : NULL;
+						const Bool fights = candidate && candidate->hasAnyWeapon() &&
+																!candidate->isKindOf(KINDOF_STRUCTURE);
+						if (fights)
+							++fit;
+						else
+							fit = drawablesThatWillSelect.erase(fit);
+					}
+
+					// a box with nothing armed in it is a miss, not an order to select the base
+					if (drawablesThatWillSelect.empty())
+					{
+						disp = DESTROY_MESSAGE;
+						break;
+					}
+				}
+
+				if (TheKeyboard->isCtrl())
+				{
+					GameMessage *removeMsg = NULL;
+					DrawableListIt rit;
+					for (rit = drawablesThatWillSelect.begin(); rit != drawablesThatWillSelect.end(); ++rit)
+					{
+						Drawable *draw = *rit;
+						if (draw == NULL || !draw->isSelected())
+						{
+							continue;
+						}
+
+						Object *objToDeselect = draw->getObject();
+						if (objToDeselect == NULL)
+						{
+							continue;
+						}
+
+						// the message is only worth making once something is actually coming out
+						if (removeMsg == NULL)
+						{
+							removeMsg = TheMessageStream->appendMessage(GameMessage::MSG_REMOVE_FROM_SELECTED_GROUP);
+						}
+
+						removeMsg->appendObjectIDArgument(objToDeselect->getID());
+						TheInGameUI->deselectDrawable(draw);
+					}
+
+					m_lastGroupSelGroup = -1;
+					disp = DESTROY_MESSAGE;
+					break;
+				}
 			}
 
 			SelectionInfo si;
@@ -937,6 +1019,11 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			// cannot actually start area selection yet - have to wait for cursor to move a bit
 			m_leftMouseButtonIsDown = true;
 			m_selectFeedbackAnchor = msg->getArgument( 0 )->pixel;
+
+			// with the attack key armed the left button draws a circle instead of a selection box,
+			// and everything hostile inside it becomes a target list
+			if( TheInGameUI->isForceAttackArmed() && TheInGameUI->getSelectCount() > 0 )
+				TheInGameUI->beginAttackCircle( m_selectFeedbackAnchor );
 			break;
 		}
 
@@ -947,7 +1034,17 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 		case GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_UP:
 		{
 			m_leftMouseButtonIsDown = FALSE;
-			
+
+			// the circle is finished on the same button that drew it: the targets go out here, and the
+			// click that follows this release has to be eaten or it would reselect under the anchor
+			if( TheInGameUI->isAttackCircling() )
+			{
+				TheInGameUI->issueAttackCircle();
+				TheInGameUI->clearAttackMoveToMode();
+				m_attackCircleJustIssued = TRUE;
+				break;
+			}
+
 			if (m_dragSelecting) {
 				// Stop drag selecting now, thanks.
 				m_dragSelecting = FALSE;
@@ -971,8 +1068,8 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				//when you right click.
 				if( !TheInGameUI->getGUICommand() && !TheKeyboard->isShift() && !TheKeyboard->isCtrl() && !TheKeyboard->isAlt() )
 				{
-					//No GUI command mode, so deselect everyone if we're in alternate mouse mode.
-					if( TheGlobalData->m_useAlternateMouse && TheInGameUI->getPendingPlaceSourceObjectID() == INVALID_ID )
+					//No GUI command mode, so a click on empty ground deselects everyone.
+					if( TheInGameUI->getPendingPlaceSourceObjectID() == INVALID_ID )
 					{
 						if( !TheInGameUI->getPreventLeftClickDeselectionInAlternateMouseModeForOneClick() )
 						{
@@ -1064,11 +1161,8 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 					disp = DESTROY_MESSAGE;
 					TheInGameUI->setScrolling( FALSE );
 				}
-				else if( !TheGlobalData->m_useAlternateMouse )
-				{
-					//No GUI command mode, so deselect everyone if we're in regular mouse mode.
-					deselectAll();
-				}
+				// The right button used to deselect here in the classic mouse mode.  It does not any
+				// more: it is the order button, and an order that hits nothing is simply no order.
 			}
 
 			break;

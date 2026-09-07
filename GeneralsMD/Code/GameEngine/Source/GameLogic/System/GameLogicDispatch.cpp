@@ -31,6 +31,7 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
 #include "Common/CRCDebug.h"
+#include "Common/DrawnPath.h"
 #include "Common/GameAudio.h"
 #include "Common/GameEngine.h"
 #include "Common/GlobalData.h"
@@ -60,6 +61,7 @@
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/DozerAIUpdate.h"
 #include "GameLogic/Module/SupplyTruckAIUpdate.h"
+#include "GameLogic/TerrainLogic.h"
 
 //-------------------------------------------------------------------------------------------------
 /** Which builder takes a structure job: the free one nearest the site, or failing that the
@@ -963,6 +965,83 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 					if (ai)
 						ai->aiGuardPosition( obj->getPosition(), gm, CMD_FROM_PLAYER );
 				}
+			}
+
+			break;
+		}
+
+		//---------------------------------------------------------------------------------------------
+		//
+		// Formation move (fork).  The player drags a line and the selection spreads itself along
+		// it, one unit per station, which is the one thing the removed group movement work was
+		// trying to do for them and could not: where the units end up is now drawn rather than
+		// guessed at.  The stations are handed out in the order the units already stand along the
+		// line, so nobody crosses anybody on the way in, and the whole thing is resolved here so
+		// the message is the drawn curve instead of a list of orders.
+		//
+		case GameMessage::MSG_DO_FORMATION_MOVETO:
+		case GameMessage::MSG_DO_FORMATION_ATTACKMOVETO:
+		case GameMessage::MSG_DO_FORMATION_FORCEATTACK:
+		{
+			if (currentlySelectedGroup == NULL)
+				break;
+
+			const Bool attackAlong = (msg->getType() == GameMessage::MSG_DO_FORMATION_ATTACKMOVETO);
+			const Bool fireAlong = (msg->getType() == GameMessage::MSG_DO_FORMATION_FORCEATTACK);
+
+			// the curve the cursor traced, however many corners the player's hand put in it
+			std::vector<Coord3D> path;
+			const Int pointCount = msg->getArgumentCount();
+			for (Int p = 0; p < pointCount; p++)
+				path.push_back( msg->getArgument( p )->location );
+
+			if (path.size() < 2)
+				break;
+
+			std::vector<Object *> movers;
+			const VecObjectID& ids = currentlySelectedGroup->getAllIDs();
+			for (VecObjectID::const_iterator it = ids.begin(); it != ids.end(); ++it)
+			{
+				Object *obj = TheGameLogic->findObjectByID( *it );
+				if (!obj || obj->getControllingPlayer() != thisPlayer)
+					continue;
+				if (obj->isKindOf( KINDOF_IMMOBILE ) || obj->getAIUpdateInterface() == NULL)
+					continue;
+				movers.push_back( obj );
+			}
+
+			if (movers.empty())
+				break;
+
+			// arc length up to each point, so a station is a distance along the whole curve and not a
+			// fraction of one segment - a hand-drawn line has segments of every size
+			std::vector<Real> arc;
+			buildPathArcLengths( path, arc );
+
+			const Real span = arc.back();
+			if (span < 1.0f)
+				break;
+
+			orderAlongPath( movers, path, arc );
+
+			currentlySelectedGroup->releaseWeaponLockForGroup( LOCKED_TEMPORARILY );
+
+			const Int count = movers.size();
+			for (Int i = 0; i < count; i++)
+			{
+				// one unit stands where the curve ends, everyone else divides it evenly
+				const Real t = (count == 1) ? 1.0f : ((Real)i / (Real)(count - 1));
+
+				Coord3D station;
+				pointAlongPath( path, arc, span * t, &station );
+				station.z = TheTerrainLogic->getGroundHeight( station.x, station.y );
+
+				if (fireAlong)
+					movers[ i ]->getAIUpdateInterface()->aiAttackPosition( &station, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );
+				else if (attackAlong)
+					movers[ i ]->getAIUpdateInterface()->aiAttackMoveToPosition( &station, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );
+				else
+					movers[ i ]->getAIUpdateInterface()->aiMoveToPosition( &station, CMD_FROM_PLAYER );
 			}
 
 			break;
