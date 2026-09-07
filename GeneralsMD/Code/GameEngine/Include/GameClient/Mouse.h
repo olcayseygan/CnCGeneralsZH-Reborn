@@ -272,6 +272,12 @@ public:
 	virtual RedrawMode getRedrawMode(void) { return m_currentRedrawMode; } //get cursor drawing method
 	virtual void setVisibility(Bool visible) { m_visible = visible; } // set visibility for load screens, etc
 	inline Bool getVisibility(void) { return m_visible; } // get visibility state
+
+	/** Is the pointer over the game window at all?  A device that cannot tell says yes, which is
+		* the fullscreen answer anyway; the windowed devices override this.  Edge scrolling is the
+		* caller that needs it: the last reported position sits on an edge for as long as the cursor
+		* is away, and reading it as a live position scrolls the map with nobody at the mouse. */
+	virtual Bool isCursorInWindow( void ) const { return TRUE; }
 	
 	void drawTooltip( void );					///< draw the tooltip text
 

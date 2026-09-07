@@ -514,7 +514,7 @@ found and fixed â€” EA's own, not port damage.**
 - The far edge of the view opens with the height, instead of stopping at a distance fixed for the stock zoom - which is what put black beyond the terrain when you zoom out past it.
 - The box on the radar follows the camera when you pan. It only ever redrew itself when the zoom or the angle changed, so scrolling left it behind.
 - The camera turns in whole 45-degree steps, instantly, while you hold the key.
-- Edge scrolling works windowed, and scroll speed no longer follows your frame rate.
+- Edge scrolling works windowed, and scroll speed no longer follows your frame rate. It also stops when you take the pointer off the window. Windows says nothing about a cursor that has walked out onto the desktop, so the game kept reading the last edge it crossed and the map slid on its own until you brought the mouse back. A game that has only just opened asks Windows where the pointer actually is instead of assuming the top left corner, which is an edge like any other and used to drag the camera there before you had touched anything.
 - Taking over another base no longer squeezes the picture into the top four fifths of the screen.
 - A skirmish opens zoomed all the way out (`StartAtMaxZoom = No` restores the old opening).
 - Hold Ctrl and roll the wheel to turn a building before placing it.

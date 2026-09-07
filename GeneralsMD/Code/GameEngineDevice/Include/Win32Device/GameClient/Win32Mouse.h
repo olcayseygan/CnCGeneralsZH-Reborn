@@ -79,6 +79,8 @@ public:
 
 	virtual void setVisibility(Bool visible);
 
+	virtual Bool isCursorInWindow( void ) const { return m_cursorInWindow; }
+
 	/// add an event from a win32 window procedure
 	void addWin32Event( UINT msg, WPARAM wParam, LPARAM lParam, DWORD time );
 	void lostFocus (Bool state) { m_lostFocus = state;}
@@ -106,7 +108,9 @@ protected:
 															 incremented to the next index */
 	MouseCursor m_currentWin32Cursor;	///< keep track of last cursor image sent to D3D.
 	Int m_directionFrame;	///< current frame of directional cursor (frome 0 points up).
-	Bool m_lostFocus;		///< flag if window has lost focues and mouse should stop being updated.	
+	Bool m_lostFocus;		///< flag if window has lost focues and mouse should stop being updated.
+	Bool m_cursorInWindow;	///< is the pointer over our client area right now, asked of Windows each frame
+	Bool m_positionReported;	///< has a window message ever told us where the pointer is
 };  // end Win32Mouse 
 
 // INLINING ///////////////////////////////////////////////////////////////////

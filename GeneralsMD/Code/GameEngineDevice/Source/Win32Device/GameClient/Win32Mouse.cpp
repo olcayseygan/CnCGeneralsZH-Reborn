@@ -281,6 +281,8 @@ Win32Mouse::Win32Mouse( void )
 			cursorResources[i][j]=NULL;
 	m_directionFrame=0; //points up.
 	m_lostFocus = FALSE;
+	m_cursorInWindow = TRUE;
+	m_positionReported = FALSE;
 }  // end Win32Mouse
 
 //-------------------------------------------------------------------------------------------------
@@ -328,7 +330,34 @@ void Win32Mouse::reset( void )
 void Win32Mouse::update( void )
 {
 
-	// extend 
+	//
+	// Windows reports the pointer to us only while it is over our client area, and only when it
+	// moves.  Two silences come out of that and both of them scroll the camera by themselves.  A
+	// pointer that walks out of a windowed game leaves m_currMouse.pos frozen on the edge it left
+	// by, and the screen-edge scroll reads that position every frame afterwards.  A game that has
+	// just started has been parked at (0,0) by GameClient::init and nobody has moved the mouse yet,
+	// so the pointer is believed to be in the top left corner, which is also an edge.  Ask Windows
+	// where the thing actually is instead of trusting the last thing it said.
+	//
+	POINT screenPos;
+	POINT clientPos;
+	RECT client;
+
+	::GetCursorPos( &screenPos );
+	clientPos = screenPos;
+	::ScreenToClient( ApplicationHWnd, &clientPos );
+	::GetClientRect( ApplicationHWnd, &client );
+
+	// WindowFromPoint, not the rectangle alone: another application's window sitting over ours owns
+	// the pointer that is inside our rectangle, and the map should not scroll under it.
+	m_cursorInWindow = ::PtInRect( &client, clientPos ) && ::WindowFromPoint( screenPos ) == ApplicationHWnd;
+
+	// until the first window message tells us where the pointer is, Windows is the only one who
+	// knows, and the (0,0) we were given at init is a corner nobody put the mouse in.
+	if( m_positionReported == FALSE && m_cursorInWindow )
+		setPosition( clientPos.x, clientPos.y );
+
+	// extend
 	Mouse::update();
 
 }  // end update
@@ -347,6 +376,10 @@ void Win32Mouse::addWin32Event( UINT msg, WPARAM wParam, LPARAM lParam, DWORD ti
 	//
 	if( m_eventBuffer[ m_nextFreeIndex ].msg != 0 )
 		return;
+
+	// every one of these carries a position, so from here on the event stream owns where the
+	// pointer is and update() stops seeding it from the OS
+	m_positionReported = TRUE;
 
 	// add to this index
 	m_eventBuffer[ m_nextFreeIndex ].msg = msg;

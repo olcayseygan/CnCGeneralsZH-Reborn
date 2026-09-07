@@ -387,22 +387,27 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 			}
 
 			// retail disables edge scrolling entirely in a window; EdgeScrollInWindowedMode in
-			// Options.ini turns it back on for people who play windowed or borderless.
-			if (!TheGlobalData->m_windowed || TheGlobalData->m_edgeScrollInWindowedMode)
+			// Options.ini turns it back on for people who play windowed or borderless.  Either way
+			// the pointer has to be over the window: the position below is the last one the mouse
+			// device was told about, and a pointer that has left a windowed game left through an
+			// edge, so believing it would scroll the map for as long as the mouse sat on the desktop.
+			const Bool edgeScrollAllowed = (!TheGlobalData->m_windowed || TheGlobalData->m_edgeScrollInWindowedMode)
+																			&& TheMouse->isCursorInWindow();
+
+			if (m_isScrolling)
 			{
-				if (m_isScrolling)
+				if ( m_scrollType == SCROLL_SCREENEDGE
+						 && (!edgeScrollAllowed
+								 || (m_currentPos.x >= edgeScrollSize && m_currentPos.y >= edgeScrollSize && m_currentPos.y < height-edgeScrollSize && m_currentPos.x < width-edgeScrollSize)) )
 				{
-					if ( m_scrollType == SCROLL_SCREENEDGE && (m_currentPos.x >= edgeScrollSize && m_currentPos.y >= edgeScrollSize && m_currentPos.y < height-edgeScrollSize && m_currentPos.x < width-edgeScrollSize) )
-					{
-						stopScrolling();
-					}
+					stopScrolling();
 				}
-				else
+			}
+			else if (edgeScrollAllowed)
+			{
+				if ( m_currentPos.x < edgeScrollSize || m_currentPos.y < edgeScrollSize || m_currentPos.y >= height-edgeScrollSize || m_currentPos.x >= width-edgeScrollSize )
 				{
-					if ( m_currentPos.x < edgeScrollSize || m_currentPos.y < edgeScrollSize || m_currentPos.y >= height-edgeScrollSize || m_currentPos.x >= width-edgeScrollSize )
-					{
-						setScrolling(SCROLL_SCREENEDGE);
-					}
+					setScrolling(SCROLL_SCREENEDGE);
 				}
 			}
 
