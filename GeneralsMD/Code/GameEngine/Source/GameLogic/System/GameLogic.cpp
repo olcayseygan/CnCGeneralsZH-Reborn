@@ -94,6 +94,7 @@
 #include "GameLogic/Module/OpenContain.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/PolygonTrigger.h"
+#include "GameLogic/ScenarioDrill.h"
 #include "GameLogic/ScriptActions.h"
 #include "GameLogic/ScriptConditions.h"
 #include "GameLogic/ScriptEngine.h"
@@ -1166,6 +1167,7 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 		TheWritableGlobalData->m_noMomentumPath = FALSE;	// -nomomentum
 		TheWritableGlobalData->m_aiSliceFrames = 1;				// -aislice
 		TheWritableGlobalData->m_groupDrill = 0;					// -groupdrill
+		TheWritableGlobalData->m_scenarioFile.clear();		// -scenario
 		TheWritableGlobalData->m_peaceTime = 0;						// -peacetime, and the host's options string is read below
 	}
 
@@ -4260,6 +4262,11 @@ void GameLogic::update( void )
 	if (TheGlobalData->m_groupDrill > 0 && now > (UnsignedInt)(LOGICFRAMES_PER_SECOND * 60)
 			&& (now % (UnsignedInt)TheGlobalData->m_groupDrill) == 0)
 		groupDrillTick();
+
+	/* And the scripted one.  Keyed to the logic frame rather than to the render pass, so the same
+		 scenario file plays out on the same frames however fast the machine draws - which is the whole
+		 point of measuring two builds against it. */
+	ScenarioDrill_tick();
 
 	QueryPerformanceCounter( (LARGE_INTEGER *)&tScripts );
 

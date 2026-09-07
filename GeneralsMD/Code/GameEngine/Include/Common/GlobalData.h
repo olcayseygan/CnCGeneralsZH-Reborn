@@ -401,6 +401,9 @@ public:
 	Int m_resDrillX;							///< the width -resdrill asks for (0 = the next mode the device offers)
 	Int m_resDrillY;							///< the height -resdrill asks for
 	Bool m_resDrillKeep;					///< -resdrillkeep: answer the confirmation with Ok and stay on the new mode
+	AsciiString m_scenarioFile;			///< -scenario <name>: play Run/Scenarios/<name>.txt instead of leaving the match to a person or an AI (empty = off)
+	Bool m_autoSkirmishTakeover;		///< -takeover: give every -autoskirmish slot a driverless human seat, so nothing thinks unless a scenario says so
+	AsciiString m_autoSkirmishSide[ MAX_PLAYER_COUNT ];	///< -side <slot> <faction>: name that slot's faction instead of drawing it from the seed
 	AsciiString m_netGameHosts;				///< -netgame <ip>[,<ip>...]: the slot list of a LAN game started from the command line (empty = off)
 	Int m_netGameLocalSlot;						///< -netslot <n>: which of those addresses this copy of the game is
 	AsciiString m_lanPlayerName;			///< -lanname <name>: the name this copy takes in the LAN lobby (empty = the one in the preferences)

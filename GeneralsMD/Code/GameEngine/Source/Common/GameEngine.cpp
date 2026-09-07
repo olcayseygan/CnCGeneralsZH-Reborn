@@ -86,6 +86,7 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Locomotor.h"
 #include "GameLogic/RankInfo.h"
+#include "GameLogic/ScenarioDrill.h"		// -scenario says at the end how much of the file ran
 #include "GameLogic/ScriptEngine.h"
 #include "GameLogic/SidesList.h"
 
@@ -383,6 +384,41 @@ static void startAutoSkirmish( void )
 		 list with nothing but AI in it leaves that observer holding the camera, exactly the way a
 		 replay does.  Spending a slot on the observer instead would cost a bot, because MAX_SLOTS is
 		 8 and that is also the most start positions a map has. */
+	/* -side names a faction for a slot instead of letting populateRandomSideAndColor draw one.
+		 Resolve every name before a slot list is built, and refuse the whole run on one nobody
+		 recognises: falling back to a random draw would still produce a match, still produce numbers,
+		 and quietly answer a different question than the one that was asked. */
+	Int sideTemplate[ MAX_SLOTS ];
+	for( Int s = 0; s < MAX_SLOTS; s++ )
+	{
+		sideTemplate[ s ] = PLAYERTEMPLATE_RANDOM;
+		const AsciiString &sideName = TheGlobalData->m_autoSkirmishSide[ s ];
+		if (sideName.isEmpty())
+			continue;
+
+		const Int templateIndex = ThePlayerTemplateStore->getTemplateNumByName( sideName );
+		if (templateIndex < 0)
+		{
+			DEBUG_LOG(("-side: slot %d asks for '%s', which is not a player template\n",
+								 s, sideName.str()));
+			return;
+		}
+		sideTemplate[ s ] = templateIndex;
+	}
+
+	/* -takeover leaves the opponents' seats occupied but driverless. SLOT_TAKEOVER is written into
+		 the slot list as an opponent, but startNewGame marks it playerIsHuman, so setPlayerType never
+		 news an AIPlayer and nothing on that side thinks. A measurement wants that: an AI building and
+		 attacking costs more of the frame than whatever is under test, and a different amount every
+		 run. */
+	const Bool takeover = TheGlobalData->m_autoSkirmishTakeover;
+
+	/* A scenario names map coordinates, so it needs to know which corner each slot starts in.
+		 populateRandomStartPosition leaves alone any slot that already has a position in range; the
+		 draw stays random without -scenario so that every existing batch plays exactly what it
+		 played before. */
+	const Bool fixedStartPositions = !TheGlobalData->m_scenarioFile.isEmpty();
+
 	const Bool observing = TheGlobalData->m_autoSkirmishObserver;
 	UnicodeString localName;
 	localName.translate( AsciiString( "Player" ) );
@@ -393,7 +429,10 @@ static void startAutoSkirmish( void )
 		{
 			slot.setState( SLOT_PLAYER, localName );
 			slot.setName( localName );
-			slot.setPlayerTemplate( PLAYERTEMPLATE_RANDOM );
+		}
+		else if (takeover)
+		{
+			slot.setState( SLOT_TAKEOVER );
 		}
 		else
 		{
@@ -402,10 +441,10 @@ static void startAutoSkirmish( void )
 			if ((i & 1) && TheGlobalData->m_autoSkirmishAIStateOdd != 0)
 				state = TheGlobalData->m_autoSkirmishAIStateOdd;
 			slot.setState( (SlotState)state );
-			slot.setPlayerTemplate( PLAYERTEMPLATE_RANDOM );
 		}
+		slot.setPlayerTemplate( sideTemplate[ i ] );
 		slot.setColor( -1 );			// -1 is "random" to populateRandomSideAndColor
-		slot.setStartPos( -1 );		// and to populateRandomStartPosition
+		slot.setStartPos( fixedStartPositions ? i : -1 );		// and -1 to populateRandomStartPosition
 		/* -teams splits the lobby into allied blocks: with eight players and two teams the first
 			 four are team 0 and the rest team 1, the way the lobby numbers them. GameLogic's own
 			 alliance pass reads the slot's team number and does the rest. Without it every slot is
@@ -452,9 +491,11 @@ static void startAutoSkirmish( void )
 	msg->appendIntegerArgument( 0 );
 	msg->appendIntegerArgument( maxFPS );
 
-	DEBUG_LOG(("-autoskirmish: %d slots on '%s', seed %d, up to %d fps, %s\n",
+	DEBUG_LOG(("-autoskirmish: %d slots on '%s', seed %d, up to %d fps, %s%s%s\n",
 		numPlayers, mapName.str(), seed, maxFPS,
-		observing ? "every slot AI, watching from the free camera" : "slot 0 is the local player"));
+		observing ? "every slot AI, watching from the free camera" : "slot 0 is the local player",
+		takeover ? ", seats driverless" : "",
+		fixedStartPositions ? ", start positions fixed to slot order" : ""));
 }
 
 /** -----------------------------------------------------------------------------------------------
@@ -1840,6 +1881,14 @@ static void updateHeadlessRun( void )
 		DEBUG_LOG(("HEADLESS DRILL: %s\n", GroupDrill_report()));
 	}
 
+	/* And under -scenario, how much of the file actually happened.  A scenario whose spawns all
+		 failed still plays a match and still writes every number below it, so the run has to say out
+		 loud how many orders it managed rather than leaving that to be inferred from the frame time. */
+	if (!TheGlobalData->m_scenarioFile.isEmpty())
+	{
+		DEBUG_LOG(("HEADLESS SCENARIO: %s\n", ScenarioDrill_report()));
+	}
+
 	/* Stability, which is a different question from speed and is answered by the tail rather than
 		 by the average.  These two lines are the ones a stutter complaint is argued with. */
 	reportFrameTimeStats();
@@ -1879,7 +1928,12 @@ static void updateHeadlessRun( void )
 		 written rather than left half-flushed by the process going away. */
 	if (TheRecorder->getMode() == RECORDERMODETYPE_RECORD)
 		TheRecorder->stopRecording();
-	TheGameLogic->clearGameData();
+	/* And without the score screen.  Nobody is sitting in front of an unattended run to read one,
+		 and building it crashes the teardown: clearGameData pushes Menus/ScoreScreen.wnd, whose init
+		 walks the players and calls TheGameInfo->isSandbox(), and TheGameInfo is gone by then. The
+		 crash lands after every HEADLESS line is written, so the numbers of a run were never wrong -
+		 the process just died on its way out and handed a script exit code 1 either way. */
+	TheGameLogic->clearGameData( FALSE );
 	TheGameEngine->setQuitting( TRUE );
 }
 

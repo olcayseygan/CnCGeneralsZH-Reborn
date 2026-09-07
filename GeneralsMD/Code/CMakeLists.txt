@@ -530,7 +530,14 @@ add_custom_command(TARGET generals POST_BUILD
   # join.
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_CURRENT_SOURCE_DIR}/Data/Window
-          ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Window)
+          ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Window
+  # -scenario reads these. They are a measuring tool rather than game data: outside Data/ so they
+  # cannot collide with an archive path, and outside the multiplayer INI checksum because nothing
+  # loads them with &xferCRC. They are not in package.bat for the same reason - a player has no use
+  # for one, and a scenario run cannot be replayed anyway.
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${CMAKE_CURRENT_SOURCE_DIR}/Data/Scenarios
+          ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Scenarios)
 add_dependencies(generals d3d8to9)
 
 # ===========================================================================

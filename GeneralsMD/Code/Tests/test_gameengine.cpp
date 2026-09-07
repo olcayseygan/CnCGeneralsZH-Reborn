@@ -42,6 +42,7 @@
 #include "GameNetwork/LinkSimulation.h"
 #include "Common/Energy.h"
 #include "Common/RandomValue.h"
+#include "GameLogic/ScenarioDrill.h"
 #include "GameLogic/LogicRandomValue.h"
 #include "GameClient/ClientRandomValue.h"
 #include "Common/ThingTemplate.h"
@@ -10144,4 +10145,105 @@ TEST(the_superweapon_rule_is_a_mode_with_one_exception)
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
+}
+
+/* -scenario's line parser.
+ *
+ * A scenario file that gets half-read still plays a match and still writes a frame time table, so
+ * the run produces numbers that answer a different question than the one asked. Every way a line
+ * can be wrong therefore has to come back named. atoi is the specific trap the parser exists to
+ * avoid: it reads "banana" as 0, 0 is a real frame number, and a typo in one field would put the
+ * whole file on the first frame.
+ */
+TEST(scenario_parses_a_spawn_line)
+{
+	ScenarioAction action;
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "0 spawn 2 GLAInfantryAngryMobNexus 8 1200 900", &action ),
+						(Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.frame, 0 );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_SPAWN );
+	CHECK_EQ( action.slot, 2 );
+	CHECK_STR( action.selector.str(), "GLAInfantryAngryMobNexus" );
+	CHECK_EQ( action.count, 8 );
+	CHECK_NEAR( action.at.x, 1200.0f, 0.01f );
+	CHECK_NEAR( action.at.y, 900.0f, 0.01f );
+
+	// spacing is optional, and the default has to be a real gap rather than zero
+	CHECK( action.spacing > 0.0f );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 spawn 1 AmericaVehicleHumvee 4 100 200 55", &action ),
+						(Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.frame, 30 );
+	CHECK_NEAR( action.spacing, 55.0f, 0.01f );
+}
+
+TEST(scenario_parses_the_order_lines)
+{
+	ScenarioAction action;
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "120 move 2 * 800 600", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_MOVE );
+	CHECK_STR( action.selector.str(), "*" );
+	CHECK_NEAR( action.at.x, 800.0f, 0.01f );
+	CHECK_NEAR( action.at.y, 600.0f, 0.01f );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "240 attackmove 2 GLAInfantryAngryMobNexus 2400 1500", &action ),
+						(Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_ATTACKMOVE );
+	CHECK_NEAR( action.at.x, 2400.0f, 0.01f );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "300 attack 2 * 1 AmericaCommandCenter", &action ),
+						(Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_ATTACK );
+	CHECK_EQ( action.targetSlot, 1 );
+	CHECK_STR( action.targetSelector.str(), "AmericaCommandCenter" );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "900 stop 2 *", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_STOP );
+}
+
+TEST(scenario_ignores_comments_and_blank_lines)
+{
+	ScenarioAction action;
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "", &action ), (Int)SCENARIO_PARSE_BLANK );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "   \t  ", &action ), (Int)SCENARIO_PARSE_BLANK );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "# eight mobs on the ridge", &action ), (Int)SCENARIO_PARSE_BLANK );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "   # indented comment", &action ), (Int)SCENARIO_PARSE_BLANK );
+
+	// a text-mode read still leaves the carriage return on a CRLF file
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "900 stop 2 *\r", &action ), (Int)SCENARIO_PARSE_OK );
+
+	// and a comment after a real action does not eat the action
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "900 stop 2 *  # everybody halt", &action ),
+						(Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_STOP );
+	CHECK_STR( action.selector.str(), "*" );
+}
+
+TEST(scenario_refuses_a_line_it_cannot_read)
+{
+	ScenarioAction action;
+
+	// the atoi trap: none of these may come back as frame 0
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "banana spawn 2 X 1 0 0", &action ), (Int)SCENARIO_PARSE_BAD_FRAME );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "12x spawn 2 X 1 0 0", &action ), (Int)SCENARIO_PARSE_BAD_FRAME );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "-5 stop 2 *", &action ), (Int)SCENARIO_PARSE_BAD_FRAME );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "0 teleport 2 *", &action ), (Int)SCENARIO_PARSE_BAD_ACTION );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "0 stop two *", &action ), (Int)SCENARIO_PARSE_BAD_SLOT );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "0 attack 2 * nobody Thing", &action ), (Int)SCENARIO_PARSE_BAD_SLOT );
+
+	// a count of zero spawns nothing, which is a typo rather than an instruction
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "0 spawn 2 X 0 100 100", &action ), (Int)SCENARIO_PARSE_BAD_COUNT );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "0 spawn 2 X lots 100 100", &action ), (Int)SCENARIO_PARSE_BAD_COUNT );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "0 stop", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "0 move 2 *", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "0 move 2 * 100", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "0 spawn 2 X 4 100", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
+
+	// and every refusal has something to say for itself in the log
+	CHECK_STR( ScenarioDrill_parseResultName( SCENARIO_PARSE_BAD_FRAME ), "frame is not a whole number" );
 }

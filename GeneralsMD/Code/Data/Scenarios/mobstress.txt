@@ -1,0 +1,33 @@
+# Angry Mob stress test.
+#
+# Put a known number of mobs on the field, march them across it, and let the frame time say what
+# they cost. Without this the count is whatever the seed happened to draw, and two runs that drew
+# different factions were never comparable in the first place.
+#
+#   generals.exe -headless -quickstart -noshellmap -observer -multiInstance -noFPSLimit
+#     -map "Maps\Alpine Assault\Alpine Assault.map" -autoskirmish 2 -takeover
+#     -side 0 FactionGLA -side 1 FactionAmerica -seed 1 -maxframes 3000
+#     -scenario mobstress -logPrefix mob_
+#
+# One action a line, in this shape:
+#
+#   <frame> spawn      <slot> <template> <count> <x> <y> [spacing]
+#   <frame> move       <slot> <selector> <x> <y>
+#   <frame> attackmove <slot> <selector> <x> <y>
+#   <frame> attack     <slot> <selector> <targetSlot> <targetSelector>
+#   <frame> stop       <slot> <selector>
+#
+# A selector is a template name, or * for everything that seat owns. The number after the action is
+# a seat, the same one -side takes, so slot 0 here and -side 0 mean the same player. It is not an
+# index into the engine's player list: that one opens with a neutral player and a civilian one, so
+# slot 0 was player 2 in the first two-player run, and the mapping the game recorded at startup is
+# what resolves it.
+#
+# Coordinates are world positions, the same ones -camera takes, so UI-MAP.md's verified camera
+# positions are the cheapest place to find ground that exists.
+#
+# Each nexus brings ten members with it, so eight of these is 88 objects.
+
+30    spawn      0  GLAInfantryAngryMobNexus  8  760 920 60
+600   attackmove 0  GLAInfantryAngryMobNexus     1400 1400
+1800  move       0  GLAInfantryAngryMobNexus     760 920

@@ -708,6 +708,10 @@ GlobalData::GlobalData()
 	m_resDrillX = 0;
 	m_resDrillY = 0;
 	m_resDrillKeep = FALSE;
+	m_scenarioFile.clear(); // nothing is scripted; -scenario is a measuring tool and, like -groupdrill, ruins the match it runs in
+	m_autoSkirmishTakeover = FALSE; // the AI plays the opponents unless -takeover empties their seats
+	for( Int slot = 0; slot < MAX_PLAYER_COUNT; slot++ )
+		m_autoSkirmishSide[ slot ].clear(); // every faction still comes out of the seed unless -side names one
 	m_netGameHosts.clear(); // no network game from the command line
 	m_netGameLocalSlot = 0;
 	m_lanPlayerName.clear(); // the lobby name comes out of the preferences unless -lanname says otherwise

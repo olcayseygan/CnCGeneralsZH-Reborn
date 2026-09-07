@@ -1600,6 +1600,66 @@ Int parseResDrillKeep(char *args[], int)
 	return 1;
 }
 
+/* -scenario <name> plays Run/Scenarios/<name>.txt: spawn this unit here, send it there, on that
+	 frame.
+
+	 A measurement needs the same army doing the same thing twice, and -autoskirmish cannot give it.
+	 Every slot goes in as PLAYERTEMPLATE_RANDOM and the faction falls out of the seed, so "enough
+	 angry mobs on the field to see what they cost" is something a batch waits for rather than
+	 something it asks for - and two runs that drew different factions were never comparable. The
+	 file names the unit, the place, the count and the frame, so two builds play the same match.
+
+	 Like -groupdrill, the orders it gives exist nowhere in the command stream, so a run driven this
+	 way cannot be replayed. Repeatability comes from the file plus -seed instead, which is what an
+	 A/B wanted anyway. */
+Int parseScenario(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1 && args[1])
+	{
+		TheWritableGlobalData->m_scenarioFile = args[1];
+		return 2;
+	}
+	return 1;
+}
+
+/* -side <slot> <faction> nails one -autoskirmish slot to a faction instead of letting the seed
+	 pick it.
+
+	 populateRandomSideAndColor only draws for a slot that still reads PLAYERTEMPLATE_RANDOM, so a
+	 real template index written into the slot survives untouched and nothing downstream changes.
+	 The name is resolved late, in startAutoSkirmish, because PlayerTemplateStore is an INI subsystem
+	 and none of it exists yet while the command line is being read. The names are the templates'
+	 own: FactionGLA, FactionAmerica, FactionChina and the generals. */
+Int parseSide(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 2 && args[1] && args[2])
+	{
+		const Int slot = atoi(args[1]);
+		if (slot >= 0 && slot < MAX_SLOTS)
+			TheWritableGlobalData->m_autoSkirmishSide[slot] = args[2];
+		else
+			DEBUG_LOG(("-side: slot %d is outside 0..%d\n", slot, MAX_SLOTS - 1));
+		return 3;
+	}
+	return 1;
+}
+
+/* -takeover empties every -autoskirmish seat instead of filling it with an AI.
+
+	 SLOT_TAKEOVER is an occupied seat with nothing behind it: startNewGame writes playerIsHuman for
+	 it, so Player::setPlayerType never news an AIPlayer and that player sits waiting to be told what
+	 to do. For a measurement that is exactly the point. An AI that builds, expands and attacks costs
+	 more of the frame than whatever is under test, and it costs a different amount every run; with
+	 the seats empty, nothing happens at all unless -scenario says it does. */
+Int parseTakeover(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_autoSkirmishTakeover = TRUE;
+	}
+	return 1;
+}
+
 /* -teams <n> splits an -autoskirmish lobby into n allied teams instead of a free-for-all.
 
 	 Free-for-all and 4v4 are not the same load and not the same game. Eight players each fighting
@@ -2000,6 +2060,9 @@ static CommandLineParam params[] =
 	{ "-uidrill", parseUIDrill },
 	{ "-resdrill", parseResDrill },
 	{ "-resdrillkeep", parseResDrillKeep },
+	{ "-scenario", parseScenario },
+	{ "-side", parseSide },
+	{ "-takeover", parseTakeover },
 	{ "-replay", parseReplay },
 	{ "-loadsave", parseLoadSave },
 	{ "-netgame", parseNetGame },
