@@ -280,6 +280,7 @@ public:
 	Bool m_debugAIObstacles;			///< Used to display AI obstacle debug information
 	Bool m_showObjectHealth;			///< debug display object health
 	Int m_healthBarMode;					///< HealthBarModeType: which units wear a bar at all
+	Int m_playerColorScheme;			///< PlayerColorSchemeType: whose colour the client draws (client only)
 	Bool m_scriptDebug;						///< Should we attempt to load the script debugger window (.DLL)
 	Bool m_particleEdit;					///< Should we attempt to load the particle editor (.DLL)
 	Bool m_displayDebug;					///< Used to display display debug info

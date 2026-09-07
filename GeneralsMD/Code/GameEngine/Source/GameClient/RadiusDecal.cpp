@@ -32,6 +32,7 @@
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
 #include "Common/Xfer.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/RadiusDecal.h"
 #include "GameClient/Shadow.h"
 #include "GameLogic/GameLogic.h"
@@ -86,7 +87,7 @@ void RadiusDecalTemplate::createRadiusDecal(const Coord3D& pos, Real radius, con
 		if (result.m_decal)
 		{
 			result.m_decal->setAngle(0.0f);
-			result.m_decal->setColor(m_color == 0 ? owningPlayer->getPlayerColor() : m_color);
+			result.m_decal->setColor(m_color == 0 ? clientPlayerColor(owningPlayer) : m_color);
 			result.m_decal->setPosition(pos.x, pos.y, pos.z);	
 			result.m_template = this;
 		}

@@ -97,6 +97,8 @@ CONTROLS = [
     # with their checkboxes; the four camera habits that used to be on Controls went the same way.
     ("PageGameplay", LABEL, "LabelHealthBars",       "GUI:HealthBars",       160, 104, 230, 24),
     ("PageGameplay", COMBO, "ComboBoxHealthBars",    None,                   160, 128, 200, 24),
+    ("PageGameplay", LABEL, "LabelPlayerColors",     "GUI:PlayerColors",     160, 160, 230, 24),
+    ("PageGameplay", COMBO, "ComboBoxPlayerColors",  None,                   160, 184, 200, 24),
 ]
 
 # What is left of EA's own controls, page by page, at the rhythm the display page's right column

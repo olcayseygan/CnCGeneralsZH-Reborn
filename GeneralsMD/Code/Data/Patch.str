@@ -560,6 +560,26 @@ TOOLTIP:HealthBars
 "Smart shows a bar over anything hurt, plus the selection and whatever is under the cursor. Selection only is what retail did."
 END
 
+GUI:PlayerColors
+"Player Colors"
+END
+
+GUI:PlayerColors0
+"Original"
+END
+
+GUI:PlayerColors1
+"You, Allies, Enemies"
+END
+
+GUI:PlayerColors2
+"By Team"
+END
+
+TOOLTIP:PlayerColors
+"You, allies, enemies paints you blue, everyone on your side green and everyone shooting at you red. By team gives each alliance its own color and each member of it a shade. Your own screen only, so it changes nothing for anyone else in the game."
+END
+
 // Peace time - the lobby combo box, its tooltip, the corner countdown and the three things the game
 // says while the clock runs.  Tools/peacetime_layout.py selfcheck fails if any of these goes missing.
 

@@ -55,6 +55,7 @@
 
 #include "GameClient/Color.h"
 #include "GameClient/Drawable.h"	// PLACEMENT_SILHOUETTE_OPACITY, the default for BuildPlacementOpacity
+#include "GameClient/PlayerColorScheme.h"	// PLAYER_COLORS_ORIGINAL, the default for PlayerColors
 #include "GameClient/TerrainVisual.h"
 
 #include "GameNetwork/FirewallHelper.h"
@@ -365,6 +366,7 @@ GlobalData* GlobalData::m_theOriginal = NULL;
 	{ "ShowTerrainNormals",				INI::parseBool,				NULL,			offsetof( GlobalData, m_showTerrainNormals ) },
 	{ "ShowObjectHealth",						INI::parseBool,				NULL,			offsetof( GlobalData, m_showObjectHealth ) },
 	{ "HealthBars",									INI::parseInt,				NULL,			offsetof( GlobalData, m_healthBarMode ) },
+	{ "PlayerColors",								INI::parseInt,				NULL,			offsetof( GlobalData, m_playerColorScheme ) },
 
 	{ "ParticleScale",										INI::parseReal,					NULL,	 offsetof( GlobalData, m_particleScale ) },
 	{ "AutoFireParticleSmallPrefix",			INI::parseAsciiString,  NULL,  offsetof( GlobalData, m_autoFireParticleSmallPrefix ) },
@@ -894,6 +896,8 @@ GlobalData::GlobalData()
 	m_showObjectHealth = FALSE;
 	// what this fork has always done, so nobody's game changes until they say so
 	m_healthBarMode = HEALTH_BAR_ALWAYS;
+	// the lobby's own colours until somebody asks for something else
+	m_playerColorScheme = PLAYER_COLORS_ORIGINAL;
 
 	m_particleEdit = FALSE;
 

@@ -76,6 +76,7 @@
 #include "GameLogic/ScriptEngine.h"
 #include "GameLogic/VictoryConditions.h"
 #include "GameClient/CDCheck.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/Display.h"
 #include "GameClient/GUICallbacks.h"
 #include "GameClient/WindowLayout.h"
@@ -1398,7 +1399,7 @@ void populatePlayerInfo( Player *player, Int pos)
 {
 	if(!player || pos > MAX_SLOTS)
 		return;
-	Color color = player->getPlayerColor();
+	Color color = clientPlayerColor( player );
 	ScoreKeeper *scoreKpr = player->getScoreKeeper();
 	if(!scoreKpr)
 	{
@@ -2200,7 +2201,7 @@ void grabSinglePlayerInfo( void )
 						sg.m_totalUnitsDestroyed += sk->getTotalUnitsDestroyed();
 						sg.m_totalUnitsLost += sk->getTotalUnitsLost();
 						sg.m_sideImage = player->getPlayerTemplate()->getSideIconImage();
-						color = player->getPlayerColor();
+						color = clientPlayerColor( player );
 						populate = TRUE;	
 					}
 				}

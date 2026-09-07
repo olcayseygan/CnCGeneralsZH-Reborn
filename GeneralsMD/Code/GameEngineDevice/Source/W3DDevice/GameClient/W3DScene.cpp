@@ -45,6 +45,7 @@
 #include "GameClient/Drawable.h"
 #include "GameClient/ParticleSys.h"
 #include "GameClient/Color.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/View.h"
 #include "W3DDevice/GameClient/HeightMap.h"
 #include "W3DDevice/GameClient/W3DScene.h"
@@ -955,7 +956,7 @@ void RTS3DScene::updatePlayerColorPasses(void)
 		{	Player *player=ThePlayerList->getNthPlayer(i);
 			Int playerIndex=player->getPlayerIndex();
 			Real red,green,blue,alpha;
-			GameGetColorComponentsReal(player->getPlayerColor(),&red,&green,&blue,&alpha);
+			GameGetColorComponentsReal(clientPlayerColor(player),&red,&green,&blue,&alpha);
 			RGB_To_HSV(hsv,Vector3(red,green,blue));
 			hsv.Z*=TheGlobalData->m_occludedLuminanceScale;
 			HSV_To_RGB(rgb,hsv);
@@ -1421,7 +1422,7 @@ void RTS3DScene::flushOccludedObjectsIntoStencil(RenderInfoClass & rinfo)
 					draw = ((DrawableInfo *)playerObjects[i][0]->Get_User_Data())->m_drawable;
 					Object *object=draw->getObject();
 
-					Int color=object->getControllingPlayer()->getPlayerColor();
+					Int color=clientPlayerColor(object->getControllingPlayer());
 					RGB_To_HSV(hsv,Vector3(((color>>16)&0xff)/255.0f,((color>>8)&0xff)/255.0f,(color &0xff)/255.0f));
 					hsv.Z*=TheGlobalData->m_occludedLuminanceScale;
 					HSV_To_RGB(rgb,hsv);

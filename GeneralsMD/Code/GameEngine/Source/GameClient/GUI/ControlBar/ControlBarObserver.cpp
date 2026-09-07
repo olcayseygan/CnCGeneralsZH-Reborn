@@ -59,6 +59,7 @@
 #include "Common/KindOf.h"
 #include "Common/Recorder.h"
 #include "GameClient/ControlBar.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/GadgetStaticText.h"
@@ -236,7 +237,7 @@ void ControlBar::populateObserverList( void )
 				// counts the players put on the bar so far, so one empty slot or one observer earlier
 				// in the list shifted every player after it onto somebody else's team.
 				const GameSlot *slot = TheGameInfo ? TheGameInfo->getConstSlot(i) : NULL;
-				Color playerColor = p->getPlayerColor();
+				Color playerColor = clientPlayerColor( p );
 				Color backColor = GameMakeColor(0, 0, 0, 255);
 				staticTextPlayer[currentButton]->winSetEnabledTextColors( playerColor, backColor );
 				staticTextPlayer[currentButton]->winHide(FALSE);
@@ -280,7 +281,7 @@ void ControlBar::populateObserverList( void )
 				buttonPlayer[currentButton]->winHide(FALSE);
 				buttonPlayer[currentButton]->winSetStatus( WIN_STATUS_USE_OVERLAY_STATES );
 
-				Color playerColor = p->getPlayerColor();
+				Color playerColor = clientPlayerColor( p );
 				Color backColor = GameMakeColor(0, 0, 0, 255);
 				staticTextPlayer[currentButton]->winSetEnabledTextColors( playerColor, backColor );
 				staticTextPlayer[currentButton]->winHide(FALSE);
@@ -340,7 +341,7 @@ void ControlBar::populateObserverInfoWindow ( void )
 	uString.format(L"%d",m_observerLookAtPlayer->getScoreKeeper()->getTotalUnitsLost());
 	GadgetStaticTextSetText(staticTextNumberOfUnitsLost, uString);
 	GadgetStaticTextSetText(staticTextPlayerName, m_observerLookAtPlayer->getPlayerDisplayName());
-	Color color = m_observerLookAtPlayer->getPlayerColor();
+	Color color = clientPlayerColor( m_observerLookAtPlayer );
 	staticTextPlayerName->winSetEnabledTextColors(color, GameMakeColor(0,0,0,255));
 	winFlag->winSetEnabledImage(0, m_observerLookAtPlayer->getPlayerTemplate()->getFlagWaterMarkImage());
 	winGeneralPortrait->winHide(FALSE);

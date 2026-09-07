@@ -25,6 +25,7 @@
 #include "Common/OptionsCatalog.h"
 #include "Common/GlobalData.h"
 #include "Common/UserPreferences.h"
+#include "GameClient/PlayerColorScheme.h"
 
 //-----------------------------------------------------------------------------
 // The accessors.  Each is two lines and exists only because a member pointer cannot span Bool and
@@ -51,6 +52,7 @@ OPTION_INT_ACCESSORS( m_anisotropyLevel )
 OPTION_INT_ACCESSORS( m_windowMode )
 OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_INT_ACCESSORS( m_healthBarMode )
+OPTION_INT_ACCESSORS( m_playerColorScheme )
 
 //-----------------------------------------------------------------------------
 static const unsigned TheMsaaSamples[ OPTION_MSAA_LEVEL_COUNT ] = { 0, 2, 4, 8, 16 };
@@ -242,6 +244,13 @@ const OptionDef TheOptionCatalog[] =
 	{ "HealthBars",								OPT_WND( "ComboBoxHealthBars" ), "GUI:HealthBars",
 		OPTION_ENUM, APPLY_LIVE, 0, HEALTH_BAR_MODE_COUNT - 1,
 		get_m_healthBarMode, set_m_healthBarMode },
+
+	// Whose colour a player is drawn in.  Purely local: the match still agrees on the lobby's
+	// colours and this only changes what this screen puts on top of them, so two people in the same
+	// game can run different schemes.
+	{ "PlayerColors",							OPT_WND( "ComboBoxPlayerColors" ), "GUI:PlayerColors",
+		OPTION_ENUM, APPLY_LIVE, 0, PLAYER_COLOR_SCHEME_COUNT - 1,
+		get_m_playerColorScheme, set_m_playerColorScheme },
 
 	{ NULL, NULL, NULL, OPTION_BOOL, APPLY_LIVE, 0, 0, NULL, NULL }
 };

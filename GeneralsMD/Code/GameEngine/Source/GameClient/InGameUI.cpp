@@ -64,6 +64,7 @@
 #include "GameClient/GUICallbacks.h"
 #include "GameClient/Image.h"
 #include "GameClient/InGameUI.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/VideoPlayer.h"
 #include "GameClient/Mouse.h"
 #include "GameClient/Keyboard.h"
@@ -442,7 +443,7 @@ void SuperweaponInfo::drawBackdrop(Int x, Int y)
 void SuperweaponInfo::drawName(Int x, Int y, Color color, Color dropColor)
 {
 	if (color == 0)
-		color = m_color;
+		color = clientColor( m_color );	// the owner's colour was stored when the timer started
  	m_nameDisplayString->draw(x - m_nameDisplayString->getWidth(), y, color, dropColor);
 }
 
@@ -450,7 +451,7 @@ void SuperweaponInfo::drawName(Int x, Int y, Color color, Color dropColor)
 void SuperweaponInfo::drawTime(Int x, Int y, Color color, Color dropColor)
 {
 	if (color == 0)
-		color = m_color;
+		color = clientColor( m_color );
  	m_timeDisplayString->draw(x, y, color, dropColor);
 }
 
@@ -2888,11 +2889,11 @@ void InGameUI::createMouseoverHint( const GameMessage *msg )
 					RGBColor rgb;
 					if( disguised )
 					{
-						rgb.setFromInt( player->getPlayerColor() );
+						rgb.setFromInt( clientPlayerColor( player ) );
 					}
 					else
 					{
-						rgb.setFromInt(draw->getObject()->getIndicatorColor());
+						rgb.setFromInt( clientColor( draw->getObject()->getIndicatorColor() ) );
 
 						// Unless this is a stealth garrisoned building, 
 						// Let's not use the contained's housecolor
@@ -2904,7 +2905,7 @@ void InGameUI::createMouseoverHint( const GameMessage *msg )
 							{
 								const Player *play = contain->getApparentControllingPlayer( ThePlayerList->getLocalPlayer() );
 								if ( play )
-									rgb.setFromInt( play->getPlayerColor() );
+									rgb.setFromInt( clientPlayerColor( play ) );
 							}
 						}
 
@@ -5728,7 +5729,9 @@ void InGameUI::addFloatingText(const UnicodeString& text,const Coord3D *pos, Col
 	{
 		FloatingTextData *newFTD = newInstance( FloatingTextData );
 		newFTD->m_frameCount = 0;
-		newFTD->m_color = color;
+		// the money a supply drop pays is drawn in its owner's colour, and the code that raises it
+		// is in GameLogic, where the scheme does not exist
+		newFTD->m_color = clientColor( color );
 		newFTD->m_pos3D.x = pos->x;
 		newFTD->m_pos3D.z = pos->z;
 		newFTD->m_pos3D.y = pos->y;
@@ -5773,7 +5776,7 @@ try_again:
 	}
 
 	FloatingTextData *newFTD = newInstance( FloatingTextData );
-	newFTD->m_color = color;
+	newFTD->m_color = clientColor( color );
 	newFTD->m_pos3D.x = posToUse.x;
 	newFTD->m_pos3D.y = posToUse.y;
 	newFTD->m_pos3D.z = posToUse.z;
@@ -7119,7 +7122,7 @@ void InGameUI::drawProductionStrip( void )
 
 			if( m_productionStripCount[ row ] > 0 )
 			{
-				m_productionStripRowColor[ row ] = p->getPlayerColor();
+				m_productionStripRowColor[ row ] = clientPlayerColor( p );
 				row++;						// a player with nothing queued gets no row rather than an empty one
 			}
 		}

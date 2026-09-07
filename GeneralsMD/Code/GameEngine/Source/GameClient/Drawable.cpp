@@ -82,6 +82,7 @@
 #include "GameClient/InGameUI.h"
 #include "GameClient/Image.h"
 #include "GameClient/ParticleSys.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/LanguageFilter.h"
 #include "GameClient/Shadow.h"
 #include "GameClient/GameText.h"
@@ -485,6 +486,7 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBit
 	// Added By Sadullah Nader
 	// Initialization missing and needed
 	m_flashColor = 0;
+	m_indicatorColorAsked = 0;
 	m_selected = '\0';
 	//
 
@@ -3345,7 +3347,7 @@ void Drawable::drawUIText()
 	Player *owner = obj->getControllingPlayer();
 	Int groupNum = owner->getSquadNumberForObject(obj);
 
-	Color color = TheDrawGroupInfo->m_usePlayerColor ? owner->getPlayerColor() : TheDrawGroupInfo->m_colorForText;
+	Color color = TheDrawGroupInfo->m_usePlayerColor ? clientPlayerColor( owner ) : TheDrawGroupInfo->m_colorForText;
 
 	if (groupNum > NO_HOTKEY_SQUAD && groupNum < NUM_HOTKEY_SQUADS ) 
 	{
@@ -4245,7 +4247,7 @@ void Drawable::drawHealthBar(const IRegion2D* healthBarRegion)
 			// disabled blue above keeps its own colour: that is a state nothing else signals.
 			//
 			UnsignedByte r, g, b, a;
-			GameGetColorComponents( obj->getControllingPlayer()->getPlayerColor(), &r, &g, &b, &a );
+			GameGetColorComponents( clientPlayerColor( obj->getControllingPlayer() ), &r, &g, &b, &a );
 
 			color = GameMakeColor( r, g, b, 255 );				// the stored colour's alpha is not ours to trust
 			outlineColor = GameDarkenColor( color, 60 );
@@ -4725,11 +4727,39 @@ void Drawable::replaceModelConditionFlags( const ModelConditionFlags &flags, Boo
 //-------------------------------------------------------------------------------------------------
 void Drawable::setIndicatorColor(Color color)
 {
+	// The one gate the model tint goes through, whoever asked for it. Garrison, cave, stealth and
+	// the disguise code all live in GameLogic and hand a player colour straight down here, so the
+	// scheme is applied on this side of the fence rather than in any of them: they keep passing the
+	// colour the match agreed on and only the picture changes. A colour that belongs to no player
+	// comes back untouched.
+	m_indicatorColorAsked = color;
+	color = clientColor( color );
+
 	for (DrawModule** dm = getDrawModules(); *dm; ++dm)
 	{
 		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
 		if (di)
 			di->replaceIndicatorColor(color);
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+void Drawable::refreshIndicatorColor( void )
+{
+	if( m_indicatorColorAsked != 0 )
+	{
+		setIndicatorColor( m_indicatorColorAsked );
+		return;
+	}
+
+	// nobody has ever set one, so the model built itself from the object's own colour
+	const Object *obj = getObject();
+	if( obj != NULL )
+	{
+		setIndicatorColor( TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT
+													? obj->getNightIndicatorColor()
+													: obj->getIndicatorColor() );
+		m_indicatorColorAsked = 0;		// still nothing anybody asked for, so keep following the object
 	}
 }
 

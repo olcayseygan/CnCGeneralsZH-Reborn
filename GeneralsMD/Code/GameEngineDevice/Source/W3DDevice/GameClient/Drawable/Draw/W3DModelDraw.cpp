@@ -47,6 +47,7 @@
 #include "Common/QuickTrig.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/FXList.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/Shadow.h"
 #include "GameLogic/GameLogic.h"		// for real-time frame
 #include "Common/Player.h"
@@ -1765,10 +1766,12 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 	  Object* obj = draw->getObject();
 	  if (obj)
 	  {	
+		  // this is the one path that reads the indicator colour straight off the object rather
+		  // than being handed it by Drawable::setIndicatorColor, so the scheme is applied here too
 		  if (TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT)
-			  m_hexColor = obj->getNightIndicatorColor();
+			  m_hexColor = clientColor( obj->getNightIndicatorColor() );
 		  else
-			  m_hexColor = obj->getIndicatorColor();
+			  m_hexColor = clientColor( obj->getIndicatorColor() );
 	  }
 
     // THE VAST MAJORITY OF THESE SHOULD BE TRUE

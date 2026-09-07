@@ -324,6 +324,7 @@ public:
 
 	void friend_bindToObject( Object *obj ); ///< bind this drawable to an object ID. for use ONLY by GameLogic!
 	void setIndicatorColor(Color color);
+	void refreshIndicatorColor( void );			///< re-apply the last colour asked for, under whatever scheme is on now
 	
 	void setTintStatus( TintStatus statusBits ) { BitSet( m_tintStatus, statusBits ); };
 	void clearTintStatus( TintStatus statusBits ) { BitClear( m_tintStatus, statusBits ); };
@@ -715,6 +716,12 @@ private:
 
 	Int m_flashCount;           ///< number of times to flash the drawable
 	Color m_flashColor;					///< color to flash the drawable
+
+	// the last colour setIndicatorColor was asked for, before the player's scheme was applied to it.
+	// A model bakes its tint into its render object, so when the scheme moves the only way back to
+	// the right colour is the one that was asked for - a garrisoned building is wearing the
+	// occupier's, not its owner's, and re-deriving it from the object would lose that.
+	Color m_indicatorColorAsked;
 
 	Matrix3D m_instance;				///< The instance matrix that holds the initial/default position & orientation
 	Real m_instanceScale;				///< the uniform scale factor applied to the instance matrix before it is sent to W3D. 

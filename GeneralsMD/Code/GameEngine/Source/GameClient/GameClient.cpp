@@ -54,6 +54,7 @@
 #include "GameClient/Drawable.h"
 #include "GameClient/DrawGroupInfo.h"
 #include "GameClient/Eva.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/GlobalLanguage.h"
 #include "GameClient/GraphDraw.h"
@@ -499,6 +500,10 @@ void GameClient::reset( void )
 	// last frame's health bars belong to the map we are leaving
 	m_healthBarPickList.clear();
 
+	// and so does the colour table: it is built out of a roster and a set of alliances that the
+	// next map will not have
+	invalidatePlayerColorScheme();
+
 	// need to reset the in game UI to clear drawables before they are destroyed
 	TheInGameUI->reset();
 
@@ -695,6 +700,17 @@ void GameClient::update( void )
 	// update the video player
 	{
 		TheVideoPlayer->UPDATE();
+	}
+
+	// Who is drawn in which colour can move while a match runs: the options screen is reachable
+	// from inside a game, and a script can make or break an alliance. A model's tint is baked into
+	// its render object when the model is built and nothing repaints itself, so when the table
+	// actually changes every drawable is handed its colour again. The draw module compares before
+	// rebuilding, so the ones whose colour did not move cost a comparison.
+	if( updatePlayerColorScheme() )
+	{
+		for( Drawable *draw = m_drawableList; draw; draw = draw->getNextDrawable() )
+			draw->refreshIndicatorColor();
 	}
 
 	Bool freezeTime = TheTacticalView->isTimeFrozen() && !TheTacticalView->isCameraMovementFinished();

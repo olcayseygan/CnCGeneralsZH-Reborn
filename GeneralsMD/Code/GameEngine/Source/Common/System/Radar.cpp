@@ -45,6 +45,7 @@
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/InGameUI.h"
 #include "GameClient/ControlBar.h"
+#include "GameClient/PlayerColorScheme.h"
 
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
@@ -459,11 +460,11 @@ void Radar::addObject( Object *obj )
 
 	if( useIndicatorColor || (player == NULL) )
 	{
-		newObj->setColor( obj->getIndicatorColor() );
+		newObj->setColor( clientColor( obj->getIndicatorColor() ) );
 	}
 	else
-	{	
-		newObj->setColor( player->getPlayerColor() );
+	{
+		newObj->setColor( clientPlayerColor( player ) );
 	}
 
 	// set a chunk of radar data in the object
@@ -1083,7 +1084,7 @@ void Radar::createPlayerEvent( Player *player, const Coord3D *world,
 	RGBAColorInt color[ 2 ];
 
 	// color 1
-	c = player->getPlayerColor();
+	c = clientPlayerColor( player );
 	GameGetColorComponents( c, &r, &g, &b, &a );
 	color[ 0 ].red = r;
 	color[ 0 ].green = g;

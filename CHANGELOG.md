@@ -444,10 +444,19 @@ found and fixed â€” EA's own, not port damage.**
 - The second copy also used to be thrown out on the way in. It arrived carrying the same player name, which a host refuses, and the same serial number, which a host refuses harder - a rule written against two people sharing one bought copy, and two windows on one desk are not that. Both copies get their own name now, and the serial rule is waived only between two addresses on the same machine. Anything that could be a second computer still answers to it.
 - `lan-play.ps1` starts as many copies as you ask for, gives each its own name, address and log, opens each on the LAN screen instead of the main menu, and lays the windows out side by side so they are not stacked on top of one another.
 
+## Whose side is that
+
+- Player colours can say who is on your side. The original game hands out eight colours picked for being different from each other, and none of them means anything: in a four-player fight, working out whether the tanks coming over the ridge are your ally's or the other team's is a memory exercise done at speed, and getting it wrong costs you the fight.
+- You, allies, enemies paints you blue, everyone fighting alongside you green and everyone shooting at you red. Members of the same side get different shades of the one colour, so four allied armies are still four armies and not one green blob.
+- By team gives each alliance its own colour and each of its members a shade of it. That is the one to use as an observer, watching a 4v4 where nobody is yours.
+- The colour reaches everything: the tint on the models, the radar, health bars, selection rings, the score screen, the money that floats up from a supply drop.
+- Your screen only. Nobody else in the match sees your choice, nothing about the game itself changes, and two people in the same game can run different settings. Original is the default and nothing changes until you pick something else.
+- Switch it mid-match and the map repaints itself. So does the picture when an alliance is made or broken by a map script.
+
 ## The options screen has pages
 
 - Display, audio, controls, gameplay and network, behind five buttons across the top. The original screen was one panel with everything on it at once, and it was already full the day it shipped: the language filter, the keyboard button and four camera checkboxes are all still in there, parked off the right edge where nobody can reach them, because there was nowhere left to put them.
-- Five settings that used to need a text editor have a control now: window mode, antialiasing and the two glow settings on display, and who wears a health bar on gameplay.
+- Six settings that used to need a text editor have a control now: window mode, antialiasing and the two glow settings on display, and who wears a health bar and which colours the players wear on gameplay.
 - Twelve more are decided for you instead of asked about. Grid placement, nudging a blocked building, 45 degree building rotation, the placement range ring, workers going back to supply, detailed build tooltips, the HUD overlay and archived replays are simply on - every one of them is the version of the game people were choosing anyway, and a page of eight checkboxes nobody unticks is a page of eight decisions nobody wanted to make. Middle-mouse panning, zoom to cursor, edge scrolling in a window and 45 degree camera steps left the screen too; those four are still yours by name in `Options.ini` if the defaults are wrong for your setup.
 - A page no longer says its own name twice. Every tab used to open onto a heading repeating the word already written on the button you just pressed, with a rule under it dividing nothing from nothing.
 - An open dropdown covers what is under it instead of the other way round. The list of resolutions grew downwards behind the labels below it, so half the entries were readable and half were words on top of words.

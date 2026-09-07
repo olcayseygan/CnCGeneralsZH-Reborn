@@ -62,6 +62,7 @@
 #include "Common/RadarShroudCache.h"
 #include "GameClient/Gadget.h"
 #include "GameClient/GadgetTabControl.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/Image.h"
 #include "GameNetwork/NetworkUtil.h"
 #include "GameNetwork/NetCommandList.h"
@@ -5941,6 +5942,125 @@ TEST(health_bar_mode_round_trips_through_options_ini)
 	pref[ AsciiString( "HealthBars" ) ] = AsciiString( "99" );
 	loadOptionsFromPreferences( pref );
 	CHECK_EQ( TheGlobalData->m_healthBarMode, (Int)HEALTH_BAR_MODE_COUNT - 1 );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+TEST(player_color_scheme_round_trips_through_options_ini)
+{
+	const OptionDef *def = findOptionDef( "PlayerColors" );
+	CHECK( def != NULL );
+	CHECK_EQ( (Int)def->kind, (Int)OPTION_ENUM );
+	CHECK_EQ( (Int)def->apply, (Int)APPLY_LIVE );
+	CHECK_EQ( def->lo, 0 );
+	CHECK_EQ( def->hi, PLAYER_COLOR_SCHEME_COUNT - 1 );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	// nobody's colours change until they ask
+	CHECK_EQ( TheGlobalData->m_playerColorScheme, (Int)PLAYER_COLORS_ORIGINAL );
+
+	TheWritableGlobalData->m_playerColorScheme = PLAYER_COLORS_RELATION;
+
+	UserPreferences pref;
+	saveOptionsToPreferences( pref );
+	CHECK_STR( pref[ AsciiString( "PlayerColors" ) ].str(), "1" );
+
+	TheWritableGlobalData->m_playerColorScheme = PLAYER_COLORS_ORIGINAL;
+	loadOptionsFromPreferences( pref );
+	CHECK_EQ( TheGlobalData->m_playerColorScheme, (Int)PLAYER_COLORS_RELATION );
+
+	pref[ AsciiString( "PlayerColors" ) ] = AsciiString( "99" );
+	loadOptionsFromPreferences( pref );
+	CHECK_EQ( TheGlobalData->m_playerColorScheme, (Int)PLAYER_COLOR_SCHEME_COUNT - 1 );
+
+	TheWritableGlobalData->m_playerColorScheme = PLAYER_COLORS_ORIGINAL;
+	invalidatePlayerColorScheme();
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+/** Every colour the scheme can hand out has to be opaque and has to be visible: an alpha of zero
+	 draws nothing at all, and a member of an alliance past the fourth is a darkened repeat that must
+	 not reach black. */
+TEST(scheme_colors_are_opaque_and_never_black)
+{
+	for( Int family = 0; family < PLAYER_COLOR_FAMILY_COUNT; ++family )
+	{
+		for( Int shade = 0; shade < PLAYER_COLOR_SHADE_COUNT * 3; ++shade )
+		{
+			const Color c = playerSchemeColor( family, shade );
+
+			CHECK_EQ( (Int)((c >> 24) & 0xFF), 255 );
+			CHECK( (c & 0x00FFFFFF) != 0 );
+
+			const Int red   = (c >> 16) & 0xFF;
+			const Int green = (c >>  8) & 0xFF;
+			const Int blue  =  c        & 0xFF;
+			CHECK( red + green + blue >= 96 );
+		}
+	}
+
+	// four members of one alliance are four different colours, which is the whole point of shades
+	for( Int a = 0; a < PLAYER_COLOR_SHADE_COUNT; ++a )
+		for( Int b = a + 1; b < PLAYER_COLOR_SHADE_COUNT; ++b )
+			CHECK( playerSchemeColor( PLAYER_COLOR_FAMILY_RED, a ) != playerSchemeColor( PLAYER_COLOR_FAMILY_RED, b ) );
+
+	// and the first shade of two families is never the same colour
+	for( Int f1 = 0; f1 < PLAYER_COLOR_FAMILY_COUNT; ++f1 )
+		for( Int f2 = f1 + 1; f2 < PLAYER_COLOR_FAMILY_COUNT; ++f2 )
+			CHECK( playerSchemeColor( f1, 0 ) != playerSchemeColor( f2, 0 ) );
+}
+
+/** Night is the day colour a quarter of the way to white, and never darker: the reason the shipped
+	 palette carries a separate night colour at all is that a dark unit on a night map is a hole. */
+TEST(scheme_night_colors_are_lighter_than_their_day)
+{
+	for( Int family = 0; family < PLAYER_COLOR_FAMILY_COUNT; ++family )
+	{
+		const Color day = playerSchemeColor( family, 0 );
+		const Color night = playerSchemeNightColor( day );
+
+		CHECK_EQ( (Int)((night >> 24) & 0xFF), 255 );
+		CHECK( (Int)((night >> 16) & 0xFF) >= (Int)((day >> 16) & 0xFF) );
+		CHECK( (Int)((night >>  8) & 0xFF) >= (Int)((day >>  8) & 0xFF) );
+		CHECK( (Int)( night        & 0xFF) >= (Int)( day        & 0xFF) );
+	}
+
+	// white has nowhere lighter to go
+	CHECK_EQ( (Int)(playerSchemeNightColor( 0xFFFFFFFF ) & 0x00FFFFFF), 0x00FFFFFF );
+}
+
+/** The scheme is a translation and nothing more, so the setting nobody changed has to leave every
+	 colour exactly as it arrived, and a colour that belongs to no player has to pass through under
+	 any setting - a crate's floating text and a script's own colour both come through here. */
+TEST(original_scheme_and_unknown_colors_pass_through_untouched)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+	invalidatePlayerColorScheme();
+
+	const Color sample[] = { 0xFF102030, 0xE6FF0000, 0x00000000, 0xFFFFFFFF };
+
+	for( Int i = 0; i < 4; ++i )
+		CHECK_EQ( (Int)clientColor( sample[ i ] ), (Int)sample[ i ] );
+
+	TheWritableGlobalData->m_playerColorScheme = PLAYER_COLORS_TEAM;
+	invalidatePlayerColorScheme();
+
+	// there is no player list in a test, so no colour is anybody's and all four still come back
+	for( Int i = 0; i < 4; ++i )
+		CHECK_EQ( (Int)clientColor( sample[ i ] ), (Int)sample[ i ] );
+
+	// nothing to draw for nobody
+	CHECK_EQ( (Int)clientPlayerColor( NULL ), 0 );
+	CHECK_EQ( (Int)clientPlayerNightColor( NULL ), 0 );
+
+	TheWritableGlobalData->m_playerColorScheme = PLAYER_COLORS_ORIGINAL;
+	invalidatePlayerColorScheme();
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
