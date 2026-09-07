@@ -677,6 +677,15 @@ public:
 	virtual void reset( void );					///< from subsystem interface
 	virtual void update( void );				///< from subsystem interface
 
+	//
+	// The window half of init, on its own, because a resolution change throws every window away and
+	// builds it again while the bar's command buttons and command sets have to stay where they are:
+	// an object holding a const CommandButton * would be left pointing at a freed one.  initWindows
+	// drops what it is holding (shutdownWindows) and looks the new windows up.
+	//
+	void initWindows( void );
+	void shutdownWindows( void );
+
 	/// mark the UI as dirty so the context of everything is re-evaluated
 	void markUIDirty( void );
 
@@ -900,6 +909,18 @@ public:
 		* set - because it remembers both the authored rectangle and the one it last handed out. */
 	void layoutPanels( void );
 
+	/** Take the slide off and declare all three panels home.  Anything that reads a window's screen
+		* position and writes another window's position from it has to run after this, or it writes
+		* the answer for a bar that is on its way down and layoutPanels then reads that as the
+		* rectangle the window was authored at.  ControlBarScheme::init is that caller. */
+	void clearPanelSlide( void );
+
+	/// top edge of the highest visible window the bar owns, and where MoneyDisplay is; see -uidrill
+	void forEachPlacedWindow( Int *topOut, Int *moneyOut );
+
+	/// the window every other one on the bar hangs off, so -uidrill can walk it looking for a button
+	GameWindow *getMasterParent( void ) { return m_contextParent[ CP_MASTER ]; }
+
 	/** Send one whole panel off the bottom of the screen, or bring it back.  It slides: the panel is
 		* a picture of a thing, and a thing that is going away should be seen going.  'immediate' puts
 		* it where it is going this instant, which is what a rebuild wants. */
@@ -910,6 +931,13 @@ public:
 
 	/// how far down that panel has slid, in pixels - the plate art travels with its windows
 	Int getPanelSlideOffset( Int panel ) const;
+
+	/// the same journey as a fraction, 0 home and 1 gone.  Needs no display, which is why the test
+	/// for the rebuild ordering asks this one; see clearPanelSlide
+	Real getPanelSlideFraction( Int panel ) const
+	{
+		return ( panel < 0 || panel >= CB_PANEL_COUNT ) ? 0.0f : m_panelSlide[ panel ];
+	}
 
 protected:
 	/// place one window and its descendants inside 'panel'; see layoutPanels
@@ -1232,6 +1260,9 @@ public:
 	Bool getShowBuildTooltipLayout( void ){return m_showBuildToolTipLayout;	}
 	void populateBuildTooltipLayout( const CommandButton *commandButton, GameWindow *tooltipWin = NULL );
 	void repopulateBuildTooltipLayout( void );
+	/// where the popup lives, so -uidrill can read the rectangle it landed in.  The tooltip is placed
+	/// against BackgroundMarker's screen position, so it goes wherever the bar's windows went
+	WindowLayout *getBuildTooltipLayout( void ) { return m_buildToolTipLayout; }
 private:
 
 
@@ -1297,6 +1328,10 @@ private:
 
 // EXTERNALS //////////////////////////////////////////////////////////////////////////////////////
 extern ControlBar *TheControlBar;
+
+/// -uidrill: write one line saying where the bar's windows actually are, so a long run says whether
+/// they hold still.  See ControlBar::clearPanelSlide for what they used to do instead.
+extern void ControlBar_logPlacement( const char *tag, Int frame );
 
 //-------------------------------------------------------------------------------------------------
 /** The plate one panel wears.

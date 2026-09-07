@@ -17,6 +17,7 @@
 #include "test_harness.h"
 
 #include "Common/AsciiString.h"
+#include "Common/CommandLine.h"
 #include "Common/UnicodeString.h"
 #include "Common/GameMemory.h"
 #include "Common/NameKeyGenerator.h"
@@ -1228,6 +1229,7 @@ TEST(bitflags_types_keep_their_own_name_tables)
 /* GameWindowManager.cpp: destroying a modal window that is not the top of the modal stack
    used to leave its entry behind, holding a pointer to freed memory. */
 #include "GameClient/GameWindow.h"
+#include "GameClient/Mouse.h"
 
 TEST(destroying_a_modal_window_takes_it_out_of_the_stack_wherever_it_sits)
 {
@@ -6639,6 +6641,68 @@ TEST(a_netgame_slot_list_is_the_player_order_on_every_machine)
 	CHECK_EQ( 2, ResolveHostList( "10.0.0.1,,10.0.0.2", ips, MAX_SLOTS ) );
 }
 
+TEST(two_copies_on_one_machine_each_get_their_own_lobby_address_and_name)
+{
+	/* The LAN lobby binds one UDP port with no SO_REUSEADDR, and both copies read the same
+	   Options.ini and the same LAN preferences - so the address and the name have to come from
+	   somewhere the two copies can disagree about, which is the command line. */
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	CHECK_EQ( 0u, TheGlobalData->m_defaultIP );	// nothing chosen: the lobby picks an address itself
+	CHECK( TheGlobalData->m_lanPlayerName.isEmpty() );
+
+	char exe[] = "generals.exe";
+	char lanIP[] = "-lanip";
+	char second[] = "127.0.0.2";
+	char *argvIP[] = { exe, lanIP, second };
+	parseCommandLine( 3, argvIP );
+	CHECK_EQ( 0x7f000002, TheGlobalData->m_defaultIP );	// host order, the order SetLocalIP wants
+
+	// a malformed address leaves the last usable one alone rather than binding INADDR_NONE
+	char nonsense[] = "999.1.1.1";
+	char *argvBadIP[] = { exe, lanIP, nonsense };
+	parseCommandLine( 3, argvBadIP );
+	CHECK_EQ( 0x7f000002, TheGlobalData->m_defaultIP );
+
+	char lanName[] = "-lanname";
+	char who[] = "Player 2";
+	char *argvName[] = { exe, lanName, who };
+	parseCommandLine( 3, argvName );
+	CHECK_STR( TheGlobalData->m_lanPlayerName.str(), "Player 2" );
+
+	// -lanlobby opens the LAN screen, and turns the shell map off because the main menu it stacks
+	// on top of is only pushed when there is no shell map
+	CHECK( !TheGlobalData->m_lanLobbyOnStart );
+	CHECK( TheGlobalData->m_shellMapOn );
+	char lanLobby[] = "-lanlobby";
+	char *argvLobby[] = { exe, lanLobby };
+	parseCommandLine( 2, argvLobby );
+	CHECK( TheGlobalData->m_lanLobbyOnStart );
+	CHECK( !TheGlobalData->m_shellMapOn );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+TEST(the_serial_check_is_waived_only_between_two_addresses_on_this_machine)
+{
+	/* Two copies of the game on one machine are one installation and therefore one CD key, so the
+	   host's duplicate-serial check would refuse the join every time.  It is waived for a pair of
+	   loopback addresses and for nothing else - anything that could be a second machine still
+	   answers to the retail rule. */
+	CHECK( IsLoopbackIP( 0x7f000001 ) );
+	CHECK( IsLoopbackIP( 0x7f000002 ) );
+	CHECK( IsLoopbackIP( 0x7f000000 ) );	// the whole of 127.0.0.0/8 routes to loopback
+	CHECK( IsLoopbackIP( 0x7fffffff ) );
+
+	CHECK( !IsLoopbackIP( 0x7e000001 ) );	// 126.x is somebody else
+	CHECK( !IsLoopbackIP( 0x80000001 ) );	// and so is 128.x
+	CHECK( !IsLoopbackIP( 0x0a000001 ) );	// the private ranges a real LAN game runs on
+	CHECK( !IsLoopbackIP( 0xac13287e ) );
+	CHECK( !IsLoopbackIP( 0 ) );					// INADDR_ANY is not an address
+}
+
 /* A replay is checked by comparing the CRCs it carries against the ones playback recomputes, one
 	 for one, out of a queue.  A game played over a network never gets its frame 0 CRC into the file
 	 - the logic makes it after that frame's commands have already gone out, so it is never sent,
@@ -9574,4 +9638,225 @@ TEST(peace_time_is_off_while_a_computer_player_is_in_the_lobby)
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
+}
+
+/* nextToken used to return false on a spent source without touching the caller's token, so the
+	 token still held the *previous* one.  Every loop written as "walk until the token comes back
+	 empty" then never ended. */
+TEST(asciistring_nextToken_empties_the_token_when_the_source_runs_out)
+{
+	AsciiString path( "one\\two" );
+	AsciiString tok;
+
+	CHECK( path.nextToken( &tok, "\\/" ) );
+	CHECK_STR( tok.str(), "one" );
+	CHECK( path.nextToken( &tok, "\\/" ) );
+	CHECK_STR( tok.str(), "two" );
+
+	CHECK( !path.nextToken( &tok, "\\/" ) );
+	CHECK_EQ( tok.getLength(), 0 );
+
+	// and the same answer when the source was empty to begin with
+	AsciiString none;
+	AsciiString held( "stale" );
+	CHECK( !none.nextToken( &held, "\\/" ) );
+	CHECK_EQ( held.getLength(), 0 );
+
+	// a token that is the source itself is still refused, and left as it was
+	AsciiString self( "a\\b" );
+	CHECK( !self.nextToken( &self, "\\/" ) );
+	CHECK_STR( self.str(), "a\\b" );
+}
+
+/* -map "Maps\Twilight Flame\Twilight Flame.map" loses its quotes to WinMain's tokenizer and
+	 reaches this function as "Maps\Twilight".  With no .map to stop on it grew a string one token
+	 at a time until AsciiString's 32767-byte ceiling threw ERROR_OUT_OF_MEMORY out of
+	 parseCommandLine, GameEngine::init caught it and ran on to its tail, and the first frame
+	 faulted on a NULL TheGameLogic - reported as a crash in update(), with no main menu. */
+TEST(map_path_conversion_terminates_on_a_path_with_no_map_file)
+{
+	AsciiString longForm( "Maps\\Twilight Flame\\Twilight Flame.map" );
+	ConvertShortMapPathToLongMapPath( longForm );
+	CHECK_STR( longForm.str(), "Maps\\Twilight Flame\\Twilight Flame.map" );
+
+	AsciiString shortForm( "Maps\\Alpine Assault.map" );
+	ConvertShortMapPathToLongMapPath( shortForm );
+	CHECK_STR( shortForm.str(), "Maps\\Alpine Assault\\Alpine Assault.map" );
+
+	AsciiString truncated( "Maps\\Twilight" );
+	ConvertShortMapPathToLongMapPath( truncated );
+	CHECK_STR( truncated.str(), "Maps\\Twilight" );
+
+	AsciiString noSeparator( "Twilight Flame.map" );
+	ConvertShortMapPathToLongMapPath( noSeparator );
+	CHECK_STR( noSeparator.str(), "Twilight Flame.map" );
+
+	AsciiString trailing( "Maps\\Twilight\\" );
+	ConvertShortMapPathToLongMapPath( trailing );
+	CHECK_STR( trailing.str(), "Maps\\Twilight\\" );
+}
+
+/* ControlBar.cpp: layoutPanels used to lift every window in a minimised panel by that panel's
+	 slide, including the ones applyPanelSlide never moved.  Each rebuild of the layout lifted them
+	 again, placeInPanel then recorded the lifted position as the authored one, and the bar walked
+	 off the top of its own strip - taking the build tooltip, which is placed against
+	 BackgroundMarker, off the screen with it. */
+extern Int ControlBar_slideToUndo( Int slideAppliedToWindow, Int panelSlideOffsetNow );
+
+TEST(the_bar_only_lifts_a_window_the_slide_actually_pushed_down)
+{
+	// a window the slide moved comes back by exactly what it was moved by
+	CHECK_EQ( ControlBar_slideToUndo( 48, 48 ), 48 );
+
+	//
+	// and one it skipped is left alone, however far its panel says it went.  A plate marker and
+	// anything in a panel that was minimised immediately are both in this case.
+	//
+	CHECK_EQ( ControlBar_slideToUndo( 0, 48 ), 0 );
+	CHECK_EQ( ControlBar_slideToUndo( 0, 121 ), 0 );
+
+	// a window that went down before the panel's slide changed underneath it still comes back whole
+	CHECK_EQ( ControlBar_slideToUndo( 30, 0 ), 30 );
+	CHECK_EQ( ControlBar_slideToUndo( 30, 90 ), 30 );
+
+	// the round trip is a round trip: pushed down by n, lifted by n, net zero
+	static const Int pushes[] = { 0, 1, 17, 48, 121 };
+	for( Int i = 0; i < 5; i++ )
+	{
+		const Int y = 400;
+		const Int down = y + pushes[ i ];
+		CHECK_EQ( down - ControlBar_slideToUndo( pushes[ i ], 121 ), y );
+	}
+}
+
+/* ControlBar.cpp: a resolution change throws every window away and builds it again, but the bar
+	 itself has to survive - a production queue, a hunt update and the academy all hold a
+	 const CommandButton * that would be left pointing at a freed one.  So the window half of init
+	 is its own pair of functions, and the teardown half runs twice on the way out: once from the
+	 rebuild, once from the destructor. */
+TEST(the_bars_windows_can_be_torn_down_twice_without_taking_the_bar_with_them)
+{
+	ControlBar bar;
+
+	bar.shutdownWindows();
+	CHECK( !bar.getShowBuildTooltipLayout() );
+
+	// again, on a bar that is already holding nothing - which is what the destructor does
+	bar.shutdownWindows();
+	CHECK( !bar.getShowBuildTooltipLayout() );
+
+	// the command buttons are not window state and are not touched by any of it
+	CHECK( bar.getCommandButtons() == NULL );
+	CHECK( bar.findCommandButton( AsciiString( "NoSuchCommandButton" ) ) == NULL );
+}
+
+/* ControlBarScheme.cpp: the scheme places the money readout, the two general's tabs and the toolbar
+	 column by reading their parent's screen position and subtracting it, and layoutPanels then runs
+	 over the answer.  Asking for the panels back is not the same as having them back - the slide is
+	 wall-clocked over a fifth of a second - so a scheme rebuilt while the bar was on its way down
+	 read a parent that was still travelling, and every child it placed came out that far too high.
+	 layoutPanels lifted the parent back afterwards and dragged them up again, placeInPanel recorded
+	 the lifted position as the authored one, and it stuck. Measured in a match: 524 with the panels
+	 sent home first, 294 without. clearPanelSlide is the "first". */
+TEST(sending_the_panels_home_is_not_the_same_as_them_being_home)
+{
+	ControlBar bar;
+	const Int left = ControlBar::CB_PANEL_LEFT;
+	const Int right = ControlBar::CB_PANEL_RIGHT;
+	const Int count = ControlBar::CB_PANEL_COUNT;
+
+	// away, and all the way away this instant
+	bar.showPanel( left, FALSE, TRUE );
+	CHECK_NEAR( bar.getPanelSlideFraction( left ), 1.0f, 0.0001f );
+	CHECK( bar.isPanelHidden( left ) );
+
+	//
+	// what switchControlBarStage( CONTROL_BAR_STAGE_DEFAULT ) does: it asks. The panel is still down
+	// there, and anything reading a window's position on this frame reads it down there.
+	//
+	bar.showPanel( left, TRUE );
+	CHECK_NEAR( bar.getPanelSlideFraction( left ), 1.0f, 0.0001f );
+
+	// clearPanelSlide does not ask, it declares
+	bar.clearPanelSlide();
+	CHECK_NEAR( bar.getPanelSlideFraction( left ), 0.0f, 0.0001f );
+	CHECK( !bar.isPanelHidden( left ) );
+
+	// and it speaks for all three, not just the one that was asked about
+	Int p;
+	for( p = 0; p < count; p++ )
+		bar.showPanel( p, FALSE, TRUE );
+	bar.clearPanelSlide();
+	for( p = 0; p < count; p++ )
+	{
+		CHECK_NEAR( bar.getPanelSlideFraction( p ), 0.0f, 0.0001f );
+		CHECK( !bar.isPanelHidden( p ) );
+	}
+
+	// a panel that never left is left alone
+	bar.clearPanelSlide();
+	CHECK_NEAR( bar.getPanelSlideFraction( right ), 0.0f, 0.0001f );
+}
+
+/* Mouse.cpp: the tooltip box was placed by two flips and nothing else, under EA's own note that
+	 the tips still had to be kept somewhere readable.  A flip is the right answer at the right and
+	 bottom edges and no answer at the left and top, and both are reachable: setCursorTooltip will
+	 wrap a tip to the full width of the display when a caller asks for it, and a caller that asks
+	 for less than ten pixels gets a 120-wide column that runs long text hundreds of pixels down. */
+TEST(a_tooltip_is_put_back_on_the_screen_after_it_is_flipped)
+{
+	const Int screenW = 1024, screenH = 768;
+	Int x, y;
+
+	// the ordinary case: to the right of the pointer, level with it, untouched
+	Mouse::placeTooltip( 400, 300, 286, 102, 0, 0, screenW, screenH, &x, &y );
+	CHECK_EQ( x, 420 );
+	CHECK_EQ( y, 300 );
+
+	// right edge: the flip is what puts it on the roomier side, and it stays
+	Mouse::placeTooltip( 1000, 300, 286, 20, 0, 0, screenW, screenH, &x, &y );
+	CHECK_EQ( x, 714 );
+	CHECK( x >= 0 && x + 286 <= screenW );
+
+	// bottom edge, same
+	Mouse::placeTooltip( 400, 760, 286, 40, 0, 0, screenW, screenH, &x, &y );
+	CHECK_EQ( y, 720 );
+	CHECK( y >= 0 && y + 40 <= screenH );
+
+	//
+	// A screen-wide tip with the pointer past the middle: too wide to fit on the right, and the
+	// flip alone lands it at -60.  This is the one a player sees with the left half of the text
+	// missing.
+	//
+	Mouse::placeTooltip( 640, 300, 1000, 30, 0, 0, screenW, screenH, &x, &y );
+	CHECK_EQ( x, 0 );
+
+	// a narrow column of long text with the pointer high up: the flip alone puts it above the top
+	Mouse::placeTooltip( 400, 300, 120, 500, 0, 0, screenW, screenH, &x, &y );
+	CHECK_EQ( y, 0 );
+
+	//
+	// Nothing lands outside the screen, whatever is asked for.  A box larger than the screen is
+	// pinned to the top left corner, which loses its far edge and keeps its first words.
+	//
+	static const Int sizes[] = { 20, 120, 286, 700, 1000, 1200 };
+	Int i, j, px, py;
+	for( i = 0; i < 6; i++ )
+		for( j = 0; j < 6; j++ )
+			for( px = 0; px <= screenW; px += 128 )
+				for( py = 0; py <= screenH; py += 128 )
+				{
+					Mouse::placeTooltip( px, py, sizes[ i ], sizes[ j ], 0, 0, screenW, screenH, &x, &y );
+					CHECK( x >= 0 );
+					CHECK( y >= 0 );
+					if( sizes[ i ] + 4 <= screenW )
+						CHECK( x + sizes[ i ] + 4 <= screenW );
+					if( sizes[ j ] + 4 <= screenH )
+						CHECK( y + sizes[ j ] + 4 <= screenH );
+				}
+
+	// the limits are read, not assumed: a windowed device with an origin away from zero holds too
+	Mouse::placeTooltip( 200, 200, 400, 300, 100, 150, 500, 450, &x, &y );
+	CHECK( x >= 100 );
+	CHECK( y >= 150 );
 }

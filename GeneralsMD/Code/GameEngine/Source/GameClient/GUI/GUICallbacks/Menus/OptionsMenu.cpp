@@ -215,6 +215,12 @@ DisplaySettings oldDispSettings, newDispSettings;
 Bool dispChanged = FALSE;
 extern Int timer;
 extern void DoResolutionDialog();
+
+//
+// Set by saveOptions when the resolution really changed, acted on by applyPendingShellRebuild once
+// the options layout has been taken down and nothing is reading a window out of it any more.
+//
+static Bool pendingShellRebuild = FALSE;
 //
 
 static Bool ignoreSelected = FALSE;
@@ -1343,28 +1349,15 @@ static void saveOptions( void )
 				newDispSettings.bitDepth = bitDepth;
 				newDispSettings.windowed = TheDisplay->getWindowed();
 
-				// delete the shell
-				delete TheShell;
-				TheShell = NULL;
-
-				// create the shell
-				TheShell = MSGNEW("GameClientSubsystem") Shell;
-				if( TheShell )
-					TheShell->init();
-
-				TheInGameUI->recreateControlBar();
-
 				//
-				// Out of a match the shell is what you are looking at, so it opens on the main menu.
-				// In one, the menus were rebuilt for the next time you want them and the thing on
-				// screen is the battlefield: pushing the main menu over a running game is why the
-				// resolution list used to be greyed out in-game at all.  The command bar has just been
-				// built from its layouts and comes up hidden, so it is put back.
+				// The shell and the command bar are rebuilt after this function returns, not here.
+				// Every static GameWindow * in this file points into the options layout, the options
+				// layout belongs to the shell, and the rest of saveOptions goes on reading those
+				// pointers - the volume sliders and the gamma slider are all below this block.
+				// Deleting the shell in the middle of it read four windows back out of freed pool
+				// blocks.
 				//
-				if( TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
-					ShowControlBar( TRUE );
-				else
-					TheShell->push( AsciiString("Menus/MainMenu.wnd") );
+				pendingShellRebuild = TRUE;
 			}
 		}
 	}
@@ -1546,6 +1539,181 @@ static void DestroyOptionsLayout() {
 
 	TheShell->destroyOptionsLayout();
 	OptionsLayout = NULL;
+}
+
+//
+// Every window on screen was laid out against the old size, so the shell is rebuilt from the
+// layouts.  This runs after the options layout is gone: it deletes the shell those windows belong
+// to, so nothing that still holds one of them may run afterwards.  A mode change that keeps the
+// resolution - fullscreen to borderless on a screen the game was already filling - changes no
+// rectangle and never gets here.
+//
+static void applyPendingShellRebuild( void )
+{
+	if( !pendingShellRebuild )
+		return;
+	pendingShellRebuild = FALSE;
+
+	delete TheShell;
+	TheShell = NULL;
+
+	TheShell = MSGNEW("GameClientSubsystem") Shell;
+	TheShell->init();
+
+	TheInGameUI->recreateControlBar();
+
+	//
+	// Out of a match the shell is what you are looking at, so it opens on the main menu.  In one,
+	// the menus were rebuilt for the next time you want them and the thing on screen is the
+	// battlefield: pushing the main menu over a running game is why the resolution list used to be
+	// greyed out in-game at all.  The command bar has just been built from its layouts and comes up
+	// hidden, so it is put back.
+	//
+	if( TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
+		ShowControlBar( TRUE );
+	else
+		TheShell->push( AsciiString("Menus/MainMenu.wnd") );
+}
+
+//
+// -resdrill: the resolution change a player makes in the middle of a match, made from a script.
+//
+// It lives here rather than in the drill's own file because the sequence is the thing under test -
+// reset the device, throw the shell away, build the command bar again while the match that owns it
+// keeps running - and a copy of that sequence somewhere else would be a copy that can go right
+// while the real one goes wrong.  Everything below the mode change is applyPendingShellRebuild,
+// which is what the options menu itself reaches on its way out.
+//
+void ResolutionDrillApply( Int xres, Int yres )
+{
+	if( TheDisplay == NULL )
+		return;
+
+	const Int wasX = TheDisplay->getWidth();
+	const Int wasY = TheDisplay->getHeight();
+	const Int bitDepth = TheDisplay->getBitDepth();
+
+	// With no size asked for, take the first mode the device offers that is not the one on screen.
+	// A drill that had to be told the monitor's modes would be a drill nobody runs on a new machine.
+	if( xres <= 0 || yres <= 0 )
+	{
+		xres = yres = 0;
+		for( Int i = 0; i < TheDisplay->getDisplayModeCount(); i++ )
+		{
+			Int mx, my, mb;
+			TheDisplay->getDisplayModeDescription( i, &mx, &my, &mb );
+			if( mx >= 800 && my >= 600 && ( mx != wasX || my != wasY ) )
+			{
+				xres = mx;
+				yres = my;
+				break;
+			}
+		}
+	}
+
+	if( xres <= 0 || yres <= 0 || ( xres == wasX && yres == wasY ) )
+	{
+		DEBUG_LOG(("RESDRILL: no second mode to switch to, still %dx%d\n", wasX, wasY));
+		return;
+	}
+
+	// which entry of the dropdown that is: the combo is filled straight off the device's mode list,
+	// so the entry index and the mode index are the same number
+	Int modeIndex = -1;
+	for( Int m = 0; m < TheDisplay->getDisplayModeCount(); m++ )
+	{
+		Int mx, my, mb;
+		TheDisplay->getDisplayModeDescription( m, &mx, &my, &mb );
+		if( mx == xres && my == yres )
+		{
+			modeIndex = m;
+			break;
+		}
+	}
+	if( modeIndex < 0 )
+	{
+		DEBUG_LOG(("RESDRILL: %dx%d is not a mode this device offers\n", xres, yres));
+		return;
+	}
+
+	DEBUG_LOG(("RESDRILL: %dx%d -> %dx%d (mode %d, bit depth %d)\n",
+		wasX, wasY, xres, yres, modeIndex, bitDepth));
+
+	//
+	// From here it is the player's own route and nothing else: open the options menu the way the
+	// in-game quit menu opens it, put the dropdown on the mode we want, and press Accept.  Doing the
+	// device change directly instead - which this used to - skips the part that broke, which is the
+	// shell being torn down and rebuilt from inside a shell window's own message handler while the
+	// options layout is still on the stack.  QuitMenu.cpp's buttonOptions branch is the three lines
+	// below.
+	//
+	WindowLayout *optLayout = TheShell->getOptionsLayout( TRUE );
+	if( optLayout == NULL )
+	{
+		DEBUG_LOG(("RESDRILL: no options layout to open\n"));
+		return;
+	}
+	optLayout->runInit();
+	optLayout->hide( FALSE );
+	optLayout->bringForward();
+
+	if( comboBoxResolution == NULL )
+	{
+		DEBUG_LOG(("RESDRILL: the options menu came up without its resolution dropdown\n"));
+		return;
+	}
+	GadgetComboBoxSetSelectedPos( comboBoxResolution, modeIndex );
+
+	GameWindow *parent = TheWindowManager->winGetWindowFromId(
+		NULL, TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:OptionsMenuParent" ) ) );
+	NameKeyType acceptID = TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:ButtonAccept" ) );
+	GameWindow *accept = TheWindowManager->winGetWindowFromId( parent, acceptID );
+	if( parent == NULL || accept == NULL )
+	{
+		DEBUG_LOG(("RESDRILL: no Accept button on the options menu (parent %p, button %p)\n",
+			parent, accept));
+		return;
+	}
+
+	DEBUG_LOG(("RESDRILL: pressing Accept\n"));
+	TheWindowManager->winSendSystemMsg( parent, GBM_SELECTED, (WindowMsgData)accept, acceptID );
+
+	DEBUG_LOG(("RESDRILL: shell and command bar rebuilt at %dx%d\n",
+		TheDisplay->getWidth(), TheDisplay->getHeight()));
+}
+
+//
+// Accept leaves the "keep this resolution?" box on screen, and a player answers it - so the drill
+// has to as well.  Cancel is the longer of the two answers: DeclineResolution changes the mode back
+// and rebuilds the shell and the command bar a *second* time, from inside the message box's own
+// GBM_SELECTED handler, over windows the first rebuild already replaced.  Answering it on a later
+// frame rather than in the same breath as Accept is the point; the box a player sees has been on
+// screen for a second or two by the time it is clicked.
+//
+void ResolutionDrillDismiss( Bool accept )
+{
+	extern GameWindow *resAcceptMenu;		// MainMenu.cpp owns it, DoResolutionDialog fills it in
+
+	if( resAcceptMenu == NULL )
+	{
+		DEBUG_LOG(("RESDRILL: no resolution dialog to answer\n"));
+		return;
+	}
+
+	NameKeyType buttonID = TheNameKeyGenerator->nameToKey(
+		AsciiString( accept ? "MessageBox.wnd:ButtonOk" : "MessageBox.wnd:ButtonCancel" ) );
+	GameWindow *button = TheWindowManager->winGetWindowFromId( resAcceptMenu, buttonID );
+	if( button == NULL )
+	{
+		DEBUG_LOG(("RESDRILL: the resolution dialog has no %s button\n", accept ? "Ok" : "Cancel"));
+		return;
+	}
+
+	DEBUG_LOG(("RESDRILL: answering the resolution dialog with %s\n", accept ? "Ok" : "Cancel"));
+	TheWindowManager->winSendSystemMsg( resAcceptMenu, GBM_SELECTED, (WindowMsgData)button, buttonID );
+
+	DEBUG_LOG(("RESDRILL: after the dialog the display is %dx%d\n",
+		TheDisplay->getWidth(), TheDisplay->getHeight()));
 }
 
 static void showAdvancedOptions()
@@ -2308,10 +2476,14 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 
 
 				if(GameSpyIsOverlayOpen(GSOVERLAY_OPTIONS))
+				{
 					GameSpyCloseOverlay(GSOVERLAY_OPTIONS);
+					applyPendingShellRebuild();
+				}
 				else
 				{
 					DestroyOptionsLayout();
+					applyPendingShellRebuild();
 					if (dispChanged)
 					{
 						DoResolutionDialog();

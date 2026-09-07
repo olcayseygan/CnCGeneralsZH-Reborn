@@ -375,8 +375,19 @@ Bool AsciiString::isNone() const
 //-----------------------------------------------------------------------------
 Bool AsciiString::nextToken(AsciiString* tok, const char* seps)
 {
-	if (this->isEmpty() || tok == this)
+	if (tok == this)
 		return false;
+
+	/* An exhausted source used to return false with the caller's token left holding the *previous*
+		 token.  Every loop of the form "while (token.getLength() > 0) nextToken(&token)" then never
+		 ends, because the token never empties - see ConvertShortMapPathToLongMapPath, where it grew
+		 a string until AsciiString's 32767-byte ceiling threw ERROR_OUT_OF_MEMORY out of
+		 parseCommandLine.  Failing to produce a token means the token is empty. */
+	if (this->isEmpty())
+	{
+		tok->clear();
+		return false;
+	}
 
 	if (seps == NULL)
 		seps = " \n\r\t";

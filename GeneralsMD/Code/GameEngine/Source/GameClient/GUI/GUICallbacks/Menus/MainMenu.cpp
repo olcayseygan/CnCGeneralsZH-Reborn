@@ -60,6 +60,7 @@
 #include "GameClient/CampaignManager.h"
 #include "GameClient/HotKey.h"
 #include "GameClient/GameClient.h"
+#include "GameClient/GUICallbacks.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/ScriptEngine.h"
 #include "GameNetwork/GameSpyOverlay.h"
@@ -777,7 +778,15 @@ void DeclineResolution()
 		
 		TheInGameUI->recreateControlBar();
 
-		TheShell->push( AsciiString("Menus/MainMenu.wnd") );
+		//
+		// Same rule as accepting the change: in a match the thing on screen is the battlefield, and
+		// the command bar comes back hidden from its layouts.  Pushing the main menu here put the
+		// menu over a running game.
+		//
+		if( TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
+			ShowControlBar( TRUE );
+		else
+			TheShell->push( AsciiString("Menus/MainMenu.wnd") );
 	}
 }
 

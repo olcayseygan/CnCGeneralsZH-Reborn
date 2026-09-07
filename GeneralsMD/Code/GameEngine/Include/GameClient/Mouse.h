@@ -274,6 +274,14 @@ public:
 	inline Bool getVisibility(void) { return m_visible; } // get visibility state
 	
 	void drawTooltip( void );					///< draw the tooltip text
+
+	/** Where a tooltip box of this size goes for a pointer here: beside it, flipped to the other
+		* side at the right or bottom edge, and then held inside the screen.  Static and free of every
+		* member so the placement can be checked without a display; drawTooltip is its only caller. */
+	static void placeTooltip( Int mouseX, Int mouseY, Int width, Int height,
+														Int minX, Int minY, Int maxX, Int maxY,
+														Int *xOut, Int *yOut );
+
 	void drawCursorText( void );			///< draw the mouse cursor text
 	Int getCursorIndex( const AsciiString& name );
 	void resetTooltipDelay( void );

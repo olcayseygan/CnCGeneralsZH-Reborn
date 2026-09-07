@@ -444,7 +444,12 @@ void LanLobbyMenuInit( WindowLayout *layout, void *userData )
 	//UnicodeString	txtInput;
 	//txtInput.translate(IPs.getMachineName());
 	LANPreferences prefs;
-	defaultName = prefs.getUserName();
+	/* -lanname beats the preferences file, because two copies on one machine share that file and a
+		 host denies the second one as a duplicate name.  See parseLanName in CommandLine.cpp. */
+	if (TheGlobalData->m_lanPlayerName.isNotEmpty())
+		defaultName.translate( TheGlobalData->m_lanPlayerName );
+	else
+		defaultName = prefs.getUserName();
 	while (defaultName.getLength() > g_lanPlayerNameLength)
 		defaultName.removeLastChar();
 	GadgetTextEntrySetText( textEntryPlayerName, defaultName);
@@ -534,9 +539,14 @@ static void shutdownComplete( WindowLayout *layout )
 //-------------------------------------------------------------------------------------------------
 void LanLobbyMenuShutdown( WindowLayout *layout, void *userData )
 {
-	LANPreferences prefs;
-	prefs["UserName"] = UnicodeStringToQuotedPrintable(GadgetTextEntryGetText( textEntryPlayerName ));
-	prefs.write();
+	/* A name that came from -lanname is this copy's, not this machine's: writing it back would put
+		 the second copy's name in the preferences both copies read. */
+	if (TheGlobalData->m_lanPlayerName.isEmpty())
+	{
+		LANPreferences prefs;
+		prefs["UserName"] = UnicodeStringToQuotedPrintable(GadgetTextEntryGetText( textEntryPlayerName ));
+		prefs.write();
+	}
 
 	DestroyGameInfoWindow();
 	// hide menu

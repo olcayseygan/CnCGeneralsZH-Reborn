@@ -260,9 +260,14 @@ void LANAPI::handleRequestJoin( LANMessage *msg, UnsignedInt senderIP )
 			}
 #endif
 			
-			// check for a duplicate serial
+			/* Check for a duplicate serial - unless both ends are on loopback, which is two copies
+				 of the game on one machine and therefore one installation, one registry and one
+				 serial by construction.  EA's check is the retail one-key-one-seat rule and it stays
+				 on for every address that could be a second machine; here it would refuse the join
+				 every time and there would be no way to play a LAN game against yourself at all. */
 			AsciiString s;
-			for (player = 0; canJoin && player<MAX_SLOTS; ++player)
+			const Bool sameMachine = IsLoopbackIP( m_localIP ) && IsLoopbackIP( senderIP );
+			for (player = 0; canJoin && !sameMachine && player<MAX_SLOTS; ++player)
 			{
 				LANGameSlot *slot = m_currentGame->getLANSlot(player);
 				s.clear();

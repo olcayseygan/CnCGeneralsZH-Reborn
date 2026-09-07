@@ -34,6 +34,7 @@
 #include "GameClient/TerrainVisual.h" // for TERRAIN_LOD_MIN definition
 #include "GameClient/GameText.h"
 #include "GameNetwork/GameInfo.h" // for the SlotState -autoskirmish hands the AI slots
+#include "GameNetwork/NetworkUtil.h" // for ResolveIP, which -lanip parses its address with
 #include "Common/FileSystem.h"
 #include "Common/RandomMapGenerator.h" // for -randommap
 
@@ -74,7 +75,7 @@ struct CommandLineParam
 	FuncPtr func;
 };
 
-static void ConvertShortMapPathToLongMapPath(AsciiString &mapName)
+void ConvertShortMapPathToLongMapPath(AsciiString &mapName)
 {
 	AsciiString path = mapName;
 	AsciiString token;
@@ -85,17 +86,21 @@ static void ConvertShortMapPathToLongMapPath(AsciiString &mapName)
 		DEBUG_CRASH(("Invalid map name %s", mapName.str()));
 		return;
 	}
-	path.nextToken(&token, "\\/");
-	while (!token.endsWithNoCase(".map") && (token.getLength() > 0))
+	/* Drive the walk on nextToken's own answer rather than on the token being non-empty: a path
+		 that never names a .map file must leave this loop, and leave mapName as the player typed it
+		 rather than half-rewritten. */
+	Bool haveToken = path.nextToken(&token, "\\/");
+	while (haveToken && !token.endsWithNoCase(".map"))
 	{
 		actualpath.concat(token);
 		actualpath.concat('\\');
-		path.nextToken(&token, "\\/");
+		haveToken = path.nextToken(&token, "\\/");
 	}
 
 	if (!token.endsWithNoCase(".map"))
 	{
 		DEBUG_CRASH(("Invalid map name %s", mapName.str()));
+		return;
 	}
 	// remove the .map from the end.
 	token.removeLastChar();
@@ -1521,6 +1526,65 @@ Int parseGroupDrill(char *args[], int num)
 	return 1;
 }
 
+/* -uidrill <n> works the command bar the way a player does, from a script.
+
+	 The bar is laid out again every time its scheme is set, and a panel that was minimised at that
+	 moment used to come back a little higher than it went down - a few pixels a rebuild, until the
+	 build tooltip anchored to it was off the top of the screen. Nothing in an unattended run ever
+	 presses the minimise button or changes the player's scheme, so the drift could only be found by
+	 hand. This does both every n frames and logs where the bar actually landed, so a long run turns
+	 the bug into a column of numbers that either holds still or climbs. */
+Int parseUIDrill(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		Int frames = 120;
+		Int eaten = 1;
+		if (num > 1 && args[1] && args[1][0] >= '0' && args[1][0] <= '9')
+		{
+			frames = atoi(args[1]);
+			eaten = 2;
+		}
+		if (frames < 2)
+			frames = 2;		// the bar slides; give it a frame to arrive before measuring it again
+		TheWritableGlobalData->m_uiDrill = frames;
+		return eaten;
+	}
+	return 1;
+}
+
+/* -resdrill <frame> [w] [h] changes the resolution from inside a running match.
+
+	 That is the one path the options menu has that no switch could reach: the device is reset, the
+	 shell is thrown away and rebuilt, and the command bar is built again while the match it belongs
+	 to keeps running. It crashed, and reproducing it meant a person in the options menu of a live
+	 game. With no width given it takes the next mode the device offers that is not the one already
+	 on screen, so the drill needs to know nothing about the monitor it runs on. */
+Int parseResDrill(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		Int frame = 600;
+		Int eaten = 1;
+		if (num > 1 && args[1] && args[1][0] >= '0' && args[1][0] <= '9')
+		{
+			frame = atoi(args[1]);
+			eaten = 2;
+			if (num > 3 && args[2] && args[3] && args[2][0] >= '0' && args[2][0] <= '9' && args[3][0] >= '0' && args[3][0] <= '9')
+			{
+				TheWritableGlobalData->m_resDrillX = atoi(args[2]);
+				TheWritableGlobalData->m_resDrillY = atoi(args[3]);
+				eaten = 4;
+			}
+		}
+		if (frame < 1)
+			frame = 1;
+		TheWritableGlobalData->m_resDrillFrame = frame;
+		return eaten;
+	}
+	return 1;
+}
+
 /* -teams <n> splits an -autoskirmish lobby into n allied teams instead of a free-for-all.
 
 	 Free-for-all and 4v4 are not the same load and not the same game. Eight players each fighting
@@ -1597,6 +1661,54 @@ Int parseNetGame(char *args[], int num)
 		TheWritableGlobalData->m_netGameHosts = args[1];
 	}
 	return 2;
+}
+
+/* -lanip <ip> is the same idea one level up, for the LAN lobby rather than for a game started
+	 without one.  The lobby socket is a single UDP port (8086) and nothing sets SO_REUSEADDR, so the
+	 first copy on a machine binds it on every address and the second copy's LAN screen comes up with
+	 a socket error and an empty game list.  The address here is what LanLobbyMenu binds instead, so
+	 two copies want two addresses out of 127.0.0.0/8 - Windows routes that range to loopback in its
+	 entirety, and a broadcast sent from one of them is delivered to the others.
+
+	 Options.ini carries the same setting, and both copies read the same file, which is why this is a
+	 switch and not a preference: the whole point is that the two copies disagree about it. */
+Int parseLanIP(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		UnsignedInt ip = ResolveIP( AsciiString( args[1] ) );
+		if (ip != 0 && ip != INADDR_NONE)
+			TheWritableGlobalData->m_defaultIP = ip;
+	}
+	return 2;
+}
+
+/* -lanname <name> is the other half of it.  The lobby name comes out of the preferences, both
+	 copies read the same preferences, and a host denies a join whose name it already has in a slot
+	 (RET_DUPLICATE_NAME) - so without this the second copy is refused until somebody retypes the
+	 name by hand every session. */
+Int parseLanName(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		TheWritableGlobalData->m_lanPlayerName = args[1];
+	}
+	return 2;
+}
+
+/* -lanlobby starts on the LAN screen rather than the main menu.  Two copies on one machine are
+   started by a script and the first thing both of them do is the same four clicks; this is those
+   clicks.  It turns the shell map off with it: Shell::showShell only puts the main menu on the
+   stack when there is no shell map, and the lobby has to go on top of something or backing out of
+   it leaves an empty shell. */
+Int parseLanLobby(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_lanLobbyOnStart = TRUE;
+		TheWritableGlobalData->m_shellMapOn = FALSE;
+	}
+	return 1;
 }
 
 Int parseNetSlot(char *args[], int num)
@@ -1855,10 +1967,15 @@ static CommandLineParam params[] =
 	{ "-showlanes", parseShowLanes },
 	{ "-crowd", parseCrowdModel },
 	{ "-groupdrill", parseGroupDrill },
+	{ "-uidrill", parseUIDrill },
+	{ "-resdrill", parseResDrill },
 	{ "-replay", parseReplay },
 	{ "-loadsave", parseLoadSave },
 	{ "-netgame", parseNetGame },
 	{ "-netslot", parseNetSlot },
+	{ "-lanip", parseLanIP },
+	{ "-lanname", parseLanName },
+	{ "-lanlobby", parseLanLobby },
 
 	//-allAdvice feature
 	//{ "-allAdvice", parseAllAdvice },

@@ -1221,28 +1221,13 @@ ControlBar::ControlBar( void )
 ControlBar::~ControlBar( void )
 {
 
-	if(m_scienceLayout)
-	{
-		m_scienceLayout->destroyWindows();
-		m_scienceLayout->deleteInstance();
-	}
-	m_scienceLayout = NULL;
+	if (m_rightHUDCameoWindow && m_rightHUDCameoWindow->winGetUserData())
+		delete m_rightHUDCameoWindow->winGetUserData();
+
+	// the layouts, the animation managers and every window pointer, in one place
+	shutdownWindows();
+
 	m_genArrow = NULL;
-	if(m_videoManager)
-		delete m_videoManager;
-	m_videoManager = NULL;
-
-
-	if(m_animateWindowManagerForGenShortcuts)
-		delete m_animateWindowManagerForGenShortcuts;
-	m_animateWindowManagerForGenShortcuts = NULL;
-	if(m_animateWindowManager)
-		delete m_animateWindowManager;
-	m_animateWindowManager = NULL;
-	
-	if(m_generalsScreenAnimate)
-		delete m_generalsScreenAnimate;
-	m_generalsScreenAnimate = NULL;
 
 	if( m_controlBarSchemeManager )
 		delete m_controlBarSchemeManager;
@@ -1267,24 +1252,6 @@ ControlBar::~ControlBar( void )
 		m_commandButtons = button;
 
 	}  // end while
-	if(m_buildToolTipLayout)
-	{
-		m_buildToolTipLayout->destroyWindows();
-		m_buildToolTipLayout->deleteInstance();
-		m_buildToolTipLayout = NULL;
-	}
-
-	if(m_specialPowerLayout)
-	{
-		m_specialPowerLayout->destroyWindows();
-		m_specialPowerLayout->deleteInstance();
-		m_specialPowerLayout = NULL;
-	}
-
-	m_radarAttackGlowWindow = NULL;
-
-	if (m_rightHUDCameoWindow && m_rightHUDCameoWindow->winGetUserData())
-		delete m_rightHUDCameoWindow->winGetUserData();
 
 }  // end ~ControlBar
 void ControlBarPopupDescriptionUpdateFunc( WindowLayout *layout, void *param );
@@ -1492,9 +1459,24 @@ struct ControlBarPanelPlacement
 	Bool weHid;						///< TRUE while the minimised bar is what is hiding it, and not the context
 	Real designX, designY, designW, designH;
 	Int placedX, placedY, placedW, placedH;
+	Int slideApplied;			///< how far down applyPanelSlide has actually moved this one, in pixels
 };
 typedef std::map< GameWindow *, ControlBarPanelPlacement > ControlBarPanelPlacementMap;
 static ControlBarPanelPlacementMap theControlBarPlacement;
+
+//-------------------------------------------------------------------------------------------------
+/** How far layoutPanels has to lift a window to put it back where applyPanelSlide found it.  It is
+	* what was recorded on the window, never what the panel's slide says now: applyPanelSlide leaves
+	* windows behind - a plate marker is never moved, and a panel minimised with immediate = TRUE is
+	* marked hidden before anything moves - and taking the panel's offset off one of those lifts a
+	* window that never went down.  The bar then climbed a little further off the bottom of the
+	* screen every time the layout was rebuilt, and the tooltip, placed against BackgroundMarker,
+	* climbed with it until it left the screen.  Not static: the test calls it. */
+//-------------------------------------------------------------------------------------------------
+Int ControlBar_slideToUndo( Int slideAppliedToWindow, Int panelSlideOffsetNow )
+{
+	return slideAppliedToWindow;
+}
 
 //-------------------------------------------------------------------------------------------------
 /** Which panel a direct child of ControlBarParent belongs to.  Everything not named here rides in
@@ -1737,6 +1719,7 @@ void ControlBar::placeInPanel( GameWindow *win, Int panel,
 	place.known = TRUE;
 	place.panel = panel;
 	place.weHid = FALSE;
+	place.slideApplied = 0;
 	place.placedX = newX;
 	place.placedY = newY;
 	place.placedW = newW;
@@ -1847,6 +1830,18 @@ void ControlBar::applyPanelSlide( void )
 		const Int wantY = place.placedY - m_panelOrigin.y + offset[ panel ];
 		if( pos.y != wantY )
 			child->winSetPosition( pos.x, wantY );
+
+		//
+		// What the window is actually carrying, which is not the same as what its panel's slide says.
+		// The two continues above leave windows behind - a plate marker never moves at all, and a
+		// panel minimised with immediate = TRUE is marked hidden before anything is moved - and
+		// layoutPanels used to take the panel's offset back off every one of them.  A window that
+		// never went down came back up, and placeInPanel then read that position as the rectangle it
+		// was authored at: the bar climbed a little further off the bottom of the screen every time
+		// the layout was rebuilt, and the tooltip, which is placed relative to BackgroundMarker,
+		// climbed with it until it left the screen.
+		//
+		place.slideApplied = offset[ panel ];
 	}
 }
 
@@ -1921,38 +1916,132 @@ void ControlBar::showPanel( Int panel, Bool show, Bool immediate )
 }  // end showPanel
 
 //-------------------------------------------------------------------------------------------------
-/** Re-anchor the control bar as three panels at one uniform scale. */
+/** Where the command bar's windows actually are, for -uidrill to write down.
+	*
+	* The frame's own position is not the measurement: when the bar drifted, the frame held still and
+	* the money readout, the toolbar column and the general's tabs climbed out of it one rebuild at a
+	* time.  So this is the top edge of the highest visible thing the bar owns, which is a single
+	* number that stays put on a bar that stays put.  MoneyDisplay is named as well because it is the
+	* one that moved first and furthest. */
 //-------------------------------------------------------------------------------------------------
-void ControlBar::layoutPanels( void )
+static void controlBarHighestTop( GameWindow *win, Int *topOut, Int *moneyOut )
 {
-	GameWindow *parent = m_contextParent[ CP_MASTER ];
-	if( parent == NULL || TheDisplay == NULL )
+	for( GameWindow *child = win->winGetChild(); child; child = child->winGetNext() )
+	{
+		if( !child->winIsHidden() )
+		{
+			Int sx, sy;
+			child->winGetScreenPosition( &sx, &sy );
+			if( sy < *topOut )
+				*topOut = sy;
+			if( strcmp( shortWindowName( child ), "MoneyDisplay" ) == 0 )
+				*moneyOut = sy;
+		}
+		controlBarHighestTop( child, topOut, moneyOut );
+	}
+}
+
+/** The first command button on the bar that has a CommandButton behind it - the thing a player's
+	* pointer lands on, and the only kind of window the build tooltip is populated from. */
+static GameWindow *controlBarFirstCommandButton( GameWindow *win )
+{
+	for( GameWindow *child = win->winGetChild(); child; child = child->winGetNext() )
+	{
+		if( BitTest( child->winGetStyle(), GWS_PUSH_BUTTON ) && GadgetButtonGetData( child ) != NULL )
+			return child;
+		GameWindow *found = controlBarFirstCommandButton( child );
+		if( found )
+			return found;
+	}
+	return NULL;
+}
+
+void ControlBar_logPlacement( const char *tag, Int frame )
+{
+	if( TheControlBar == NULL || TheDisplay == NULL )
 		return;
 
-	//
-	// A panel that is away, or on its way, is not where this function last put it - and this
-	// function reads a window's position to work out what it was authored at.  So the slide is
-	// taken off first and put back at the end, and a bar that was minimised when the side changed
-	// is minimised again without the trip down.
-	//
-	// Taken off by moving each panel back up by however far it had travelled, not by calling
-	// applyPanelSlide - that puts every window back where this function last put it, and
-	// ControlBarScheme::init writes the money readout, the two tabs and the toolbar column their
-	// own positions immediately before calling us.  Restoring the cached y threw every one of
-	// those away, so the bar wore ControlBarScheme.ini's x and size with ControlBar.wnd's y: the
-	// GLA money sat six units high in its box, and the minimise button drew its tab eleven units
-	// below the one its plate paints, which is where the two arrows came from.
-	//
-	Bool wasAway[ CB_PANEL_COUNT ];
-	Int slideOff[ CB_PANEL_COUNT ];
-	Int q;
-	for( q = 0; q < CB_PANEL_COUNT; q++ )
+	Int top = TheDisplay->getHeight();
+	Int money = -1;
+	TheControlBar->forEachPlacedWindow( &top, &money );
+
+	Int markX, markY;
+	TheControlBar->getBackgroundMarkerPos( &markX, &markY );
+	const ICoord2D *origin = TheControlBar->getPanelOrigin();
+
+	/* Both halves of the shift, because only their difference moves anything: the marker position
+		 recorded when the bar was built, and where that same window is on screen right now. */
+	Int liveX = -1, liveY = -1;
+	GameWindow *markerWin = TheWindowManager->winGetWindowFromId(
+		NULL, TheNameKeyGenerator->nameToKey( AsciiString( "ControlBar.wnd:BackgroundMarker" ) ) );
+	if( markerWin )
+		markerWin->winGetScreenPosition( &liveX, &liveY );
+
+	/* The other half of the complaint was tooltips off the screen, so put a real one up - the same
+		 call hovering a build button makes - and write down the rectangle it landed in.  This is what
+		 cleared the build popup: it is placed against BackgroundMarker's *live* screen position, and
+		 the drift never moves that window, so with the bar's children two hundred pixels high the
+		 popup was measured in exactly the same place as with them home.  Kept because it is the only
+		 thing that says so. */
+	Int tipX = -1, tipY = -1, tipW = 0, tipH = 0;
+	GameWindow *master = TheControlBar->getMasterParent();
+	GameWindow *button = master ? controlBarFirstCommandButton( master ) : NULL;
+	if( button )
 	{
-		wasAway[ q ] = ( m_panelSlideTo[ q ] > 0.0f );
-		slideOff[ q ] = getPanelSlideOffset( q );
+		TheControlBar->populateBuildTooltipLayout( (const CommandButton *)GadgetButtonGetData( button ) );
+		WindowLayout *tip = TheControlBar->getBuildTooltipLayout();
+		GameWindow *tipWin = tip ? tip->getFirstWindow() : NULL;
+		if( tipWin )
+		{
+			tipWin->winGetScreenPosition( &tipX, &tipY );
+			tipWin->winGetSize( &tipW, &tipH );
+		}
+		if( tip )
+			tip->hide( TRUE );
 	}
 
-	for( GameWindow *slid = parent->winGetChild(); slid; slid = slid->winGetNext() )
+	DEBUG_LOG(("UIDRILL: frame %d %s top %d money %d origin (%d,%d) marker (%d,%d) live (%d,%d) tip (%d,%d %dx%d) screen %dx%d\n",
+		frame, tag, top, money, origin->x, origin->y, markX, markY, liveX, liveY,
+		tipX, tipY, tipW, tipH,
+		TheDisplay->getWidth(), TheDisplay->getHeight()));
+}
+
+void ControlBar::forEachPlacedWindow( Int *topOut, Int *moneyOut )
+{
+	GameWindow *parent = m_contextParent[ CP_MASTER ];
+	if( parent == NULL )
+		return;
+	controlBarHighestTop( parent, topOut, moneyOut );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Put the slide away: every window back up by however far it actually travelled, and all three
+	* panels declared home.
+	*
+	* Anything that reads a window's screen position has to run after this.  ControlBarScheme::init
+	* is the one that does - it asks each parent where it is on screen and writes the money readout,
+	* the two tabs and the toolbar column their own positions relative to that answer - and it used
+	* to ask while the bar was still on its way down.  The answer was the slid position, so the
+	* children came out right for a slid parent; then layoutPanels lifted the parent and every one of
+	* those children rode up with it, and placeInPanel read the lifted position as the rectangle they
+	* were authored at.  A few pixels a rebuild.  Toggle the bar and change side a dozen times and
+	* the money box, the toolbar column and the general's tabs are stranded a third of the way up an
+	* empty screen with the plates still painted at the bottom, and the build tooltip - which is
+	* placed against BackgroundMarker - has left the top of the picture.
+	*
+	* Taken off per window rather than per panel, and by what each window is actually carrying:
+	* applyPanelSlide leaves windows behind (a plate marker never moves, a panel minimised with
+	* immediate = TRUE is marked hidden before anything moves), and lifting one of those lifts a
+	* window that never went down.  Not by calling applyPanelSlide with the slide zeroed either -
+	* that puts every window back at the y layoutPanels last handed out, which throws away exactly
+	* the ControlBarScheme.ini positions the bar is being rebuilt to wear.
+	*/
+//-------------------------------------------------------------------------------------------------
+void ControlBar::clearPanelSlide( void )
+{
+	GameWindow *parent = m_contextParent[ CP_MASTER ];
+
+	for( GameWindow *slid = parent ? parent->winGetChild() : NULL; slid; slid = slid->winGetNext() )
 	{
 		ControlBarPanelPlacementMap::iterator it = theControlBarPlacement.find( slid );
 		if( it == theControlBarPlacement.end() || it->second.known == FALSE )
@@ -1965,20 +2054,44 @@ void ControlBar::layoutPanels( void )
 			slid->winHide( FALSE );
 			place.weHid = FALSE;
 		}
-		if( slideOff[ place.panel ] != 0 )
+		const Int undo = ControlBar_slideToUndo( place.slideApplied, getPanelSlideOffset( place.panel ) );
+		if( undo != 0 )
 		{
 			ICoord2D pos;
 			slid->winGetPosition( &pos.x, &pos.y );
-			slid->winSetPosition( pos.x, pos.y - slideOff[ place.panel ] );
+			slid->winSetPosition( pos.x, pos.y - undo );
+			place.slideApplied = 0;
 		}
 	}
 
-	for( q = 0; q < CB_PANEL_COUNT; q++ )
+	for( Int q = 0; q < CB_PANEL_COUNT; q++ )
 	{
 		m_panelSlide[ q ] = 0.0f;
 		m_panelSlideTo[ q ] = 0.0f;
 		m_panelHidden[ q ] = FALSE;
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Re-anchor the control bar as three panels at one uniform scale.
+	*
+	* A panel that is away, or on its way, is not where this function last put it - and this function
+	* reads a window's position to work out what it was authored at.  So the slide comes off first
+	* and goes back on at the end, and a bar that was minimised when the side changed is minimised
+	* again without the trip down. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::layoutPanels( void )
+{
+	GameWindow *parent = m_contextParent[ CP_MASTER ];
+	if( parent == NULL || TheDisplay == NULL )
+		return;
+
+	Bool wasAway[ CB_PANEL_COUNT ];
+	Int q;
+	for( q = 0; q < CB_PANEL_COUNT; q++ )
+		wasAway[ q ] = ( m_panelSlideTo[ q ] > 0.0f );
+
+	clearPanelSlide();
 
 	const Real dispW = (Real)TheDisplay->getWidth();
 	const Real dispH = (Real)TheDisplay->getHeight();
@@ -2087,7 +2200,97 @@ void ControlBar::init( void )
 	//Added this check because the builder uses the ControlBar, but doesn't care about
 	//the GUI.
 	if( TheWindowManager )
+		initWindows();
+
+}  // end init
+
+//-------------------------------------------------------------------------------------------------
+/** Drop every window the bar is holding.  Called before the windows are looked up again, and it is
+	* the layouts that matter: they own windows built against the old screen size, and the animation
+	* managers hold pointers into them. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::shutdownWindows( void )
+{
+	Int i;
+
+	if( m_scienceLayout )
 	{
+		m_scienceLayout->destroyWindows();
+		m_scienceLayout->deleteInstance();
+	}
+	m_scienceLayout = NULL;
+
+	if( m_buildToolTipLayout )
+	{
+		m_buildToolTipLayout->destroyWindows();
+		m_buildToolTipLayout->deleteInstance();
+	}
+	m_buildToolTipLayout = NULL;
+	m_showBuildToolTipLayout = FALSE;
+
+	if( m_specialPowerLayout )
+	{
+		m_specialPowerLayout->destroyWindows();
+		m_specialPowerLayout->deleteInstance();
+	}
+	m_specialPowerLayout = NULL;
+
+	//
+	// Each of these remembers the windows it is animating, so a manager that outlived its windows
+	// would walk freed memory on its next update.
+	//
+	if( m_videoManager )
+		delete m_videoManager;
+	m_videoManager = NULL;
+	if( m_animateWindowManager )
+		delete m_animateWindowManager;
+	m_animateWindowManager = NULL;
+	if( m_generalsScreenAnimate )
+		delete m_generalsScreenAnimate;
+	m_generalsScreenAnimate = NULL;
+	if( m_animateWindowManagerForGenShortcuts )
+		delete m_animateWindowManagerForGenShortcuts;
+	m_animateWindowManagerForGenShortcuts = NULL;
+
+	for( i = 0; i < NUM_CONTEXT_PARENTS; i++ )
+		m_contextParent[ i ] = NULL;
+	for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
+		m_commandWindows[ i ] = NULL;
+	for( i = 0; i < MAX_PURCHASE_SCIENCE_RANK_1; i++ )
+		m_sciencePurchaseWindowsRank1[ i ] = NULL;
+	for( i = 0; i < MAX_PURCHASE_SCIENCE_RANK_3; i++ )
+		m_sciencePurchaseWindowsRank3[ i ] = NULL;
+	for( i = 0; i < MAX_PURCHASE_SCIENCE_RANK_8; i++ )
+		m_sciencePurchaseWindowsRank8[ i ] = NULL;
+	for( i = 0; i < MAX_RIGHT_HUD_UPGRADE_CAMEOS; i++ )
+		m_rightHUDUpgradeCameos[ i ] = NULL;
+	for( i = 0; i < MAX_SPECIAL_POWER_SHORTCUTS; i++ )
+	{
+		m_specialPowerShortcutButtons[ i ] = NULL;
+		m_specialPowerShortcutButtonParents[ i ] = NULL;
+	}
+	m_specialPowerShortcutParent = NULL;
+	m_currentlyUsedSpecialPowersButtons = 0;
+	m_rightHUDWindow = NULL;
+	m_rightHUDCameoWindow = NULL;
+	m_rightHUDUnitSelectParent = NULL;
+	m_communicatorButton = NULL;
+	m_radarAttackGlowWindow = NULL;
+	m_animateDownWindow = NULL;
+	m_multiSelectTiles.clear();
+	m_sideSelectAnimateDown = FALSE;
+
+}  // end shutdownWindows
+
+//-------------------------------------------------------------------------------------------------
+/** Look up every window the bar drives, and lay the bar out.  Re-callable: a resolution change
+	* rebuilds ControlBar.wnd and then calls this instead of replacing the whole ControlBar. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::initWindows( void )
+{
+	{
+		shutdownWindows();
+
 		//
 		// the control bar has several windows that make up our context sensitive interface, we
 		// want those parent windows so that we can easily hide and show them to make the 
@@ -2335,7 +2538,7 @@ void ControlBar::init( void )
 		switchToContext( CB_CONTEXT_NONE, NULL );
 	}
 
-}  // end init
+}  // end initWindows
 
 //-------------------------------------------------------------------------------------------------
 /** Reset the context sensitive control bar GUI */

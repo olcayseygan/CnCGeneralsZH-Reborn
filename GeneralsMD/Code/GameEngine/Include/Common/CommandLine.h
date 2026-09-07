@@ -31,6 +31,12 @@
 #ifndef _COMMAND_LINE_H_
 #define _COMMAND_LINE_H_
 
+class AsciiString;
+
 void parseCommandLine(int argc, char *argv[]); ///< Parse command-line parameters
+
+/// "maps\foo.map" -> "maps\foo\foo.map".  Exposed so a test can hand it a path with no map file
+/// in it; that used to run until AsciiString's length ceiling threw out of parseCommandLine.
+void ConvertShortMapPathToLongMapPath(AsciiString &mapName);
 
 #endif // _COMMAND_LINE_H_

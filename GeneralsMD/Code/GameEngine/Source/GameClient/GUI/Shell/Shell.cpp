@@ -510,6 +510,17 @@ void Shell::showShell( Bool runInit )
 	//else
 		TheShell->push( AsciiString("Menus/MainMenu.wnd") );
   }
+
+	/* -lanlobby: go straight to the LAN screen, on top of the main menu that was just pushed, which
+	   is what clicking Multiplayer would have done.  The flag is spent here rather than read again,
+	   because showShell() also runs on the way back out of a game and the switch is about how this
+	   copy of the game starts, not where it lands every time. */
+	if( TheGlobalData->m_lanLobbyOnStart )
+	{
+		TheWritableGlobalData->m_lanLobbyOnStart = FALSE;
+		TheShell->push( AsciiString("Menus/LanLobbyMenu.wnd") );
+	}
+
 	m_isShellActive = TRUE;
 }  // end showShell
 

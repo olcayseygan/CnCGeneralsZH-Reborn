@@ -39,6 +39,12 @@ UnsignedInt ResolveIP(AsciiString host);
     address.  ResolveIP() answers INADDR_NONE for a malformed dotted quad and 0 for a name it
     cannot look up; neither is a player, so both are refused here. */
 Int ResolveHostList(AsciiString hosts, UnsignedInt *addresses, Int maxAddresses);
+
+/** True for the whole of 127.0.0.0/8, which Windows routes to loopback and which is therefore the
+    range two copies of the game on one machine take an address each out of.  Host order, the same
+    order ResolveIP() answers in. */
+inline Bool IsLoopbackIP(UnsignedInt hostOrderIP) { return (hostOrderIP & 0xFF000000) == 0x7F000000; }
+
 UnsignedShort GenerateNextCommandID();
 Bool DoesCommandRequireACommandID(NetCommandType type);
 Bool CommandRequiresAck(NetCommandMsg *msg);

@@ -701,8 +701,14 @@ GlobalData::GlobalData()
 	m_showLanes = FALSE; // the lane overlay is a diagnostic, off unless -showlanes asks for it
 	m_crowdModel = FALSE; // the crowd model is the change under test; without -crowd this is the old build
 	m_groupDrill = 0; // no group orders are faked; -groupdrill is a measuring tool and ruins the match it runs in
+	m_uiDrill = 0; // nobody presses the minimise button; -uidrill is how a script presses it
+	m_resDrillFrame = 0; // the resolution stays where it started unless -resdrill changes it mid-match
+	m_resDrillX = 0;
+	m_resDrillY = 0;
 	m_netGameHosts.clear(); // no network game from the command line
 	m_netGameLocalSlot = 0;
+	m_lanPlayerName.clear(); // the lobby name comes out of the preferences unless -lanname says otherwise
+	m_lanLobbyOnStart = FALSE;
 	m_horizontalScrollSpeedFactor = 1.0;
 	m_verticalScrollSpeedFactor = 1.0;
 

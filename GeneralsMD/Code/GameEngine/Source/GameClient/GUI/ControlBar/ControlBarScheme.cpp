@@ -430,6 +430,14 @@ void ControlBarScheme::init(void)
 {
 	if(TheControlBar)
 	{
+		//
+		// Before anything below asks a window where it is on screen.  switchControlBarStage sends
+		// the panels home but they travel there over a fifth of a second, so on its own it leaves
+		// every screen position read in this function reading a bar that is still on its way - and
+		// the money readout, the two tabs and the toolbar column are all placed from those reads.
+		// See ControlBar::clearPanelSlide.
+		//
+		TheControlBar->clearPanelSlide();
 		TheControlBar->switchControlBarStage(CONTROL_BAR_STAGE_DEFAULT);
 		TheControlBar->updateBuildQueueDisabledImages( m_buttonQueueImage );
 		TheControlBar->updateRightHUDImage(m_rightHUDImage);

@@ -7833,21 +7833,45 @@ void InGameUI::resetIdleWorker( void )
 
 void InGameUI::recreateControlBar( void )
 {
+	//
+	// deleteInstance() hands the block back to the pool without taking the window off the manager's
+	// list and without touching its children, so the freed root stayed in m_windowList and the pool
+	// then handed the same block to the root created two lines later.  The list was a ring of
+	// half-freed windows after that, and the first winRepaint that reached one drew a push button
+	// whose overlay image was whatever the block now held.  Out of a match nothing showed because
+	// the bar is hidden and winRepaint skips hidden windows; in one it was the crash on changing
+	// resolution.  winDestroy unlinks the whole tree and defers the free to the window manager's own
+	// pass, which is also what keeps the pointers below readable until then.
+	//
 	GameWindow *win = TheWindowManager->winGetWindowFromId(NULL, TheNameKeyGenerator->nameToKey(AsciiString("ControlBar.wnd")));
 	if(win)
-		win->deleteInstance();
-	
-	m_idleWorkerWin = NULL;	
-	
+		TheWindowManager->winDestroy(win);
+
+	m_idleWorkerWin = NULL;
+
 	createControlBar();
-		
+
+	//
+	// The bar is rebuilt from its windows rather than replaced.  Replacing it re-parsed
+	// CommandButton.ini and CommandSet.ini and handed out new CommandButton addresses, while every
+	// const CommandButton * already held by something in the running game - a production queue, a
+	// hunt update, the partition manager, the academy - went on pointing at the freed ones.
+	//
 	if(TheControlBar)
 	{
-		delete TheControlBar;
-		TheControlBar = NEW ControlBar;
-		TheControlBar->init();
-	}
+		TheControlBar->initWindows();
 
+		//
+		// The two things init() cannot do for itself: the shortcut strip belongs to one general, and
+		// the scheme is that general's artwork.  Both were applied to windows that no longer exist.
+		//
+		if(TheGameLogic->isInGame() && !TheGameLogic->isInShellGame())
+		{
+			Player *localPlayer = ThePlayerList->getLocalPlayer();
+			TheControlBar->initSpecialPowershortcutBar(localPlayer);
+			TheControlBar->setControlBarSchemeByPlayer(localPlayer);
+		}
+	}
 
 }
 

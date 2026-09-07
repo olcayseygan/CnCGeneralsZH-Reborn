@@ -104,6 +104,9 @@
 #include "GameClient/GlobalLanguage.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/GUICallbacks.h"
+#include "GameClient/ControlBar.h"		// -uidrill works the command bar the way a player does
+#include "GameClient/InGameUI.h"		// -resdrill selects a building before it changes the mode
+#include "GameLogic/Object.h"
 
 #include "GameNetwork/GameInfo.h"
 #include "GameNetwork/NetworkInterface.h"
@@ -1001,6 +1004,12 @@ void GameEngine::init( int argc, char *argv[] )
 		{
 			RELEASE_CRASHLOCALIZED("ERROR:D3DFailurePrompt", "ERROR:D3DFailureMessage");
 		}
+		/* Anything else stops here as well.  Running on means running frames against subsystems that
+			 were never built, and the access violation that follows names update() instead of the real
+			 failure - which is how a bad -map argument came to read as "the game crashed on quit". */
+		AsciiString why;
+		why.format("GameEngine::init failed with ErrorCode 0x%08x.", (UnsignedInt)ec);
+		RELEASE_CRASH((why.str()));
 	}
 	catch (INIException e)
 	{
@@ -1398,6 +1407,129 @@ static void updateFixedCamera( void )
 		logged = TRUE;
 		DEBUG_LOG(("CAMERA: holding (%.0f,%.0f)\n", look.x, look.y));
 	}
+}
+
+/** -----------------------------------------------------------------------------------------------
+ * -uidrill <n>: minimise the command bar, put it back, and re-apply its scheme, over and over.
+ *
+ * The bar drifted up the screen a few pixels at a time and only under a sequence no unattended run
+ * performs: a panel that is away when its layout is rebuilt.  Nothing the AI does touches the bar,
+ * -groupdrill gives orders and never opens a menu, and the drift is small enough per rebuild that
+ * one cycle by hand looks like nothing.  So the drill does the two halves on alternate ticks - a
+ * toggle, then a rebuild once the slide has arrived - and writes where the bar landed each time.
+ * A run that holds one pair of numbers for its whole life is a bar that stays put; a run whose
+ * numbers walk is the bug.
+ */
+static void updateUIDrill( void )
+{
+	if( TheGlobalData->m_uiDrill <= 0 || TheControlBar == NULL || TheGameLogic == NULL )
+		return;
+	if( !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
+		return;
+
+	// once per logic frame, not once per render frame: the renderer is uncapped and would run the
+	// whole cycle several times over on the one frame it is due
+	static UnsignedInt lastTickFrame = 0xffffffff;
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	if( frame < (UnsignedInt)TheGlobalData->m_uiDrill || frame == lastTickFrame )
+		return;
+	if( ( frame % (UnsignedInt)TheGlobalData->m_uiDrill ) != 0 )
+		return;
+	lastTickFrame = frame;
+
+	static Int tick = 0;
+	const Bool toggling = ( ( tick++ & 1 ) == 0 );
+
+	if( toggling )
+	{
+		TheControlBar->toggleControlBarStage();
+	}
+	else if( ThePlayerList )
+	{
+		// what setControlBarSchemeByPlayer reaches: ControlBarScheme::init, which calls layoutPanels
+		TheControlBar->setControlBarSchemeByPlayer( ThePlayerList->getLocalPlayer() );
+	}
+
+	ControlBar_logPlacement( toggling ? "toggle" : "relayout", (Int)frame );
+}
+
+/** -----------------------------------------------------------------------------------------------
+ * -resdrill <frame> [w] [h]: change the resolution from inside a running match.
+ *
+ * The options menu is the only way a player reaches this, and a script cannot open a menu.  What
+ * happens after the device resets - the shell thrown away and rebuilt, the command bar built again
+ * while the match that owns it is still running - is where it crashed, and the whole sequence lives
+ * in OptionsMenu.cpp so that this drill runs the real one rather than a copy of it.
+ */
+/* The rebuild frees the CommandButton table and builds a new one.  Nothing dereferences the old
+	 entries unless the bar is showing a command set, and the bar shows one only while something is
+	 selected - so a drill that selects nothing walks straight past the defect this is here to catch.
+	 Pick a structure: its command set is the one with production buttons on it. */
+static void resDrillSelectObject( Object *obj, void *userData )
+{
+	Drawable **found = (Drawable **)userData;
+	if( *found != NULL || obj == NULL || !obj->isKindOf( KINDOF_STRUCTURE ) )
+		return;
+	*found = obj->getDrawable();
+}
+
+static void updateResDrill( void )
+{
+	if( TheGlobalData->m_resDrillFrame <= 0 || TheGameLogic == NULL )
+		return;
+	if( !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
+		return;
+	if( TheGameLogic->getFrame() < (UnsignedInt)TheGlobalData->m_resDrillFrame )
+		return;
+
+	/* Two stages, sixty frames apart.  The first presses Accept, which leaves the "keep this
+		 resolution?" box on screen; the second answers it with Cancel, which is DeclineResolution -
+		 the mode goes back and the shell and the command bar are built a second time, from inside the
+		 box's own handler, over what the first rebuild left.  Answering in the same breath as Accept
+		 would be a sequence no player can perform. */
+	static Bool applied = FALSE;
+	static Bool dismissed = FALSE;
+	static UnsignedInt appliedFrame = 0;
+
+	if( applied )
+	{
+		if( dismissed || TheGameLogic->getFrame() < appliedFrame + 60 )
+			return;
+		dismissed = TRUE;
+		ResolutionDrillDismiss( FALSE );
+		return;
+	}
+	applied = TRUE;
+	appliedFrame = TheGameLogic->getFrame();
+
+	if( TheGlobalData->m_headless )
+	{
+		// a headless run has a 100x100 device it never draws to; resetting it proves nothing
+		DEBUG_LOG(("RESDRILL: refused, this run is headless\n"));
+		dismissed = TRUE;
+		return;
+	}
+
+	Drawable *pick = NULL;
+	if( ThePlayerList && TheInGameUI )
+	{
+		Player *local = ThePlayerList->getLocalPlayer();
+		if( local )
+			local->iterateObjects( resDrillSelectObject, &pick );
+		if( pick )
+		{
+			TheInGameUI->deselectAllDrawables();
+			TheInGameUI->selectDrawable( pick );
+			DEBUG_LOG(("RESDRILL: selected drawable %d so the bar is showing a command set\n",
+				(Int)pick->getID()));
+		}
+		else
+		{
+			DEBUG_LOG(("RESDRILL: nothing to select, the bar will be empty\n"));
+		}
+	}
+
+	ResolutionDrillApply( TheGlobalData->m_resDrillX, TheGlobalData->m_resDrillY );
 }
 
 static void updateAutoCamera( void )
@@ -1824,6 +1956,8 @@ void GameEngine::update( void )
 		updateHeadlessRun();
 		updateFixedCamera();
 		updateAutoCamera();
+		updateUIDrill();
+		updateResDrill();
 
 #ifdef DEBUG_LOGGING
 		fpsFrames++;

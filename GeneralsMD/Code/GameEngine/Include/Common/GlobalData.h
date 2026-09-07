@@ -395,8 +395,14 @@ public:
 	Bool m_showLanes;							///< -showlanes: draw every moving unit's route, the lane it was handed and the offset it kept
 	Bool m_crowdModel;						///< -crowd: the sandbox crowd model - corridor, absolute lanes, right of way, give way, fan out
 	Int m_groupDrill;							///< -groupdrill <n>: every n frames, order each player's army corner to corner as one group (0 = off)
+	Int m_uiDrill;								///< -uidrill <n>: every n frames, minimise the command bar and re-apply its scheme, logging where it landed (0 = off)
+	Int m_resDrillFrame;					///< -resdrill <frame> [w] [h]: change the resolution at that logic frame, from inside a running match (0 = off)
+	Int m_resDrillX;							///< the width -resdrill asks for (0 = the next mode the device offers)
+	Int m_resDrillY;							///< the height -resdrill asks for
 	AsciiString m_netGameHosts;				///< -netgame <ip>[,<ip>...]: the slot list of a LAN game started from the command line (empty = off)
 	Int m_netGameLocalSlot;						///< -netslot <n>: which of those addresses this copy of the game is
+	AsciiString m_lanPlayerName;			///< -lanname <name>: the name this copy takes in the LAN lobby (empty = the one in the preferences)
+	Bool m_lanLobbyOnStart;						///< -lanlobby: open the LAN lobby instead of stopping at the main menu
 
 	Int m_maxParticleCount;						///< maximum number of particles that can exist
 	Int m_maxFieldParticleCount;			///< maximum number of field-type particles that can exist (roughly)

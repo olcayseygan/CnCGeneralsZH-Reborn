@@ -982,6 +982,43 @@ void Mouse::resetTooltipDelay( void )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** Where the tooltip box goes for a pointer at (mouseX,mouseY).
+	*
+	* EA's version was the first two tests only, with a @todo on top of them saying the tips still had
+	* to be kept on screen.  Each test is a flip, not a clamp: the box jumps by its own width or height
+	* to the other side of the pointer, which is the right answer at the right and bottom edges and no
+	* answer at all at the other two.  A tooltip wider than the pointer's distance from the left edge
+	* flips to a negative x; a tall one - the build descriptions run several lines - flips off the top
+	* when the pointer is high up, and the text is then drawn where nobody can read it.  So keep the
+	* flip, which is what puts the box on the roomier side, and hold the result inside the screen
+	* afterwards.  Letting the pointer sit on the box beats losing the words underneath it. */
+//-------------------------------------------------------------------------------------------------
+void Mouse::placeTooltip( Int mouseX, Int mouseY, Int width, Int height,
+													Int minX, Int minY, Int maxX, Int maxY,
+													Int *xOut, Int *yOut )
+{
+	Int xPos = mouseX + 20;
+	Int yPos = mouseY;
+
+	if( xPos + width + 4 > maxX ) // +4 for spill
+		xPos -= 20 + width;
+	if( yPos + height + 4 > maxY ) // +4 for spill
+		yPos -= height;
+
+	if( xPos + width + 4 > maxX )
+		xPos = maxX - width - 4;
+	if( yPos + height + 4 > maxY )
+		yPos = maxY - height - 4;
+	if( xPos < minX )
+		xPos = minX;
+	if( yPos < minY )
+		yPos = minY;
+
+	*xOut = xPos;
+	*yOut = yPos;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Draw the mouse tooltip if one is set */
 //-------------------------------------------------------------------------------------------------
 void Mouse::drawTooltip( void )
@@ -990,25 +1027,13 @@ void Mouse::drawTooltip( void )
 		return;
 	}
 
-	/// @todo: Still need to put in display logic so it puts the tool tips in a visable position on the edge of the screen
 	if( m_displayTooltip && TheDisplay && m_tooltipDisplayString && (m_tooltipDisplayString->getTextLength() > 0) && !m_isTooltipEmpty)
 	{
 		Int width, xPos;
 		Int height, yPos;
 		m_tooltipDisplayString->getSize(&width,&height);
-		xPos = m_currMouse.pos.x + 20;
-		yPos = m_currMouse.pos.y;// + 20;
-
-		if( xPos + width + 4 > m_maxX ) // +4 for spill
-		{
-			//xPos = m_maxX - width;
-			xPos -= 20 + width;
-		}
-		if( yPos + height + 4 > m_maxY ) // +4 for spill
-		{
-			//yPos = m_maxY - height;
-			yPos -= /*40 +*/ height;
-		}
+		placeTooltip( m_currMouse.pos.x, m_currMouse.pos.y, width, height,
+									m_minX, m_minY, m_maxX, m_maxY, &xPos, &yPos );
 
 		Int boxWidth = (m_tooltipAnimateBackground)?(min(width, m_highlightPos)):width;
 

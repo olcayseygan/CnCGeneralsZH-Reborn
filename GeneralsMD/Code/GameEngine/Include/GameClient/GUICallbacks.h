@@ -61,6 +61,10 @@ extern void OptionsMenuUpdate( WindowLayout *layout, void *userData );
 extern void OptionsMenuShutdown( WindowLayout *layout, void *userData );
 extern WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
 extern WindowMsgHandledType OptionsMenuInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
+/// -resdrill: the options menu's own in-match resolution change, driven from the update loop
+extern void ResolutionDrillApply( Int xres, Int yres );
+/// and the answer to the box it leaves behind, a few frames later, the way a player answers it
+extern void ResolutionDrillDismiss( Bool accept );
 
 // Map Select Menu --------------------------------------------------------------------------------
 extern void MapSelectMenuInit( WindowLayout *layout, void *userData );
