@@ -1482,25 +1482,31 @@ static void updateResDrill( void )
 	if( TheGameLogic->getFrame() < (UnsignedInt)TheGlobalData->m_resDrillFrame )
 		return;
 
-	/* Two stages, sixty frames apart.  The first presses Accept, which leaves the "keep this
+	/* Two stages, two seconds apart.  The first presses Accept, which leaves the "keep this
 		 resolution?" box on screen; the second answers it with Cancel, which is DeclineResolution -
 		 the mode goes back and the shell and the command bar are built a second time, from inside the
 		 box's own handler, over what the first rebuild left.  Answering in the same breath as Accept
-		 would be a sequence no player can perform. */
+		 would be a sequence no player can perform.
+
+		 The wait is on the wall clock and not on logic frames because stage one opens the quit menu,
+		 the way a player reaches the options screen in a match, and that menu pauses the game.  A
+		 paused single-player game runs no logic at all, so a frame count here would never come due. */
+	const DWORD RES_DRILL_DISMISS_DELAY_MS = 2000;
+
 	static Bool applied = FALSE;
 	static Bool dismissed = FALSE;
-	static UnsignedInt appliedFrame = 0;
+	static DWORD appliedTimeMs = 0;
 
 	if( applied )
 	{
-		if( dismissed || TheGameLogic->getFrame() < appliedFrame + 60 )
+		if( dismissed || timeGetTime() - appliedTimeMs < RES_DRILL_DISMISS_DELAY_MS )
 			return;
 		dismissed = TRUE;
 		ResolutionDrillDismiss( FALSE );
 		return;
 	}
 	applied = TRUE;
-	appliedFrame = TheGameLogic->getFrame();
+	appliedTimeMs = timeGetTime();
 
 	if( TheGlobalData->m_headless )
 	{

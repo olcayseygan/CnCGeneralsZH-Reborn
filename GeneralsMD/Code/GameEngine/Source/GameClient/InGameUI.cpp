@@ -1129,6 +1129,7 @@ InGameUI::InGameUI()
 	m_peaceTimeDisplayString = NULL;
 	m_incomeDisplayString = NULL;
 	m_lastIncomeDisplayed = -1;
+	m_lastMoneyDisplayed = -1;
 	m_hudDrawCount = 0;
 	m_hudLastSampleFrame = 0;
 	m_hudLastSampleMs = 0;
@@ -2184,9 +2185,14 @@ void InGameUI::update( void )
 		}
 	}
 
-	// update the player money window if the money amount has changed
-	// this seems like as good a place as any to do the power hide/show
-	static Int lastMoney = -1;
+	//
+	// Update the player money window if the money amount has changed.  The amount last written is
+	// a member and not a static inside this function: the gadget is thrown away and built again
+	// whenever the command bar is, and a cache that outlives the window it was filled for left the
+	// new one showing the dollar signs its .wnd ships with until the player's money next moved.
+	//
+	// This is also as good a place as any to do the power hide/show.
+	//
 	static NameKeyType moneyWindowKey = TheNameKeyGenerator->nameToKey( "ControlBar.wnd:MoneyDisplay" );	
 	static NameKeyType powerWindowKey = TheNameKeyGenerator->nameToKey( "ControlBar.wnd:PowerWindow" );	
 
@@ -2212,13 +2218,13 @@ void InGameUI::update( void )
 		// the money gadget wraps at its own width and a second line looked broken
 		updateIncomeEstimate( moneyPlayer );
 
-		if( lastMoney != currentMoney )
+		if( m_lastMoneyDisplayed != currentMoney )
 		{
 			UnicodeString buffer;
 
 			buffer.format( TheGameText->fetch( "GUI:ControlBarMoneyDisplay" ), currentMoney );
 			GadgetStaticTextSetText( moneyWin, buffer );
-			lastMoney = currentMoney;
+			m_lastMoneyDisplayed = currentMoney;
 
 		}  // end if
 
@@ -7851,11 +7857,38 @@ void InGameUI::recreateControlBar( void )
 	// resolution.  winDestroy unlinks the whole tree and defers the free to the window manager's own
 	// pass, which is also what keeps the pointers below readable until then.
 	//
-	GameWindow *win = TheWindowManager->winGetWindowFromId(NULL, TheNameKeyGenerator->nameToKey(AsciiString("ControlBar.wnd")));
-	if(win)
-		TheWindowManager->winDestroy(win);
+	// A window's id is the key of its full decorated name, and the bar's root is called
+	// ControlBar.wnd:ControlBarParent - so a lookup on "ControlBar.wnd" matched nothing and the old
+	// bar was never destroyed at all.  Every rebuild left its predecessor on the window list, drawn
+	// and clickable at the size of the screen it was built for, and a resolution change makes two of
+	// them in a row: the command bar stacked two and three deep over the battlefield.  Every root
+	// with that id goes, not the first, so a run that already collected some is cleaned out.
+	//
+	// winDestroy rather than deleteInstance: deleteInstance hands the block back to the pool without
+	// taking the window off the manager's list and without touching its children, so the freed root
+	// stayed in m_windowList and the pool then handed the same block to the root created two lines
+	// later.  The list was a ring of half-freed windows after that, and the first winRepaint that
+	// reached one drew a push button whose overlay image was whatever the block now held.  winDestroy
+	// unlinks the whole tree and defers the free to the window manager's own pass, which is also what
+	// keeps the pointers below readable until then - and it relinks m_next into the destroy list, so
+	// the walk has to take the next window before it destroys this one.
+	//
+	const NameKeyType controlBarRootID =
+		TheNameKeyGenerator->nameToKey( AsciiString( "ControlBar.wnd:ControlBarParent" ) );
+
+	GameWindow *nextWindow = NULL;
+	for( GameWindow *window = TheWindowManager->winGetWindowList(); window; window = nextWindow )
+	{
+		nextWindow = window->winGetNext();
+		if( window->winGetWindowId() == controlBarRootID )
+			TheWindowManager->winDestroy( window );
+	}
 
 	m_idleWorkerWin = NULL;
+
+	// the money gadget goes with those windows, and the new one carries whatever text its .wnd
+	// ships with until update() is told the amount it is showing is not the amount the player has
+	m_lastMoneyDisplayed = -1;
 
 	createControlBar();
 
@@ -7881,6 +7914,34 @@ void InGameUI::recreateControlBar( void )
 		}
 	}
 
+}
+
+//
+// Everything a running match has on screen that is not the shell and not the command bar.  Each of
+// these was stretched to the resolution it was created at and none of them is rebuilt by the shell
+// going away, so after a mode change the diplomacy panel, the chat line and the replay controls
+// were still wearing the old screen's geometry - drawn and clicked a proportion of a screen away
+// from where they belong, or off the edge of a smaller one.  Diplomacy and chat are thrown away and
+// come back the next time the player asks for them; the replay controls are put back here because
+// nothing else builds them.
+//
+void InGameUI::notifyResolutionChange( void )
+{
+	recreateControlBar();
+
+	ResetDiplomacy();
+	ResetInGameChat();
+
+	if( m_replayWindow )
+	{
+		const Bool wasHidden = m_replayWindow->winIsHidden();
+
+		TheWindowManager->winDestroy( m_replayWindow );
+		createReplayControl();
+		m_replayWindow->winHide( wasHidden );
+	}
+
+	RecreateQuitMenu();
 }
 
 void InGameUI::disableTooltipsUntil(UnsignedInt frameNum)

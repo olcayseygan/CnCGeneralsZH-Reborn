@@ -793,6 +793,7 @@ public:  // ********************************************************************
 	virtual void selectNextIdleWorker( void );
 
 	virtual void recreateControlBar( void );
+	virtual void notifyResolutionChange( void );
 
 	virtual void disableTooltipsUntil(UnsignedInt frameNum);
 	virtual void clearTooltipsDisabled();
@@ -1028,6 +1029,7 @@ protected:
 	DisplayString *							m_peaceTimeDisplayString;	///< the peace time countdown in the corner
 	DisplayString *							m_incomeDisplayString;	///< the "(+N/min)" drawn beside the money
 	Int													m_lastIncomeDisplayed;	///< so that string is only rebuilt when the rate changes
+	Int													m_lastMoneyDisplayed;		///< so the money gadget is only written when the amount changes
 	UnsignedInt									m_hudDrawCount;					///< rendered frames counted by drawHudOverlay itself
 	UnsignedInt									m_hudLastSampleFrame;		///< m_hudDrawCount the fps sample was last refreshed on
 	UnsignedInt									m_hudLastSampleMs;			///< wall clock of that sample

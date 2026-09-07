@@ -1560,7 +1560,7 @@ static void applyPendingShellRebuild( void )
 	TheShell = MSGNEW("GameClientSubsystem") Shell;
 	TheShell->init();
 
-	TheInGameUI->recreateControlBar();
+	TheInGameUI->notifyResolutionChange();
 
 	//
 	// Out of a match the shell is what you are looking at, so it opens on the main menu.  In one,
@@ -1573,6 +1573,53 @@ static void applyPendingShellRebuild( void )
 		ShowControlBar( TRUE );
 	else
 		TheShell->push( AsciiString("Menus/MainMenu.wnd") );
+}
+
+//
+// What the money box on the command bar actually says.  The bar is thrown away and built again by
+// every one of these mode changes, and the new gadget carries the "GUI:$$$" its .wnd ships with
+// until something writes a number over it - so this line reading dollar signs a full second after a
+// rebuild is the readout that never got written.
+//
+static void resDrillLogMoney( const char *tag )
+{
+	GameWindow *moneyWindow = TheWindowManager->winGetWindowFromId(
+		NULL, TheNameKeyGenerator->nameToKey( AsciiString( "ControlBar.wnd:MoneyDisplay" ) ) );
+
+	if( moneyWindow == NULL )
+	{
+		DEBUG_LOG(("RESDRILL: %s, no money readout on the bar\n", tag));
+		return;
+	}
+
+	AsciiString text;
+	text.translate( GadgetStaticTextGetText( moneyWindow ) );
+	DEBUG_LOG(("RESDRILL: %s, money readout reads \"%s\"\n", tag, text.str()));
+}
+
+//
+// Every top-level window the manager is holding.  A rebuild that leaves the old copy on the list
+// shows up here as the same name twice, which on screen is one panel painted over another.
+//
+static void resDrillLogWindowRoots( const char *tag )
+{
+	Int count = 0;
+
+	for( GameWindow *window = TheWindowManager->winGetWindowList(); window;
+			 window = window->winGetNext() )
+	{
+		ICoord2D position, size;
+		window->winGetScreenPosition( &position.x, &position.y );
+		window->winGetSize( &size.x, &size.y );
+
+		DEBUG_LOG(("RESDRILL: %s, root \"%s\" (%d,%d %dx%d)%s\n",
+			tag, window->winGetInstanceData()->m_decoratedNameString.str(),
+			position.x, position.y, size.x, size.y,
+			window->winIsHidden() ? " hidden" : ""));
+		count++;
+	}
+
+	DEBUG_LOG(("RESDRILL: %s, %d top level windows\n", tag, count));
 }
 
 //
@@ -1640,13 +1687,21 @@ void ResolutionDrillApply( Int xres, Int yres )
 		wasX, wasY, xres, yres, modeIndex, bitDepth));
 
 	//
-	// From here it is the player's own route and nothing else: open the options menu the way the
-	// in-game quit menu opens it, put the dropdown on the mode we want, and press Accept.  Doing the
-	// device change directly instead - which this used to - skips the part that broke, which is the
-	// shell being torn down and rebuilt from inside a shell window's own message handler while the
-	// options layout is still on the stack.  QuitMenu.cpp's buttonOptions branch is the three lines
-	// below.
+	// From here it is the player's own route and nothing else: open the quit menu, open the options
+	// menu the way that menu's Options button does, put the dropdown on the mode we want, and press
+	// Accept.  Doing the device change directly instead - which this used to - skips the part that
+	// broke, which is the shell being torn down and rebuilt from inside a shell window's own message
+	// handler while the options layout is still on the stack.  QuitMenu.cpp's buttonOptions branch
+	// is the three lines below.
 	//
+	// The quit menu is not decoration here.  It pauses the game and takes input off the player until
+	// Return is pressed, and it is stretched to the screen it was built on, so a resolution change
+	// under it puts Return somewhere other than where the button now is - off the edge entirely on a
+	// smaller screen, which is a paused match with no way out.
+	//
+	if( !TheInGameUI->isQuitMenuVisible() )
+		ToggleQuitMenu();
+
 	WindowLayout *optLayout = TheShell->getOptionsLayout( TRUE );
 	if( optLayout == NULL )
 	{
@@ -1675,11 +1730,17 @@ void ResolutionDrillApply( Int xres, Int yres )
 		return;
 	}
 
+	QuitMenuLogPlacement( "before the mode change" );
+	resDrillLogMoney( "before the mode change" );
+	resDrillLogWindowRoots( "before the mode change" );
+
 	DEBUG_LOG(("RESDRILL: pressing Accept\n"));
 	TheWindowManager->winSendSystemMsg( parent, GBM_SELECTED, (WindowMsgData)accept, acceptID );
 
 	DEBUG_LOG(("RESDRILL: shell and command bar rebuilt at %dx%d\n",
 		TheDisplay->getWidth(), TheDisplay->getHeight()));
+
+	QuitMenuLogPlacement( "after the mode change" );
 }
 
 //
@@ -1700,6 +1761,9 @@ void ResolutionDrillDismiss( Bool accept )
 		return;
 	}
 
+	resDrillLogMoney( "after the mode change" );
+	resDrillLogWindowRoots( "after the mode change" );
+
 	NameKeyType buttonID = TheNameKeyGenerator->nameToKey(
 		AsciiString( accept ? "MessageBox.wnd:ButtonOk" : "MessageBox.wnd:ButtonCancel" ) );
 	GameWindow *button = TheWindowManager->winGetWindowFromId( resAcceptMenu, buttonID );
@@ -1714,6 +1778,20 @@ void ResolutionDrillDismiss( Bool accept )
 
 	DEBUG_LOG(("RESDRILL: after the dialog the display is %dx%d\n",
 		TheDisplay->getWidth(), TheDisplay->getHeight()));
+
+	QuitMenuLogPlacement( "after the dialog" );
+
+	//
+	// Press Return the way a player does, then say whether the game came back.  Input enabled 0 or
+	// paused 1 on this line is the resolution change having stranded the menu that holds the pause.
+	//
+	if( TheInGameUI->isQuitMenuVisible() )
+		ToggleQuitMenu();
+
+	DEBUG_LOG(("RESDRILL: quit menu closed, input enabled %d, game paused %d\n",
+		TheInGameUI->getInputEnabled() ? 1 : 0, TheGameLogic->isGamePaused() ? 1 : 0));
+
+	resDrillLogWindowRoots( "after the quit menu closed" );
 }
 
 static void showAdvancedOptions()

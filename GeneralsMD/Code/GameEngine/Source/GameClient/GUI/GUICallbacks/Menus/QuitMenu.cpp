@@ -39,6 +39,7 @@
 #include "Common/Recorder.h"
 #include "GameClient/GUICallbacks.h"
 #include "GameClient/WindowLayout.h"
+#include "GameClient/Display.h"
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/Gadget.h"
 #include "GameClient/GadgetPushButton.h"
@@ -133,6 +134,52 @@ void destroyQuitMenu()
 	noSaveLoadQuitMenuLayout = NULL;
 	quitMenuLayout = NULL;
 	isVisible = FALSE;
+}
+
+//
+// A .wnd is stretched to the screen it is built on, once, when it is built.  The quit menu on
+// screen when the resolution changes is therefore laid out for the screen that has just gone: on a
+// smaller one its buttons sit past the edge, and Return is the only thing that takes the game back
+// out of the pause the menu put it into, so a player who goes down a resolution from inside a match
+// is left looking at a paused game he cannot click his way out of.  Building it again costs a
+// dropped animation and nothing else.
+//
+void RecreateQuitMenu( void )
+{
+	const Bool wasVisible = isVisible;
+
+	destroyQuitMenu();
+
+	// destroyQuitMenu clears isVisible, so this takes ToggleQuitMenu's open branch.  The game is
+	// already paused and setGamePaused ignores a pause it is already holding.
+	if( wasVisible )
+		ToggleQuitMenu();
+}
+
+//
+// Where Return actually is, for -resdrill.  A drill closes the menu by calling ToggleQuitMenu and so
+// can never be told that the button is out of reach; the rectangle against the screen size is what
+// says it, and a button whose right edge is past the screen width is a paused game with no way out.
+//
+void QuitMenuLogPlacement( const char *tag )
+{
+	GameWindow *returnButton = ( quitMenuLayout == NULL )
+														 ? NULL
+														 : TheWindowManager->winGetWindowFromId( NULL, buttonReturn );
+
+	if( returnButton == NULL )
+	{
+		DEBUG_LOG(("QUITDRILL: %s, no quit menu on screen\n", tag));
+		return;
+	}
+
+	ICoord2D position, size;
+	returnButton->winGetScreenPosition( &position.x, &position.y );
+	returnButton->winGetSize( &size.x, &size.y );
+
+	DEBUG_LOG(("QUITDRILL: %s, return button (%d,%d %dx%d) screen %dx%d\n",
+		tag, position.x, position.y, size.x, size.y,
+		TheDisplay->getWidth(), TheDisplay->getHeight()));
 }
 
 /**

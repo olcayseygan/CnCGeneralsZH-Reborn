@@ -776,7 +776,7 @@ void DeclineResolution()
 		if( TheShell )
 			TheShell->init();
 		
-		TheInGameUI->recreateControlBar();
+		TheInGameUI->notifyResolutionChange();
 
 		//
 		// Same rule as accepting the change: in a match the thing on screen is the battlefield, and

@@ -375,6 +375,8 @@ extern WindowMsgHandledType EstablishConnectionsControlInput( GameWindow *window
 extern void destroyQuitMenu();
 extern void ToggleQuitMenu( void );
 extern void HideQuitMenu( void );
+extern void RecreateQuitMenu( void );
+extern void QuitMenuLogPlacement( const char *tag );
 extern WindowMsgHandledType QuitMenuSystem( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
 
 // Message of the Day -----------------------------------------------------------------------------
