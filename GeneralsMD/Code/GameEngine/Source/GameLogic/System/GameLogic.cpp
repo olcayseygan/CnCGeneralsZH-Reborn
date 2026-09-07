@@ -1151,6 +1151,24 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 	TheWritableGlobalData->m_loadScreenRender = TRUE;	///< mark it so only a few select things are rendered during load	
 	TheWritableGlobalData->m_TiVOFastMode = FALSE;	//always disable the TIVO fast-forward mode at the start of a new game.
 
+	/* Every switch below changes what a unit or the AI decides, and a decision that differs between
+		 two machines is a desync. None of them is in the INI checksum, so a player who types one joins
+		 a lobby like anyone else and the match comes apart on the first order instead of being refused
+		 at the door. They are measurement tools - the point of each is to run the same exe twice and
+		 compare - so a network game runs the shipped rules whatever the command line said. Replays are
+		 left alone: a replay recorded with a flag needs that flag to play back. Anything new that
+		 reaches GameLogic from the command line belongs in this list on the day it is written. */
+	if (isInMultiplayerGame())
+	{
+		TheWritableGlobalData->m_crowdModel = FALSE;			// -crowd
+		TheWritableGlobalData->m_noFlowPath = FALSE;			// -noflowpath
+		TheWritableGlobalData->m_noLanePath = FALSE;			// -nolanes
+		TheWritableGlobalData->m_noMomentumPath = FALSE;	// -nomomentum
+		TheWritableGlobalData->m_aiSliceFrames = 1;				// -aislice
+		TheWritableGlobalData->m_groupDrill = 0;					// -groupdrill
+		TheWritableGlobalData->m_peaceTime = 0;						// -peacetime, and the host's options string is read below
+	}
+
 	m_showBehindBuildingMarkers = TRUE;
 	m_drawIconUI = TRUE;
 	m_showDynamicLOD = TRUE;
