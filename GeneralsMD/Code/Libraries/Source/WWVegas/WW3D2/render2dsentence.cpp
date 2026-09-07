@@ -1181,14 +1181,22 @@ Render2DSentenceClass::Build_Sentence (const WCHAR *text, int *hkX, int *hkY)
 		return ;
 	}
 
+	//	With no render device there is nowhere to rasterize a glyph: Allocate_New_Surface would ask
+	//	CreateImageSurface of a null device and take the process with it.  Measure the text and stop
+	//	there, which is what justCalcExtents already exists to do - callers size their windows off
+	//	the extent and nothing is ever asked to draw the result.
+	if (DX8Wrapper::_Get_D3D_Device8() == NULL) {
+		Build_Sentence_Not_Centered(text, hkX, hkY, true);
+		return;
+	}
 
 	if(Centered && (WrapWidth > 0 || wcschr(text,L'\n')))
 		Build_Sentence_Centered(text, hkX, hkY);
 	else
 		Build_Sentence_Not_Centered(text, hkX, hkY);
-	
+
 	return;
-	
+
 }
 
 

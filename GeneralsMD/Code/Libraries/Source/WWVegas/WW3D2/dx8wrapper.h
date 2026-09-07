@@ -264,6 +264,10 @@ public:
 	** before the device is released.
 	*/
 	static void	Do_Onetime_Device_Dependent_Inits(void);
+	// The half of the above that never touches D3D: preset materials, the mesh renderer's
+	// containers, the texture loader's thread.  A run with no render device still needs these,
+	// because the rest of WW3D2 assumes they exist the moment anything is built.
+	static void	Do_Onetime_Device_Independent_Inits(void);
 	static void Do_Onetime_Device_Dependent_Shutdowns(void);
 
 	static bool Is_Device_Lost() { return IsDeviceLost; }

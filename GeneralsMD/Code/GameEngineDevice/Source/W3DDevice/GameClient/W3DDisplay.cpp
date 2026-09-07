@@ -925,12 +925,31 @@ void W3DDisplay::init( void )
 	WW3D::Set_Requested_Texture_Filter( TheGlobalData->m_textureFilterMode );
 	TextureFilterClass::_Set_Requested_Anisotropy( (unsigned int)TheGlobalData->m_anisotropyLevel );
 
+	/* -nodevice: never ask for a device at all.  D3D9 answers CreateDevice with D3DERR_DEVICELOST
+		 while the workstation is locked, and init then threw ERROR_INVALID_D3D and took the run with
+		 it, so an unattended measurement needed somebody logged in with the screen awake.
+		 Enumeration above still happens - DX8Wrapper::Init only counts adapters and modes, which
+		 works locked - so anything that asks what the hardware is still gets an answer.
+		 Everything below this point is the device and the things drawn with it: the shader manager,
+		 the debug display's font, the browser control.  None of it has a caller in a run that draws
+		 nothing. */
+	if( TheGlobalData && TheGlobalData->m_noRenderDevice )
+	{
+		// The subsystems the device would normally have brought up, minus the ones that are D3D
+		// resources.  Every render object's constructor reaches for a preset vertex material, so
+		// without these the first drawable built takes the process down.
+		DX8Wrapper::Do_Onetime_Device_Independent_Inits();
+		DEBUG_LOG(("W3DDisplay::init - headless: no render device, nothing will be drawn\n"));
+		m_initialized = true;
+		return;
+	}
+
 	if( WW3D::Set_Render_Device( 0,
-															 getWidth(), 
-															 getHeight(), 
-															 getBitDepth(), 
-															 getWindowed(), 
-															 true ) != WW3D_ERROR_OK ) 
+															 getWidth(),
+															 getHeight(),
+															 getBitDepth(),
+															 getWindowed(),
+															 true ) != WW3D_ERROR_OK )
 	{
 		// Getting the device at the default bit depth (32) didn't work, so try
 		// getting a 16 bit display.  (Voodoo 1-3 only supported 16 bit.) jba.

@@ -190,6 +190,12 @@ IndexBufferClass::WriteLockClass::WriteLockClass(IndexBufferClass* index_buffer_
 	index_buffer->Add_Ref();
 	switch (index_buffer->Type()) {
 	case BUFFER_TYPE_DX8:
+		//	No device means no D3D buffer; write into the scratch block instead. See
+		//	DX8IndexBufferClass::Get_Scratch_Indices.
+		if (static_cast<DX8IndexBufferClass*>(index_buffer)->Get_DX8_Index_Buffer()==NULL) {
+			indices=static_cast<DX8IndexBufferClass*>(index_buffer)->Get_Scratch_Indices();
+			break;
+		}
 		DX8_Assert();
 		DX8_ErrorCode(static_cast<DX8IndexBufferClass*>(index_buffer)->Get_DX8_Index_Buffer()->Lock(
 			0,
@@ -216,6 +222,7 @@ IndexBufferClass::WriteLockClass::~WriteLockClass()
 	DX8_THREAD_ASSERT();
 	switch (index_buffer->Type()) {
 	case BUFFER_TYPE_DX8:
+		if (static_cast<DX8IndexBufferClass*>(index_buffer)->index_buffer==NULL) break;
 		DX8_Assert();
 		DX8_ErrorCode(static_cast<DX8IndexBufferClass*>(index_buffer)->index_buffer->Unlock());
 		break;
@@ -242,6 +249,10 @@ IndexBufferClass::AppendLockClass::AppendLockClass(IndexBufferClass* index_buffe
 	switch (index_buffer->Type()) {
 	case BUFFER_TYPE_DX8:
 		DX8_Assert();
+		if (static_cast<DX8IndexBufferClass*>(index_buffer)->index_buffer==NULL) {
+			indices=static_cast<DX8IndexBufferClass*>(index_buffer)->Get_Scratch_Indices()+start_index;
+			break;
+		}
 		DX8_ErrorCode(static_cast<DX8IndexBufferClass*>(index_buffer)->index_buffer->Lock(
 			start_index*sizeof(unsigned short),
 			index_range*sizeof(unsigned short),
@@ -264,6 +275,7 @@ IndexBufferClass::AppendLockClass::~AppendLockClass()
 	DX8_THREAD_ASSERT();
 	switch (index_buffer->Type()) {
 	case BUFFER_TYPE_DX8:
+		if (static_cast<DX8IndexBufferClass*>(index_buffer)->index_buffer==NULL) break;
 		DX8_Assert();
 		DX8_ErrorCode(static_cast<DX8IndexBufferClass*>(index_buffer)->index_buffer->Unlock());
 		break;
@@ -288,6 +300,15 @@ DX8IndexBufferClass::DX8IndexBufferClass(unsigned short index_count_,UsageType u
 {
 	DX8_THREAD_ASSERT();
 	WWASSERT(index_count);
+	index_buffer=NULL;
+	scratch_indices=NULL;
+
+	//	Same as the vertex buffer: no render device, no D3D buffer.  See Create_Vertex_Buffer.
+	if (DX8Wrapper::_Get_D3D_Device8() == NULL) {
+		scratch_indices=W3DNEWARRAY unsigned short[index_count];
+		return;
+	}
+
 	unsigned usage_flags=
 		D3DUSAGE_WRITEONLY|
 		((usage&USAGE_DYNAMIC) ? D3DUSAGE_DYNAMIC : 0)|
@@ -338,7 +359,8 @@ DX8IndexBufferClass::DX8IndexBufferClass(unsigned short index_count_,UsageType u
 
 DX8IndexBufferClass::~DX8IndexBufferClass()
 {
-	index_buffer->Release();
+	if (index_buffer) index_buffer->Release();
+	if (scratch_indices) delete [] scratch_indices;
 }
 
 // ----------------------------------------------------------------------------

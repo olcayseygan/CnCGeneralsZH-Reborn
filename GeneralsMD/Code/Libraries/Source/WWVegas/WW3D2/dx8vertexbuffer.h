@@ -225,6 +225,10 @@ public:
 
 	IDirect3DVertexBuffer8* Get_DX8_Vertex_Buffer() { return VertexBuffer; }
 
+	// Plain memory standing in for the D3D buffer when there is no render device - see
+	// DX8IndexBufferClass::Get_Scratch_Indices for why a run with no picture still fills buffers.
+	unsigned char* Get_Scratch_Vertices() { return ScratchVertices; }
+
 	void Copy(const Vector3* loc, unsigned first_vertex, unsigned count);
 	void Copy(const Vector3* loc, const Vector2* uv, unsigned first_vertex, unsigned count);
 	void Copy(const Vector3* loc, const Vector3* norm, unsigned first_vertex, unsigned count);
@@ -234,6 +238,7 @@ public:
 
 protected:
 	IDirect3DVertexBuffer8*		VertexBuffer;
+	unsigned char*				ScratchVertices;	// used instead when there is no device
 
 	void Create_Vertex_Buffer(UsageType usage);
 };

@@ -1027,6 +1027,10 @@ void WaterRenderObjClass::load(void)
 //-------------------------------------------------------------------------------------------------
 Int WaterRenderObjClass::init(Real waterLevel, Real dx, Real dy, SceneClass *parentScene, WaterType type)
 {
+	// The water is a mesh, a bump map painted pixel by pixel and a set of render targets, all of
+	// which want a device.  Under -nodevice there is none, and nothing looks at water.
+	if (TheGlobalData && TheGlobalData->m_noRenderDevice)
+		return 0;
 
 	m_iBumpFrame=0;
 	m_bumpFrameAccum=0.0f;

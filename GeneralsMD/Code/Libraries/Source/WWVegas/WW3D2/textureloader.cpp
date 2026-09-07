@@ -653,6 +653,11 @@ IDirect3DSurface8* TextureLoader::Load_Surface_Immediate(
 
 void TextureLoader::Request_Thumbnail(TextureBaseClass *tc)
 {
+	//	See Request_Foreground_Loading: nothing to load into without a device.
+	if (DX8Wrapper::_Get_D3D_Device8() == NULL) {
+		return;
+	}
+
 	// Grab the foreground lock. This prevents the foreground thread
 	// from retiring any tasks related to this texture. It also
 	// serializes calls to Request_Thumbnail from multiple threads.
@@ -695,6 +700,12 @@ void TextureLoader::Request_Thumbnail(TextureBaseClass *tc)
 void TextureLoader::Request_Background_Loading(TextureBaseClass *tc)
 {
 	WWPROFILE(("TextureLoader::Request_Background_Loading()"));
+
+	//	See Request_Foreground_Loading: nothing to load into without a device.
+	if (DX8Wrapper::_Get_D3D_Device8() == NULL) {
+		return;
+	}
+
 	// Grab the foreground lock. This prevents the foreground thread
 	// from retiring any tasks related to this texture. It also 
 	// serializes calls to Request_Background_Loading from other
@@ -726,6 +737,14 @@ void TextureLoader::Request_Background_Loading(TextureBaseClass *tc)
 void TextureLoader::Request_Foreground_Loading(TextureBaseClass *tc)
 {
 	WWPROFILE(("TextureLoader::Request_Foreground_Loading()"));
+
+	//	A run with no render device has nowhere to put a texture, and no missing-texture stand-in to
+	//	fall back on either - that one is built when the device is.  Leaving the texture
+	//	uninitialised is correct here: nothing in such a run ever binds it.
+	if (DX8Wrapper::_Get_D3D_Device8() == NULL) {
+		return;
+	}
+
 	// Grab the foreground lock. This prevents the foreground thread
 	// from retiring the load tasks for this texture. It also 
 	// serializes calls to Request_Foreground_Loading from other
@@ -1203,6 +1222,13 @@ bool TextureLoadTaskClass::Begin_Load(void)
 {
 	WWASSERT(TextureLoader::Is_DX8_Thread());
 
+	//	With no render device there is nothing to load a texture into, and the caps this would size
+	//	it against were never filled in.  Refusing here leaves the texture object in place with no
+	//	surface behind it, which is what a run that never draws needs.
+	if (DX8Wrapper::_Get_D3D_Device8() == NULL) {
+		return false;
+	}
+
 	bool loaded = false;
 
 	// if allowed, begin a compressed load
@@ -1289,6 +1315,12 @@ void TextureLoadTaskClass::End_Load(void)
 
 void TextureLoadTaskClass::Finish_Load(void)
 {
+	//	No device, so no load and no missing-texture substitute either - that one is a D3D texture
+	//	built when the device was created, and without a device it was never built.
+	if (DX8Wrapper::_Get_D3D_Device8() == NULL) {
+		return;
+	}
+
 	switch (State) {
 		// NOTE: fall-through below is intentional.
 

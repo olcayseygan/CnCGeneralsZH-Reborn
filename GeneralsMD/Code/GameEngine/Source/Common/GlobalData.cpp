@@ -708,6 +708,7 @@ GlobalData::GlobalData()
 	m_resDrillX = 0;
 	m_resDrillY = 0;
 	m_resDrillKeep = FALSE;
+	m_noRenderDevice = FALSE; // -headless still takes a 100x100 device unless -nodevice says not to
 	m_scenarioFile.clear(); // nothing is scripted; -scenario is a measuring tool and, like -groupdrill, ruins the match it runs in
 	m_autoSkirmishTakeover = FALSE; // the AI plays the opponents unless -takeover empties their seats
 	for( Int slot = 0; slot < MAX_PLAYER_COUNT; slot++ )

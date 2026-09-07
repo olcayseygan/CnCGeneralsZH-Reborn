@@ -870,6 +870,12 @@ void W3DRadar::init( void )
 	// extending functionality
 	Radar::init();
 
+	// The radar's picture is three textures it paints the terrain and the blips into.  Under
+	// -nodevice there is nothing to hold them, and nothing looks at the result; the base class
+	// above is the half that logic cares about, and that half has already run.
+	if (TheGlobalData && TheGlobalData->m_noRenderDevice)
+		return;
+
 	// gather specific texture format information
 	initializeTextureFormats();
 

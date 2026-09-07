@@ -32,6 +32,7 @@
 #include "W3DDevice/GameClient/W3DSmudge.h"
 #include "W3DDevice/GameClient/W3DShaderManager.h"
 #include "Common/GameMemory.h"
+#include "Common/GlobalData.h"
 #include "GameClient/view.h"
 #include "GameClient/display.h"
 #include "WW3D2/texture.h"
@@ -61,6 +62,11 @@ W3DSmudgeManager::~W3DSmudgeManager()
 void W3DSmudgeManager::init(void)
 {
 	SmudgeManager::init();
+
+	// ReAcquireResources reads the back buffer off the device, and -nodevice has neither.
+	if (TheGlobalData && TheGlobalData->m_noRenderDevice)
+		return;
+
 	ReAcquireResources();
 }
 

@@ -1600,6 +1600,26 @@ Int parseResDrillKeep(char *args[], int)
 	return 1;
 }
 
+/* -nodevice runs the whole game without a Direct3D device.
+
+	 -headless already draws nothing, but it still takes a 100x100 windowed device, and D3D9 answers
+	 CreateDevice with D3DERR_DEVICELOST while the workstation is locked. That puts every unattended
+	 run behind somebody being logged in with the screen awake, which is the one thing an unattended
+	 run should not need. With this on, the device is never asked for: WW3D2 hands out plain memory
+	 where it would have handed out a vertex or index buffer, no texture is loaded, and the render
+	 systems that exist only to draw are not brought up at all.
+
+	 Still a work in progress - a match started this way does not survive map load yet - so it is a
+	 separate switch rather than something -headless does on its own. */
+Int parseNoDevice(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_noRenderDevice = TRUE;
+	}
+	return 1;
+}
+
 /* -scenario <name> plays Run/Scenarios/<name>.txt: spawn this unit here, send it there, on that
 	 frame.
 
@@ -2060,6 +2080,7 @@ static CommandLineParam params[] =
 	{ "-uidrill", parseUIDrill },
 	{ "-resdrill", parseResDrill },
 	{ "-resdrillkeep", parseResDrillKeep },
+	{ "-nodevice", parseNoDevice },
 	{ "-scenario", parseScenario },
 	{ "-side", parseSide },
 	{ "-takeover", parseTakeover },

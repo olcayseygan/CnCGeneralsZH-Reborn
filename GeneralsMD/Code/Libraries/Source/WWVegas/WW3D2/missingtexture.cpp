@@ -33,13 +33,23 @@ static IDirect3DTexture8 * _MissingTexture = NULL;
 
 IDirect3DTexture8* MissingTexture::_Get_Missing_Texture()
 {
-	WWASSERT(_MissingTexture);
+	//	The stand-in checkerboard is a D3D texture built when the device was created.  A run with no
+	//	device never built one, and every texture load in it ends up here, so hand back nothing
+	//	rather than dereferencing the null it used to.  Nothing in such a run draws with the result.
+	if (_MissingTexture == NULL) {
+		return NULL;
+	}
+
 	_MissingTexture->AddRef();
 	return _MissingTexture;
 }
 
 IDirect3DSurface8* MissingTexture::_Create_Missing_Surface()
 {
+	if (_MissingTexture == NULL) {
+		return NULL;
+	}
+
 	IDirect3DSurface8 *texture_surface = NULL;
 	DX8_ErrorCode(_MissingTexture->GetSurfaceLevel(0, &texture_surface));
 	D3DSURFACE_DESC texture_surface_desc;

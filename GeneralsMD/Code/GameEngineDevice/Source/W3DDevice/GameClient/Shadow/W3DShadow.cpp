@@ -127,6 +127,11 @@ Bool W3DShadowManager::init( void )
 {
 	Bool result=TRUE;
 
+	// A shadow is nothing but a thing drawn, and ReAcquireResources below asks the device for the
+	// buffers to draw it with.  Under -nodevice there is nothing here to acquire.
+	if (TheGlobalData && TheGlobalData->m_noRenderDevice)
+		return result;
+
 	if	(TheW3DVolumetricShadowManager && TheW3DVolumetricShadowManager->init())
 	{
 		if (TheW3DVolumetricShadowManager->ReAcquireResources())

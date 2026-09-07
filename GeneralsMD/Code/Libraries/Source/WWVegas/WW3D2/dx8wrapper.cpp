@@ -413,6 +413,26 @@ void DX8Wrapper::Do_Onetime_Device_Dependent_Inits(void)
 	Set_Default_Global_Render_States();
 }
 
+/*
+** The subset of the list above that never calls D3D, for a run started with no render device.
+** Deliberately a second list rather than a piece factored out of the first: the order in
+** Do_Onetime_Device_Dependent_Inits is EA's and nothing here is worth the risk of disturbing it on
+** the path that every player takes.
+**
+** What makes the subset necessary is that the rest of WW3D2 assumes all of it exists the moment
+** anything is built - VertexMaterialClass::Get_Preset is reached from the constructor of almost
+** every render object, and without Init() it walks an empty preset table.
+*/
+void DX8Wrapper::Do_Onetime_Device_Independent_Inits(void)
+{
+	TheDX8MeshRenderer.Init();
+	BoxRenderObjClass::Init();
+	VertexMaterialClass::Init();
+	PointGroupClass::_Init(); // This needs the VertexMaterialClass to be initted
+	ShatterSystem::Init();
+	TextureLoader::Init();
+}
+
 inline DWORD F2DW(float f) { return *((unsigned*)&f); }
 void DX8Wrapper::Set_Default_Global_Render_States(void)
 {

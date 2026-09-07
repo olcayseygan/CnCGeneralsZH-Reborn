@@ -930,6 +930,14 @@ void TextureClass::Apply_New_Surface
 	if (d3d_tex) d3d_tex->Release();
 
 	Poke_Texture(d3d_texture);//TextureLoadTask->Peek_D3D_Texture();
+
+	//	A run with no render device has no surface to hand over and no missing-texture stand-in
+	//	either, so this arrives null.  Take it and stop: the size and format below are read off a
+	//	surface that does not exist.
+	if (d3d_texture == NULL) {
+		return;
+	}
+
 	d3d_texture->AddRef();
 
 	if (initialized) Initialized=true;

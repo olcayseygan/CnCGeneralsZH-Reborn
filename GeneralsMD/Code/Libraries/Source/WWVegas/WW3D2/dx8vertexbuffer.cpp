@@ -173,6 +173,11 @@ VertexBufferClass::WriteLockClass::WriteLockClass(VertexBufferClass* VertexBuffe
 			fvf_name));
 		}
 #endif
+		//	No device means no D3D buffer; write into the scratch block instead.
+		if (static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()==NULL) {
+			Vertices=static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_Scratch_Vertices();
+			break;
+		}
 		DX8_Assert();
 		DX8_ErrorCode(static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()->Lock(
 			0,
@@ -200,6 +205,7 @@ VertexBufferClass::WriteLockClass::~WriteLockClass()
 		WWDEBUG_SAY(("VertexBuffer->Unlock()\n"));
 #endif
 		DX8_Assert();
+		if (static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()==NULL) break;
 		DX8_ErrorCode(static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()->Unlock());
 		break;
 	case BUFFER_TYPE_SORTING:
@@ -239,6 +245,11 @@ VertexBufferClass::AppendLockClass::AppendLockClass(VertexBufferClass* VertexBuf
 			fvf_name));
 		}
 #endif
+		if (static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()==NULL) {
+			Vertices=static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_Scratch_Vertices()
+				+start_index*VertexBuffer->FVF_Info().Get_FVF_Size();
+			break;
+		}
 		DX8_Assert();
 		DX8_ErrorCode(static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()->Lock(
 			start_index*VertexBuffer->FVF_Info().Get_FVF_Size(),
@@ -266,6 +277,7 @@ VertexBufferClass::AppendLockClass::~AppendLockClass()
 #ifdef VERTEX_BUFFER_LOG
 		WWDEBUG_SAY(("VertexBuffer->Unlock()\n"));
 #endif
+		if (static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()==NULL) break;
 		DX8_ErrorCode(static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()->Unlock());
 		break;
 	case BUFFER_TYPE_SORTING:
@@ -404,7 +416,8 @@ DX8VertexBufferClass::~DX8VertexBufferClass()
 	_DX8VertexBufferCount--;
 	WWDEBUG_SAY(("Current vertex buffer count: %d\n",_DX8VertexBufferCount));
 #endif
-	VertexBuffer->Release();
+	if (VertexBuffer) VertexBuffer->Release();
+	if (ScratchVertices) delete [] ScratchVertices;
 }
 
 // ----------------------------------------------------------------------------
@@ -431,6 +444,16 @@ void DX8VertexBufferClass::Create_Vertex_Buffer(UsageType usage)
 	_DX8VertexBufferCount++;
 	WWDEBUG_SAY(("Current vertex buffer count: %d\n",_DX8VertexBufferCount));
 #endif
+
+	//	A run with no render device has nothing to put a vertex buffer on.  Hand out a plain heap
+	//	block instead: the terrain, the trees and the bridges all fill their buffers while the map
+	//	loads, long before anything would be drawn, and they have to write somewhere.
+	if (DX8Wrapper::_Get_D3D_Device8() == NULL) {
+		VertexBuffer=NULL;
+		ScratchVertices=W3DNEWARRAY unsigned char[FVF_Info().Get_FVF_Size()*VertexCount];
+		return;
+	}
+	ScratchVertices=NULL;
 
 	unsigned usage_flags=
 		D3DUSAGE_WRITEONLY|
