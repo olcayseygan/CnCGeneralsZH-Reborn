@@ -38,6 +38,36 @@ UnsignedInt View::m_idNext = 1;
 // the tactical view singleton
 View *TheTacticalView = NULL;
 
+//-------------------------------------------------------------------------------------------------
+/** W3D's own default cone, and the one every camera number in the game was authored against. */
+static const Real VIEW_DESIGN_HFOV = 50.0f * PI / 180.0f;
+
+/** The widest screen that keeps that cone whole.  16:9 is where the shipped game is played and
+	* where the fork's own screenshots are taken, so it is the shape nothing may move under. */
+static const Real VIEW_REFERENCE_ASPECT = 16.0f / 9.0f;
+
+//-------------------------------------------------------------------------------------------------
+Real ViewHorizontalFovForScreen( Int displayWidth, Int displayHeight )
+{
+	if( displayWidth <= 0 || displayHeight <= 0 )
+		return VIEW_DESIGN_HFOV;
+
+	const Real aspect = (Real)displayWidth / (Real)displayHeight;
+	if( aspect <= VIEW_REFERENCE_ASPECT )
+		return VIEW_DESIGN_HFOV;
+
+	//
+	// Past 16:9 the horizontal cone opens instead of the vertical one closing.  Retail pins the
+	// horizontal angle and lets the vertical follow the aspect, which on a 5120x1440 screen leaves
+	// 14.9 degrees of world from top to bottom against 29.4 at 16:9 - the same building fills the
+	// same slice of the screen's *width* and twice as much of its height, so an ultrawide shot and
+	// a 16:9 shot of the same camera look like two different zoom levels.  Holding the vertical
+	// half-angle at its 16:9 value is what makes the two overlay.
+	//
+	const Real verticalHalf = (Real)tan( VIEW_DESIGN_HFOV * 0.5f ) / VIEW_REFERENCE_ASPECT;
+	return 2.0f * (Real)atan( verticalHalf * aspect );
+}
+
 
 View::View( void )
 {

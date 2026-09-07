@@ -189,15 +189,30 @@ void GlobalLanguage::parseFontFileName( INI *ini, void * instance, void *store, 
 	monkey->m_localFonts.push_front(asciiString);
 }	 
 
-Int GlobalLanguage::adjustFontSize(Int theFontSize) 
+Int GlobalLanguage::adjustFontSize(Int theFontSize)
 {
-	return adjustFontSizeForWidth( theFontSize, TheGlobalData->m_xResolution,
-																 m_resolutionFontSizeAdjustment );
+	return adjustFontSizeForScreen( theFontSize, TheGlobalData->m_xResolution,
+																	TheGlobalData->m_yResolution,
+																	m_resolutionFontSizeAdjustment );
 }
 
-Int GlobalLanguage::adjustFontSizeForWidth(Int theFontSize, Int screenWidth, Real damping) 
+Int GlobalLanguage::adjustFontSizeForScreen(Int theFontSize, Int screenWidth, Int screenHeight,
+																						Real damping)
 {
+	//
+	// The screen's size over the 800x600 everything was authored at, the smaller of the two axes -
+	// the same number ControlBarUniformScale() hands the command bar, and for the same reason.  It
+	// used to be the width alone, which is only the same thing at 4:3: on a 5120x1440 screen the
+	// width says 6.4 where the height says 2.4, and the lettering came out twice the size the panel
+	// under it had grown to.  A 1920x1080 shot and a 5120x1440 shot of the same bar have to
+	// overlay, and they only do if the text is measured off the axis the layout was measured off.
+	//
 	Real adjustFactor = screenWidth/800.0f;
+	if (screenHeight > 0)
+	{
+		const Real byHeight = screenHeight/600.0f;
+		if (byHeight < adjustFactor) adjustFactor = byHeight;
+	}
 	adjustFactor = 1.0f + (adjustFactor-1.0f) * damping;
 	if (adjustFactor<1.0f) adjustFactor = 1.0f;
 	//

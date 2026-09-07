@@ -6091,10 +6091,15 @@ void InGameUI::drawHudOverlay( void )
 	m_hudDisplayString->getSize( &textWidth, &textHeight );
 
 	// top right, clear of the radar and the superweapon timers - and under the peace time countdown
-	// while that is up, because the corner holds one plate above the other
-	const Int pad = 4;
-	Int x = TheDisplay->getWidth() - textWidth - pad - 8;
-	Int y = (m_hudOverlayBottom > 0) ? m_hudOverlayBottom + 2 : 3;
+	// while that is up, because the corner holds one plate above the other.
+	//
+	// The three gaps are 800x600 numbers put through the command bar's own scale, like everything
+	// else on this overlay.  Held at a flat pixel count the plate crept into the corner as the
+	// screen grew: the lettering inside it scales and the margin around it did not, so a 1440-tall
+	// shot and a 1080-tall one did not overlay however the text was sized.
+	const Int pad = stripPixels( 2 );
+	Int x = TheDisplay->getWidth() - textWidth - pad - stripPixels( 4 );
+	Int y = (m_hudOverlayBottom > 0) ? m_hudOverlayBottom + stripPixels( 1 ) : stripPixels( 2 );
 
 	// a plate behind it, so it stays legible over bright terrain
 	TheDisplay->drawFillRect( x - pad, y - 1, textWidth + pad*2, textHeight + 2,

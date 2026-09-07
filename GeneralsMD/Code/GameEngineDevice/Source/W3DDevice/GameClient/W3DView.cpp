@@ -232,13 +232,21 @@ void W3DView::setWidth(Int width)
  	m_3DCamera->Set_Viewport(vMin,vMax);
 
 	//we want to maintain the same scale, so we'll need to adjust the fov.
-	//default W3D fov for full-screen is 50 degrees.
-	//Widescreen (PLAN.md Phase 6): deliberately retail behavior.  A hor+
-	//widening (vertical view pinned to 4:3, extra width showing more world)
-	//was tried and reverted: the engine's maps assume the 4:3 view cone, and
-	//the widened edges look past the map border into black from most camera
-	//positions.  Stock vert- keeps the horizontal view identical to 4:3.
-	m_3DCamera->Set_View_Plane((Real)width/(Real)TheDisplay->getWidth()*DEG_TO_RADF(50.0f),-1);
+	//default W3D fov for full-screen is 50 degrees, and a view narrower than the
+	//display gets that same angle scaled down by its share of the width, so the
+	//world keeps the same size per pixel however much of the screen it owns.
+	//
+	//What the whole screen covers is ViewHorizontalFovForScreen's business: 50
+	//degrees up to 16:9, and past that the cone opens sideways instead of the
+	//vertical one closing.  Retail's flat 50 pins the world scale to the screen's
+	//width, which on a 32:9 monitor is a 2.7x zoom over the same camera at 16:9 -
+	//the two screenshots do not overlay at any scale.  A previous attempt at this
+	//pinned the vertical cone to 4:3 and was reverted for opening the map's own
+	//edges; 16:9 is the shape the game is played at, so nothing below it moves,
+	//and the terrain is drawn whole - what the wider view reaches is the map
+	//boundary, not black.
+	m_3DCamera->Set_View_Plane((Real)width/(Real)TheDisplay->getWidth()
+		* ViewHorizontalFovForScreen(TheDisplay->getWidth(), TheDisplay->getHeight()),-1);
 }
 
 //-------------------------------------------------------------------------------------------------

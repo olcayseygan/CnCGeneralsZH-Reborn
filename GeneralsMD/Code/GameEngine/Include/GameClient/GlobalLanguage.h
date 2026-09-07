@@ -106,10 +106,12 @@ public:
 	
 	Int adjustFontSize(Int theFontSize);	// Adjusts font size for resolution. jba.
 
-	/** the whole of the policy behind adjustFontSize, with the screen width and the damping handed
+	/** the whole of the policy behind adjustFontSize, with the screen size and the damping handed
 		* in rather than read off the globals - which is the only way to check it without a
-		* GlobalData, and a GlobalData cannot be built without a file system and the registry. */
-	static Int adjustFontSizeForWidth(Int theFontSize, Int screenWidth, Real damping);
+		* GlobalData, and a GlobalData cannot be built without a file system and the registry.
+		* Both axes, because the scale is the smaller of width over 800 and height over 600. */
+	static Int adjustFontSizeForScreen(Int theFontSize, Int screenWidth, Int screenHeight,
+																		 Real damping);
 
 	typedef std::list<AsciiString> StringList;					// Used for our font file names that we want to load		
 	typedef StringList::iterator StringListIt;				

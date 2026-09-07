@@ -240,14 +240,33 @@ extern Display *TheDisplay;
 	* pixel in the game was drawn for.  The .wnd rectangles are stretched by exactly this
 	* (parseScreenRect), so anything drawn beside them in raw pixels - a production strip cameo, a
 	* health bar - has to be multiplied by it too, or it keeps its 2003 size while the screen around
-	* it triples.  Never below 1: nothing shrinks under 800 wide. */
+	* it triples.  Never below 1: nothing shrinks under 800 wide.
+	*
+	* The smaller of the two axes, which is what the layouts themselves are stretched by
+	* (ControlBarUniformScaleFor, same number, spelt out again here because Display.h cannot see
+	* ControlBar.h).  It used to be the width alone: on a 5120x1440 screen that says 6.4 where the
+	* height says 2.4, and a health bar came out two and a half times the width of the tank it was
+	* sitting over, because the tank's own size on screen follows the height. */
+//-------------------------------------------------------------------------------------------------
+inline Real UIScaleForScreen( Int screenWidth, Int screenHeight )
+{
+	if( screenWidth <= 0 || screenHeight <= 0 )
+		return 1.0f;
+
+	Real scale = screenWidth / 800.0f;
+	const Real byHeight = screenHeight / 600.0f;
+	if( byHeight < scale )
+		scale = byHeight;
+
+	return scale < 1.0f ? 1.0f : scale;
+}
+
 //-------------------------------------------------------------------------------------------------
 inline Real TheUIScale( void )
 {
 	if( TheDisplay == NULL )
 		return 1.0f;
-	Real scale = TheDisplay->getWidth() / 800.0f;
-	return scale < 1.0f ? 1.0f : scale;
+	return UIScaleForScreen( TheDisplay->getWidth(), TheDisplay->getHeight() );
 }
 
 extern void StatDebugDisplay( DebugDisplayInterface *dd, void *, FILE *fp = NULL );

@@ -473,8 +473,11 @@ void ResetBattleHonorInsertion(void)
 }
 void InsertBattleHonor(GameWindow *list, const Image *image, Bool enabled, Int itemData, Int& row, Int& column, UnicodeString text = UnicodeString::TheEmptyString, Int extra = 0)
 {
-	Int width = MAX_BATTLE_HONOR_IMAGE_WIDTH * (TheDisplay->getWidth() / 800.0f);
-	Int height = MAX_BATTLE_HONOR_IMAGE_HEIGHT * (TheDisplay->getHeight() / 600.0f);
+	// one scale for both axes.  Taken per axis, a 5120x1440 screen stretched the honor badge 6.4
+	// wide and 2.4 tall and the medal came out an oval.
+	const Real honorScale = UIScaleForScreen( TheDisplay->getWidth(), TheDisplay->getHeight() );
+	Int width = MAX_BATTLE_HONOR_IMAGE_WIDTH * honorScale;
+	Int height = MAX_BATTLE_HONOR_IMAGE_HEIGHT * honorScale;
 
 	static Int enabledColor = 0xFFFFFFFF;
 	static Int disabledColor = GameMakeColor(80, 80, 80, 255);

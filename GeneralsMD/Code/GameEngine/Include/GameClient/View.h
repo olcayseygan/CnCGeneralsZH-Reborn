@@ -345,4 +345,11 @@ extern Real View_stepAngleByEighths( Real angle, Int steps );	///< snap, then mo
 // EXTERNALS //////////////////////////////////////////////////////////////////////////////////////
 extern View *TheTacticalView;		///< the main tactical interface to the game world
 
+/** The horizontal view cone a full-screen tactical view covers on a display this size, in radians.
+	* Retail's answer is a flat 50 degrees whatever the shape of the screen, which pins the world
+	* scale to the screen's width; past 16:9 this holds the vertical half-angle at its 16:9 value
+	* instead, so the same camera shows the same amount of world from top to bottom on every
+	* monitor and the extra width shows more of the map rather than magnifying what was there. */
+extern Real ViewHorizontalFovForScreen( Int displayWidth, Int displayHeight );
+
 #endif // _VIEW_H_
