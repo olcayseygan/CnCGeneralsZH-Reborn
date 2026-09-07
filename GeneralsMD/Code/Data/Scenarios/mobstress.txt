@@ -26,8 +26,10 @@
 # Coordinates are world positions, the same ones -camera takes, so UI-MAP.md's verified camera
 # positions are the cheapest place to find ground that exists.
 #
-# Each nexus brings ten members with it, so eight of these is 88 objects.
+# Each nexus brings ten members with it, so forty of these is 440 objects. Eight was tried first
+# and was far too light to measure anything: the whole match sat under a millisecond a frame and
+# the only slow module in it was the one-off birth on frame 30.
 
-30    spawn      0  GLAInfantryAngryMobNexus  8  760 920 60
-600   attackmove 0  GLAInfantryAngryMobNexus     1400 1400
-1800  move       0  GLAInfantryAngryMobNexus     760 920
+30    spawn      0  GLAInfantryAngryMobNexus  40  760 920 45
+600   attackmove 0  GLAInfantryAngryMobNexus      1400 1400
+1800  move       0  GLAInfantryAngryMobNexus      760 920
