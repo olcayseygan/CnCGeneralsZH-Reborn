@@ -55,8 +55,8 @@ public:
 	AsciiString getPreferredMap(void);	// convenience function
 	Bool usesSystemMapDir(void);		// convenience function
   
-  Bool getSuperweaponRestricted(void) const;
-  void setSuperweaponRestricted( Bool superweaponRestricted);
+  Int getSuperweaponRestriction(void) const;
+  void setSuperweaponRestriction( Int restriction );
   
   Money getStartingCash(void) const;
   void setStartingCash( const Money &startingCash );

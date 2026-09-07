@@ -117,7 +117,7 @@ static NameKeyType buttonBackID = NAMEKEY_INVALID;
 static NameKeyType buttonStartID = NAMEKEY_INVALID;
 static NameKeyType buttonEmoteID = NAMEKEY_INVALID;
 static NameKeyType buttonSelectMapID = NAMEKEY_INVALID;
-static NameKeyType checkboxLimitSuperweaponsID = NAMEKEY_INVALID;
+static NameKeyType comboBoxSuperweaponsID = NAMEKEY_INVALID;
 static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
 static NameKeyType comboBoxPeaceTimeID = NAMEKEY_INVALID;
 static NameKeyType windowMapID = NAMEKEY_INVALID;
@@ -129,7 +129,7 @@ static GameWindow *buttonSelectMap = NULL;
 static GameWindow *buttonEmote = NULL;
 static GameWindow *textEntryChat = NULL;
 static GameWindow *textEntryMapDisplay = NULL;
-static GameWindow *checkboxLimitSuperweapons = NULL;
+static GameWindow *comboBoxSuperweapons = NULL;
 static GameWindow *comboBoxStartingCash = NULL;
 static GameWindow *comboBoxPeaceTime = NULL;
 static GameWindow *windowMap = NULL;
@@ -660,24 +660,15 @@ static void handlePeaceTimeSelection()
   }
 }
 
-static void handleLimitSuperweaponsClick()
+static void handleSuperweaponSelection()
 {
   LANGameInfo *myGame = TheLAN->GetMyGame();
-  
-  if (myGame)
+
+  if (myGame && comboBoxSuperweapons)
   {
-    // At the moment, 1 and 0 are the only choices supported in the GUI, though the system could
-    // support more.
-    if ( GadgetCheckBoxIsChecked( checkboxLimitSuperweapons ) )
-    {
-      myGame->setSuperweaponRestriction( 1 );
-    }
-    else
-    {
-      myGame->setSuperweaponRestriction( 0 );
-    }
+    myGame->setSuperweaponRestriction( SuperweaponRestrictionFromComboBox( comboBoxSuperweapons ) );
     myGame->resetAccepted();
-    
+
     if (myGame->amIHost())
     {
       if (!s_isIniting)
@@ -714,7 +705,7 @@ void InitLanGameGadgets( void )
 	listboxChatWindowLanGameID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ListboxChatWindowLanGame" ) );
 	buttonEmoteID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ButtonEmote" ) );
 	buttonSelectMapID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ButtonSelectMap" ) );
-  checkboxLimitSuperweaponsID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:CheckboxLimitSuperweapons" ) );
+  comboBoxSuperweaponsID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxSuperweapons" ) );
   comboBoxStartingCashID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxStartingCash" ) );
   comboBoxPeaceTimeID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxPeaceTime" ) );
 	windowMapID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:MapWindow" ) );
@@ -736,8 +727,10 @@ void InitLanGameGadgets( void )
 	DEBUG_ASSERTCRASH(textEntryChat, ("Could not find the textEntryChat"));
 	textEntryMapDisplay = TheWindowManager->winGetWindowFromId( parentLanGameOptions, textEntryMapDisplayID );
 	DEBUG_ASSERTCRASH(textEntryMapDisplay, ("Could not find the textEntryMapDisplay"));
-  checkboxLimitSuperweapons = TheWindowManager->winGetWindowFromId( parentLanGameOptions, checkboxLimitSuperweaponsID );
-  DEBUG_ASSERTCRASH(checkboxLimitSuperweapons, ("Could not find the checkboxLimitSuperweapons"));
+  comboBoxSuperweapons = TheWindowManager->winGetWindowFromId( parentLanGameOptions, comboBoxSuperweaponsID );
+  DEBUG_ASSERTCRASH(comboBoxSuperweapons, ("Could not find the comboBoxSuperweapons"));
+	if (comboBoxSuperweapons)
+		PopulateSuperweaponComboBox(comboBoxSuperweapons, TheLAN->GetMyGame(), TheLAN->AmIHost());
   comboBoxStartingCash = TheWindowManager->winGetWindowFromId( parentLanGameOptions, comboBoxStartingCashID );
   DEBUG_ASSERTCRASH(comboBoxStartingCash, ("Could not find the comboBoxStartingCash"));
 	PopulateStartingCashComboBox(comboBoxStartingCash, TheLAN->GetMyGame());
@@ -831,11 +824,14 @@ void InitLanGameGadgets( void )
 	}
 	if( buttonAccept[0] )
 		GadgetButtonSetEnabledColor(buttonAccept[0], acceptTrueColor );
-	
+
+	// the settings page and the chat log share one rectangle; this opens on the chat log
+	InitLobbyTabs( parentLanGameOptions, "LanGameOptionsMenu.wnd", "TabChat", "ListboxChatWindowLanGame" );
 }
 
 void DeinitLanGameGadgets( void )
 {
+	ShutdownLobbyTabs();
 	parentLanGameOptions = NULL;
 	buttonEmote = NULL;
 	buttonSelectMap = NULL;
@@ -844,7 +840,7 @@ void DeinitLanGameGadgets( void )
 	listboxChatWindowLanGame = NULL;
 	textEntryChat = NULL;
 	textEntryMapDisplay = NULL;
-  checkboxLimitSuperweapons = NULL;
+  comboBoxSuperweapons = NULL;
   comboBoxStartingCash = NULL;
   comboBoxPeaceTime = NULL;
 	windowMap = NULL;
@@ -901,7 +897,7 @@ void LanGameOptionsMenuInit( WindowLayout *layout, void *userData )
 		slot->setNATBehavior(FirewallHelperClass::FIREWALL_TYPE_SIMPLE);
 		game->setMap( pref.getPreferredMap() );
     game->setStartingCash( pref.getStartingCash() );
-    game->setSuperweaponRestriction( pref.getSuperweaponRestricted() ? 1 : 0 );
+    game->setSuperweaponRestriction( pref.getSuperweaponRestriction() );
 		AsciiString lowerMap = pref.getPreferredMap();
 		lowerMap.toLower();
 		std::map<AsciiString, MapMetaData>::iterator it = TheMapCache->find(lowerMap);
@@ -925,8 +921,8 @@ void LanGameOptionsMenuInit( WindowLayout *layout, void *userData )
 		//DEBUG_LOG(("LanGameOptionsMenuInit(): map is %s\n", TheLAN->GetMyGame()->getMap().str()));
 		buttonStart->winSetText(TheGameText->fetch("GUI:Accept"));
 		buttonSelectMap->winEnable( FALSE );
-    checkboxLimitSuperweapons->winEnable( FALSE ); // Can look but only host can touch
-    comboBoxStartingCash->winEnable( FALSE );      // Ditto
+    comboBoxStartingCash->winEnable( FALSE );      // Can look but only host can touch
+    // the superweapon box is left to UpdateSuperweaponComboBox, for the same reason as peace time
     // the peace time box is left to UpdatePeaceTimeComboBox: being a client is only one of the two
     // reasons it can be dead, and one place deciding beats two disagreeing
 		TheLAN->GetMyGame()->setMapCRC( TheLAN->GetMyGame()->getMapCRC() );		// force a recheck
@@ -1004,7 +1000,8 @@ void updateGameOptions( void )
 			LanPositionStartSpots();
 		GadgetStaticTextSetText(textEntryMapDisplay, mapDisplayName);
 
-    GadgetCheckBoxSetChecked( checkboxLimitSuperweapons, theGame->getSuperweaponRestriction() != 0 );
+		if (comboBoxSuperweapons)
+			UpdateSuperweaponComboBox( comboBoxSuperweapons, theGame, TheLAN->AmIHost() );
 		Int itemCount = GadgetComboBoxGetLength(comboBoxStartingCash);
     for ( Int index = 0; index < itemCount; index++ )
     {
@@ -1182,6 +1179,10 @@ WindowMsgHandledType LanGameOptionsMenuSystem( GameWindow *window, UnsignedInt m
         {
           handlePeaceTimeSelection();
         }
+        else if ( controlID == comboBoxSuperweaponsID )
+        {
+          handleSuperweaponSelection();
+        }
         else
         {
 				  for (Int i = 0; i < MAX_SLOTS; i++)
@@ -1246,6 +1247,9 @@ WindowMsgHandledType LanGameOptionsMenuSystem( GameWindow *window, UnsignedInt m
 				GameWindow *control = (GameWindow *)mData1;
 				Int controlID = control->winGetWindowId();
 
+				if ( LobbyTabClicked( (NameKeyType)controlID ) )
+					break;
+
 				if ( controlID == buttonBackID )
 				{
 					if( mapSelectLayout )
@@ -1298,10 +1302,6 @@ WindowMsgHandledType LanGameOptionsMenuSystem( GameWindow *window, UnsignedInt m
 						
 					}
 				}
-        else if ( controlID == checkboxLimitSuperweaponsID )
-        {
-          handleLimitSuperweaponsClick();
-        }
 				else
 				{
 					for (Int i = 0; i < MAX_SLOTS; i++)

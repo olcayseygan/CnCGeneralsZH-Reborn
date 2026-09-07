@@ -323,7 +323,7 @@ void LANAPI::OnGameStart( void )
 		if (m_currentGame->amIHost())
     {
     	pref["Map"] = AsciiStringToQuotedPrintable(m_currentGame->getMap());
-      pref.setSuperweaponRestricted( m_currentGame->getSuperweaponRestriction() > 0 );
+      pref.setSuperweaponRestriction( m_currentGame->getSuperweaponRestriction() );
       pref.setStartingCash( m_currentGame->getStartingCash() );
     }
 		pref.write();

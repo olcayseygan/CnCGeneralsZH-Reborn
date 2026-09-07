@@ -521,6 +521,13 @@ void Shell::showShell( Bool runInit )
 		TheShell->push( AsciiString("Menus/LanLobbyMenu.wnd") );
 	}
 
+	// -skirmishlobby: the same trick for the single-player staging room, spent the same way.
+	if( TheGlobalData->m_skirmishLobbyOnStart )
+	{
+		TheWritableGlobalData->m_skirmishLobbyOnStart = FALSE;
+		TheShell->push( AsciiString("Menus/SkirmishGameOptionsMenu.wnd") );
+	}
+
 	m_isShellActive = TRUE;
 }  // end showShell
 

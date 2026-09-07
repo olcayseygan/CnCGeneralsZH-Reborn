@@ -610,3 +610,39 @@ END
 GUI:PeaceTimeHud
 "PEACE %d:%02d"
 END
+
+GUI:LobbyTabChat
+"Chat"
+END
+
+GUI:LobbyTabInfo
+"Info"
+END
+
+GUI:LobbyTabSettings
+"Lobby Settings"
+END
+
+GUI:PeaceTimeLabel
+"Peace Time"
+END
+
+GUI:Superweapons
+"Superweapons"
+END
+
+GUI:SuperweaponsAllow
+"Allow Superweapons"
+END
+
+GUI:SuperweaponsLimit
+"Limit Superweapons"
+END
+
+GUI:SuperweaponsNone
+"No Superweapons"
+END
+
+TOOLTIP:Superweapons
+"How many of each superweapon a player may have standing. Allow: as many as he can pay for. Limit: one each, and four for the USA Superweapon General. No: none at all, except the Superweapon General, who keeps one. He is the exception because his three superweapons are what he pays for a weaker army with."
+END

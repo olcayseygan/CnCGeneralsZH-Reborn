@@ -474,6 +474,151 @@ Int PeaceTimeFromComboBox(GameWindow *comboBox)
 }
 
 // -----------------------------------------------------------------------------
+// The superweapon rule.  EA shipped a checkbox, which can say two things about a rule that has
+// three, and the number behind it was a cap for everybody alike.  The three entries here are modes;
+// what each one leaves a given player is SuperweaponBuildCap's business.
+static const Int theSuperweaponChoices[] =
+{
+  SUPERWEAPONS_ALLOW, SUPERWEAPONS_LIMIT, SUPERWEAPONS_NONE
+};
+
+static const char * theSuperweaponCaptions[] =
+{
+  "GUI:SuperweaponsAllow", "GUI:SuperweaponsLimit", "GUI:SuperweaponsNone"
+};
+
+void PopulateSuperweaponComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit)
+{
+  GadgetComboBoxReset(comboBox);
+
+  Color color = comboBox->winGetEnabled() ? comboBox->winGetEnabledTextColor() : comboBox->winGetDisabledTextColor();
+  for ( Int i = 0; i < (Int)(sizeof(theSuperweaponChoices)/sizeof(theSuperweaponChoices[0])); i++ )
+  {
+    Int newIndex = GadgetComboBoxAddEntry(comboBox, TheGameText->fetch( theSuperweaponCaptions[i] ), color);
+    GadgetComboBoxSetItemData(comboBox, newIndex, (void *)theSuperweaponChoices[i]);
+  }
+
+  UpdateSuperweaponComboBox(comboBox, myGame, hostMayEdit);
+}
+
+void UpdateSuperweaponComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit)
+{
+  comboBox->winEnable( hostMayEdit );
+
+  Int restriction = myGame->getSuperweaponRestriction();
+  Int itemCount = GadgetComboBoxGetLength(comboBox);
+  for ( Int index = 0; index < itemCount; index++ )
+  {
+    if ( (Int)GadgetComboBoxGetItemData(comboBox, index) == restriction )
+    {
+      Int selected = -1;
+      GadgetComboBoxGetSelectedPos( comboBox, &selected );
+      if ( selected != index )
+        GadgetComboBoxSetSelectedPos(comboBox, index, TRUE);
+      return;
+    }
+  }
+
+  // a mode this build does not have an entry for, which is what a preferences file or a host from
+  // another build can hand us: the game plays unrestricted then, so the box says so
+  GadgetComboBoxSetSelectedPos(comboBox, 0, TRUE);
+}
+
+Int SuperweaponRestrictionFromComboBox(GameWindow *comboBox)
+{
+  Int selIndex = -1;
+  GadgetComboBoxGetSelectedPos(comboBox, &selIndex);
+  if ( selIndex < 0 )
+    return SUPERWEAPONS_ALLOW;
+  return (Int)GadgetComboBoxGetItemData(comboBox, selIndex);
+}
+
+// -----------------------------------------------------------------------------
+// The lobby tab strip.
+static GameWindow *theLobbySettingsPage = NULL;
+static GameWindow *theLobbyOtherWindow = NULL;
+static GameWindow *theLobbySettingsTab = NULL;
+static GameWindow *theLobbyOtherTab = NULL;
+static NameKeyType theLobbySettingsTabID = NAMEKEY_INVALID;
+static NameKeyType theLobbyOtherTabID = NAMEKEY_INVALID;
+
+static void showLobbySettings( Bool settings )
+{
+  if ( theLobbySettingsPage == NULL )
+    return;
+
+  theLobbySettingsPage->winHide( !settings );
+  theLobbyOtherWindow->winHide( settings );
+  // the tab you are on is the disabled one, which is the only tab feedback there is without
+  // artwork nobody drew
+  theLobbySettingsTab->winEnable( !settings );
+  theLobbyOtherTab->winEnable( settings );
+}
+
+void InitLobbyTabs(GameWindow *parent, const char *layoutFilename,
+                   const char *otherTabName, const char *otherWindowName)
+{
+  AsciiString name;
+
+  name.format( "%s:%s", layoutFilename, "PageLobbySettings" );
+  theLobbySettingsPage = TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey( name ) );
+
+  name.format( "%s:%s", layoutFilename, "TabLobbySettings" );
+  theLobbySettingsTabID = TheNameKeyGenerator->nameToKey( name );
+  theLobbySettingsTab = TheWindowManager->winGetWindowFromId( parent, theLobbySettingsTabID );
+
+  name.format( "%s:%s", layoutFilename, otherTabName );
+  theLobbyOtherTabID = TheNameKeyGenerator->nameToKey( name );
+  theLobbyOtherTab = TheWindowManager->winGetWindowFromId( parent, theLobbyOtherTabID );
+
+  name.format( "%s:%s", layoutFilename, otherWindowName );
+  theLobbyOtherWindow = TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey( name ) );
+
+  // A player whose Window/Menus copy is older than his exe gets a lobby without the tabs rather
+  // than one he cannot click; layouts are not in the multiplayer checksum, so that copy joins games.
+  if ( theLobbySettingsPage == NULL || theLobbySettingsTab == NULL
+       || theLobbyOtherTab == NULL || theLobbyOtherWindow == NULL )
+  {
+    DEBUG_LOG(("InitLobbyTabs: %s has no tab strip; the settings stay where the layout put them\n",
+               layoutFilename));
+    ShutdownLobbyTabs();
+    return;
+  }
+
+  showLobbySettings( FALSE );
+}
+
+Bool LobbyTabClicked(NameKeyType controlID)
+{
+  if ( theLobbySettingsPage == NULL )
+    return FALSE;
+
+  if ( controlID == theLobbySettingsTabID )
+  {
+    showLobbySettings( TRUE );
+    return TRUE;
+  }
+
+  if ( controlID == theLobbyOtherTabID )
+  {
+    showLobbySettings( FALSE );
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+void ShutdownLobbyTabs(void)
+{
+  theLobbySettingsPage = NULL;
+  theLobbyOtherWindow = NULL;
+  theLobbySettingsTab = NULL;
+  theLobbyOtherTab = NULL;
+  theLobbySettingsTabID = NAMEKEY_INVALID;
+  theLobbyOtherTabID = NAMEKEY_INVALID;
+}
+
+// -----------------------------------------------------------------------------
 
 //  -----------------------------------------------------------------------------------------
 // The slot list displaying function

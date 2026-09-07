@@ -649,6 +649,13 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME peacetime_selfcheck
            COMMAND ${Python3_EXECUTABLE}
                    ${CMAKE_CURRENT_SOURCE_DIR}/Tools/peacetime_layout.py selfcheck)
+
+  # The lobby settings tab moves the host's settings onto a page of their own in all three lobbies,
+  # and takes EA's superweapon checkbox out.  Same three-file agreement, plus one more failure the
+  # null checks make silent: a control left behind on the old row would be drawn under the chat log.
+  add_test(NAME lobbysettings_selfcheck
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_CURRENT_SOURCE_DIR}/Tools/lobbysettings_layout.py selfcheck)
 endif()
 
 if(RELEASE_DEBUG_LOGGING)

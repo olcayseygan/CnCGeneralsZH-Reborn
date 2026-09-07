@@ -1630,6 +1630,44 @@ extern void AIUpdate_resetMoveTrace( void );	///< -tracemove: forget the unit th
  * -headless: decide whether the unattended run is finished, and if it is, write down how it went
  * and quit.  Two ways to finish: the match is decided, or -maxframes ran out.
  */
+/** -----------------------------------------------------------------------------------------------
+ * -screenshot <n> when there is no match to count frames of: photograph a menu.
+ *
+ * The unattended block below counts logic frames, and a run sitting in the shell has none - the
+ * logic frame counter stays where the last game left it, which for -skirmishlobby is zero, so the
+ * request never fires and a layout change to a menu could not be looked at from a script.  Here n
+ * counts engine passes instead, which is a duration rather than a frame number: at a vsynced 60Hz
+ * 200 is about three seconds, long enough for the shell to build the screen.
+ *
+ * -autoskirmish runs pass through the shell on their way into the match, so this stands down for
+ * them: their n means the frame of the match, not the wait for it.
+ *
+ * Counting starts when the shell has a screen on its stack.  The passes before that are the intro
+ * and the first load, which took 1500 of them here, and a picture taken during them is of nothing.
+ */
+static void updateShellScreenShot( void )
+{
+	if (TheGlobalData->m_screenShotFrame <= 0 || TheGlobalData->m_headless ||
+			TheGlobalData->m_autoSkirmishPlayers > 0 || TheDisplay == NULL)
+		return;
+	if (TheGameLogic != NULL && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame())
+		return;
+	if (TheShell == NULL || TheShell->getScreenCount() <= 0)
+		return;
+
+	static UnsignedInt shellPasses = 0;
+	static Bool shotTaken = FALSE;
+	if (shotTaken)
+		return;
+
+	if (++shellPasses >= (UnsignedInt)TheGlobalData->m_screenShotFrame)
+	{
+		shotTaken = TRUE;
+		TheDisplay->takeScreenShot();
+		DEBUG_LOG(("-screenshot: asked for one of the shell after %d passes\n", shellPasses));
+	}
+}
+
 static void updateHeadlessRun( void )
 {
 	/* -autoskirmish counts as unattended even when it draws.  THREADING-ROADMAP.md section 0 step 4
@@ -1954,6 +1992,7 @@ void GameEngine::update( void )
 		}
 
 		updateHeadlessRun();
+		updateShellScreenShot();
 		updateFixedCamera();
 		updateAutoCamera();
 		updateUIDrill();

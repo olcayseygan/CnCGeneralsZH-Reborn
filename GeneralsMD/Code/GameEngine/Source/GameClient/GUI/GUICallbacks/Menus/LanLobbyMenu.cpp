@@ -57,6 +57,7 @@
 #include "GameClient/MessageBox.h"
 #include "GameClient/GameWindowTransitions.h"
 #include "GameLogic/GameLogic.h"
+#include "GameNetwork/GUIUtil.h"
 #include "GameNetwork/IPEnumeration.h"
 #include "GameNetwork/LANAPICallbacks.h"
 #include "GameNetwork/LANGameInfo.h"
@@ -226,20 +227,22 @@ UnicodeString LANPreferences::getRemoteIPEntry(Int i)
 
 static const char superweaponRestrictionKey[] = "SuperweaponRestrict";
 
-Bool LANPreferences::getSuperweaponRestricted(void) const
+Int LANPreferences::getSuperweaponRestriction(void) const
 {
   LANPreferences::const_iterator it = find(superweaponRestrictionKey);
   if (it == end())
   {
-    return false;
+    return SUPERWEAPONS_ALLOW;
   }
-  
-  return ( it->second.compareNoCase( "yes" ) == 0 );
+
+  return SuperweaponRestrictionFromPreference( it->second );
 }
 
-void LANPreferences::setSuperweaponRestricted( Bool superweaponRestricted )
+void LANPreferences::setSuperweaponRestriction( Int restriction )
 {
-  (*this)[superweaponRestrictionKey] = superweaponRestricted ? "Yes" : "No";
+  AsciiString val;
+  val.format( "%d", restriction );
+  (*this)[superweaponRestrictionKey] = val;
 }
 
 static const char startingCashKey[] = "StartingCash";

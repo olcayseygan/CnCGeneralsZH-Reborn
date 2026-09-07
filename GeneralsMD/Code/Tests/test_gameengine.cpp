@@ -70,6 +70,7 @@
 #include "GameNetwork/LANAPI.h"
 #include "GameNetwork/NetPacket.h"
 #include "GameNetwork/GameInfo.h"
+#include "GameNetwork/GUIUtil.h"
 #include <float.h>
 #include "GameClient/Water.h"
 #include "GameClient/Shadow.h"
@@ -81,6 +82,7 @@
 #include "GameClient/ParticleSys.h"
 #include "GameClient/FXList.h"
 #include "GameClient/ControlBar.h"
+#include "GameClient/Display.h"
 #include "GameLogic/AI.h"
 #include "GameLogic/Module/ProductionUpdate.h"
 #include "GameLogic/Module/SupplyTruckAIUpdate.h"
@@ -6801,6 +6803,15 @@ TEST(two_copies_on_one_machine_each_get_their_own_lobby_address_and_name)
 	CHECK( TheGlobalData->m_lanLobbyOnStart );
 	CHECK( !TheGlobalData->m_shellMapOn );
 
+	// -skirmishlobby is the same trick for the staging room the lobby settings live on
+	TheWritableGlobalData->m_shellMapOn = TRUE;
+	CHECK( !TheGlobalData->m_skirmishLobbyOnStart );
+	char skirmishLobby[] = "-skirmishlobby";
+	char *argvSkirmishLobby[] = { exe, skirmishLobby };
+	parseCommandLine( 2, argvSkirmishLobby );
+	CHECK( TheGlobalData->m_skirmishLobbyOnStart );
+	CHECK( !TheGlobalData->m_shellMapOn );
+
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
 }
@@ -7497,18 +7508,19 @@ TEST(text_keeps_growing_with_the_screen_instead_of_stopping_at_twice)
 
 	// 800x600 is the resolution every layout was drawn at, so nothing may move there - and nothing
 	// shrinks below it either
-	CHECK_EQ( 8, GlobalLanguage::adjustFontSizeForWidth( 8, 800, damping ) );
-	CHECK_EQ( 8, GlobalLanguage::adjustFontSizeForWidth( 8, 640, damping ) );
+	CHECK_EQ( 8, GlobalLanguage::adjustFontSizeForScreen( 8, 800, 600, damping ) );
+	CHECK_EQ( 8, GlobalLanguage::adjustFontSizeForScreen( 8, 640, 480, damping ) );
 
 	// a command button's "Arial 8" used to stop at 16 for ever, 1950 pixels wide and up
-	CHECK( GlobalLanguage::adjustFontSizeForWidth( 8, 2560, damping ) > 16 );
-	CHECK( GlobalLanguage::adjustFontSizeForWidth( 8, 3840, damping ) >
-				 GlobalLanguage::adjustFontSizeForWidth( 8, 2560, damping ) );
+	CHECK( GlobalLanguage::adjustFontSizeForScreen( 8, 2560, 1920, damping ) > 16 );
+	CHECK( GlobalLanguage::adjustFontSizeForScreen( 8, 3840, 2880, damping ) >
+				 GlobalLanguage::adjustFontSizeForScreen( 8, 2560, 1920, damping ) );
 
 	Int previous = 0;
 	for( Int width = 800; width <= 3840; width += 32 )
 	{
-		const Int size = GlobalLanguage::adjustFontSizeForWidth( 100, width, damping );
+		const Int height = width * 3 / 4;
+		const Int size = GlobalLanguage::adjustFontSizeForScreen( 100, width, height, damping );
 
 		// it never outruns the stretch applied to the window it sits in, or the text spills out of
 		// its own panel - which is what the old ceiling was there to prevent
@@ -7518,6 +7530,70 @@ TEST(text_keeps_growing_with_the_screen_instead_of_stopping_at_twice)
 		CHECK( size >= previous );
 		previous = size;
 	}
+}
+
+/* Two shots of the same command bar, one 1920x1080 and one 5120x1440, have to overlay once the
+	 second is scaled down by the ratio of the two bars' own scales.  They did not: the bar is laid
+	 out at the smaller of width over 800 and height over 600, and the lettering was sized off the
+	 width alone.  At 5120x1440 the width says 6.4 and the height says 2.4, so the money readout,
+	 the build hotkeys and the clock in the corner came out about twice the size the panel under
+	 them had grown to, and the 32:9 screenshot did not look like the 16:9 one. */
+TEST(text_grows_with_the_panel_it_sits_in_and_not_with_the_screens_width)
+{
+	const Real damping = 0.7f;
+
+	// the two screens the complaint was made with.  The bar's own scale is min(w/800, h/600), so
+	// 1.8 and 2.4 - and whatever the text does, it has to do it in that same 4:3 ratio
+	const Int at1080 = GlobalLanguage::adjustFontSizeForScreen( 100, 1920, 1080, damping );
+	const Int at1440 = GlobalLanguage::adjustFontSizeForScreen( 100, 5120, 1440, damping );
+	CHECK_NEAR( 100.0f * (1.0f + (1.8f-1.0f)*damping), at1080, 1 );
+	CHECK_NEAR( 100.0f * (1.0f + (2.4f-1.0f)*damping), at1440, 1 );
+
+	// widening a screen without making it taller must not change the lettering at all - that is
+	// the whole of the bug, and it is what the old width-only formula could not do
+	for( Int width = 1920; width <= 5120; width += 160 )
+		CHECK_EQ( GlobalLanguage::adjustFontSizeForScreen( 100, 1920, 1080, damping ),
+							GlobalLanguage::adjustFontSizeForScreen( 100, width, 1080, damping ) );
+
+	// and a taller screen still grows it
+	CHECK( GlobalLanguage::adjustFontSizeForScreen( 100, 1920, 1440, damping ) > at1080 );
+}
+
+/* The other half of the same complaint: the camera. Retail pins the horizontal cone at 50 degrees
+	 whatever shape the screen is, so a 32:9 monitor spends the same 50 degrees over 5120 pixels that
+	 a 16:9 one spends over 1920 - the world comes out 2.7 times the size and the vertical view falls
+	 from 29.4 degrees to 14.9. Past 16:9 the vertical half-angle is held instead. */
+TEST(the_camera_shows_the_same_world_height_however_wide_the_screen_is)
+{
+	const Real design = 50.0f * PI / 180.0f;
+
+	// nothing at or below 16:9 moves - 4:3, 5:4 and 16:9 are all still retail's own cone
+	CHECK_NEAR( design, ViewHorizontalFovForScreen( 800, 600 ), 0.0001f );
+	CHECK_NEAR( design, ViewHorizontalFovForScreen( 1280, 1024 ), 0.0001f );
+	CHECK_NEAR( design, ViewHorizontalFovForScreen( 1920, 1080 ), 0.0001f );
+
+	// the vertical half-angle is what has to stand still, and it is a tangent, not the angle
+	const Real reference = (Real)tan( ViewHorizontalFovForScreen( 1920, 1080 ) * 0.5f )
+												 / ( 1920.0f / 1080.0f );
+	const Int widths[]  = { 2560, 3440, 5120, 7680 };
+	const Int heights[] = { 1080, 1440, 1440, 2160 };
+	for( Int i = 0; i < 4; ++i )
+	{
+		const Real hfov = ViewHorizontalFovForScreen( widths[i], heights[i] );
+		const Real vertical = (Real)tan( hfov * 0.5f ) / ( (Real)widths[i] / (Real)heights[i] );
+		CHECK_NEAR( reference, vertical, 0.0001f );
+
+		// and it only ever opens: an ultrawide sees more world, never less
+		CHECK( hfov > design );
+	}
+
+	// a 32:9 screen used to see under half the world height a 16:9 one did, which is the number
+	// the two screenshots were compared on
+	CHECK_NEAR( design, ViewHorizontalFovForScreen( 1920, 1080 ), 0.0001f );
+	CHECK( ViewHorizontalFovForScreen( 5120, 1440 ) > 1.4f );		// ~86 degrees, was 50
+
+	// a degenerate size does not divide by zero
+	CHECK_NEAR( design, ViewHorizontalFovForScreen( 0, 0 ), 0.0001f );
 }
 /* The lobby, the seat itself, the game info panel and the online browser's tooltip each carried
 	 their own switch over the slot states, and no two agreed: EA's shipped strings read "Easy Army"
@@ -8549,6 +8625,33 @@ TEST(the_hud_is_measured_at_the_command_bars_own_scale)
 	// and nothing shrinks below it, however small a screen somebody asks for
 	CHECK_NEAR( ControlBarUniformScaleFor( 640, 480 ), 1.0f, 0.001f );
 	CHECK_NEAR( ControlBarUniformScaleFor( 0, 0 ), 1.0f, 0.001f );
+}
+
+/* A health bar is drawn in raw pixels over a tank whose own size on screen is set by the camera,
+	 and the camera fills the screen's *height*.  So the bar has to follow the height too.  Measured
+	 off the width it was two and a half times too wide on a 32:9 screen: the bar of a barracks
+	 reached most of the way across its own base. */
+TEST(the_health_bar_grows_with_the_unit_under_it_and_not_with_the_screens_width)
+{
+	// the same number the command bar is laid out at, whatever the shape of the screen
+	static const struct { Int w, h; } screens[] =
+	{
+		{ 800, 600 }, { 1024, 768 }, { 1280, 720 }, { 1920, 1080 }, { 2560, 1080 },
+		{ 3440, 1440 }, { 5120, 1440 }, { 3840, 2160 },
+	};
+	for( Int i = 0; i < (Int)( sizeof( screens ) / sizeof( screens[ 0 ] ) ); i++ )
+		CHECK_NEAR( UIScaleForScreen( screens[ i ].w, screens[ i ].h ),
+								ControlBarUniformScaleFor( screens[ i ].w, screens[ i ].h ), 0.001f );
+
+	// widening the screen alone moves nothing: the world is not magnified by it either
+	CHECK_NEAR( UIScaleForScreen( 1920, 1080 ), UIScaleForScreen( 5120, 1080 ), 0.001f );
+	CHECK_NEAR( 2.4f, UIScaleForScreen( 5120, 1440 ), 0.001f );
+
+	// a taller screen does move it, and nothing shrinks below what was authored
+	CHECK( UIScaleForScreen( 1920, 1440 ) > UIScaleForScreen( 1920, 1080 ) );
+	CHECK_NEAR( 1.0f, UIScaleForScreen( 800, 600 ), 0.001f );
+	CHECK_NEAR( 1.0f, UIScaleForScreen( 640, 480 ), 0.001f );
+	CHECK_NEAR( 1.0f, UIScaleForScreen( 0, 0 ), 0.001f );
 }
 
 /* A build order is a message, and the structure it orders does not exist until the logic runs it -
@@ -9979,4 +10082,104 @@ TEST(a_tooltip_is_put_back_on_the_screen_after_it_is_flipped)
 	Mouse::placeTooltip( 200, 200, 400, 300, 100, 150, 500, 450, &x, &y );
 	CHECK( x >= 100 );
 	CHECK( y >= 150 );
+}
+
+/* The lobby's settings page is 119 layout units tall and the superweapon box sits in its second
+	 row, so the three entries it drops reach past the bottom of the panel they are drawn on.  Hit
+	 testing walks the parents first and a panel does not contain them, so before this the rows drew,
+	 highlighted nothing and could not be picked - the dropdown looked open and was dead.  An open
+	 box is asked before its panel is; a closed one is not asked at all, or every click anywhere near
+	 the last box the player touched would go to it. */
+extern Bool OpenWindowOwnsPoint( Bool isOpen, Int originX, Int originY, Int width, Int height,
+																 Int x, Int y );
+
+TEST(an_open_dropdown_owns_the_rows_that_hang_past_its_panel)
+{
+	/* the starting cash box at 1280x720: 29 pixels tall closed, 133 with its five entries down, on
+		 a panel whose bottom edge is at 598.  The last two rows are past that edge. */
+	const Int boxX = 748, boxY = 466, boxWidth = 288;
+	const Int boxHeightClosed = 29, boxHeightOpen = 133;
+	const Int panelBottom = 598;
+	const Int rowInsidePanel = 520, rowPastPanel = 585, rowWellPastPanel = 595;
+
+	CHECK( boxY + boxHeightClosed < panelBottom );
+	CHECK( boxY + boxHeightOpen > panelBottom );	// or there is nothing here to get wrong
+
+	CHECK( OpenWindowOwnsPoint( TRUE, boxX, boxY, boxWidth, boxHeightOpen, 900, rowInsidePanel ) );
+	CHECK( OpenWindowOwnsPoint( TRUE, boxX, boxY, boxWidth, boxHeightOpen, 900, rowPastPanel ) );
+	CHECK( OpenWindowOwnsPoint( TRUE, boxX, boxY, boxWidth, boxHeightOpen, 900, rowWellPastPanel ) );
+
+	// the closed box keeps its own row and nothing under it
+	CHECK( OpenWindowOwnsPoint( TRUE, boxX, boxY, boxWidth, boxHeightClosed, 900, 480 ) );
+	CHECK( !OpenWindowOwnsPoint( TRUE, boxX, boxY, boxWidth, boxHeightClosed, 900, rowPastPanel ) );
+
+	// a box that is not open owns nothing, wherever the pointer is
+	CHECK( !OpenWindowOwnsPoint( FALSE, boxX, boxY, boxWidth, boxHeightOpen, 900, rowPastPanel ) );
+	CHECK( !OpenWindowOwnsPoint( FALSE, boxX, boxY, boxWidth, boxHeightOpen, 900, 480 ) );
+
+	// and it never claims a click beside itself - PLAY GAME sits under the same rows
+	CHECK( !OpenWindowOwnsPoint( TRUE, boxX, boxY, boxWidth, boxHeightOpen, 300, rowPastPanel ) );
+	CHECK( !OpenWindowOwnsPoint( TRUE, boxX, boxY, boxWidth, boxHeightOpen, 900, 660 ) );
+}
+
+/* The superweapon rule is a mode, and what a mode leaves you depends on who you are playing.  The
+	 USA Superweapon General fields three superweapons and pays for them in everything else, so Limit
+	 leaves him four of each where it leaves everybody one, and No leaves him one where it bars
+	 everybody else outright.  Player::canBuildMoreOfType asks SuperweaponBuildCap and nothing else
+	 decides it, so this is the whole rule.  EA shipped the same field as a Yes/No checkbox where Yes
+	 meant one of each: that reads back as No Superweapons, not as some truthy value. */
+TEST(the_superweapon_rule_is_a_mode_with_one_exception)
+{
+	const AsciiString superweaponGeneral( "FactionAmericaSuperWeaponGeneral" );
+	const AsciiString laserGeneral( "FactionAmericaLaserGeneral" );
+	const AsciiString gla( "FactionGLA" );
+
+	// no rule at all: 0 is what canBuildMoreOfType reads as no cap
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_ALLOW, gla ), (Int)SUPERWEAPON_CAP_UNLIMITED );
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_ALLOW, superweaponGeneral ), (Int)SUPERWEAPON_CAP_UNLIMITED );
+
+	// one each, four for the general the whole exception exists for
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_LIMIT, gla ), 1 );
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_LIMIT, laserGeneral ), 1 );
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_LIMIT, superweaponGeneral ), 4 );
+
+	// banned, and he keeps one
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, gla ), (Int)SUPERWEAPON_CAP_BANNED );
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, laserGeneral ), (Int)SUPERWEAPON_CAP_BANNED );
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, superweaponGeneral ), 1 );
+
+	// a player with no template at all - the civilian seat - is nobody's exception
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, AsciiString::TheEmptyString ), (Int)SUPERWEAPON_CAP_BANNED );
+
+	// and a mode from a build that knows one this one does not leaves the game unrestricted
+	CHECK_EQ( SuperweaponBuildCap( 99, superweaponGeneral ), (Int)SUPERWEAPON_CAP_UNLIMITED );
+	CHECK_EQ( SuperweaponBuildCap( 99, gla ), (Int)SUPERWEAPON_CAP_UNLIMITED );
+
+	// the checkbox that used to be there, read by the dropdown that replaced it
+	CHECK_EQ( SuperweaponRestrictionFromPreference( AsciiString( "Yes" ) ), (Int)SUPERWEAPONS_NONE );
+	CHECK_EQ( SuperweaponRestrictionFromPreference( AsciiString( "no" ) ), (Int)SUPERWEAPONS_ALLOW );
+
+	// and what this build writes, which is the mode
+	CHECK_EQ( SuperweaponRestrictionFromPreference( AsciiString( "0" ) ), (Int)SUPERWEAPONS_ALLOW );
+	CHECK_EQ( SuperweaponRestrictionFromPreference( AsciiString( "1" ) ), (Int)SUPERWEAPONS_LIMIT );
+	CHECK_EQ( SuperweaponRestrictionFromPreference( AsciiString( "2" ) ), (Int)SUPERWEAPONS_NONE );
+
+	// a line nobody wrote on purpose leaves the game unrestricted rather than at one of each
+	CHECK_EQ( SuperweaponRestrictionFromPreference( AsciiString( "" ) ), (Int)SUPERWEAPONS_ALLOW );
+	CHECK_EQ( SuperweaponRestrictionFromPreference( AsciiString( "maybe" ) ), (Int)SUPERWEAPONS_ALLOW );
+
+	// the lobby carries the host's pick untouched - it is the wire's business, not the setter's
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	SkirmishGameInfo game;
+	game.init();
+	CHECK_EQ( (Int)game.getSuperweaponRestriction(), (Int)SUPERWEAPONS_ALLOW );
+	game.setSuperweaponRestriction( SUPERWEAPONS_LIMIT );
+	CHECK_EQ( (Int)game.getSuperweaponRestriction(), (Int)SUPERWEAPONS_LIMIT );
+	game.setSuperweaponRestriction( SUPERWEAPONS_NONE );
+	CHECK_EQ( (Int)game.getSuperweaponRestriction(), (Int)SUPERWEAPONS_NONE );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
 }

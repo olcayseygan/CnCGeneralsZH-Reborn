@@ -1466,11 +1466,8 @@ const AudioEventRTS *ThingTemplate::getPerUnitSound(const AsciiString& soundName
 //-------------------------------------------------------------------------------------------------
 UnsignedInt ThingTemplate::getMaxSimultaneousOfType() const
 {
-  if ( m_maxSimultaneousDeterminedBySuperweaponRestriction && TheGameLogic )
-  {
-    return TheGameLogic->getSuperweaponRestriction();
-  }
-
+  // A superweapon's cap is not the template's business any more: it depends on which player is
+  // asking, and only Player::canBuildMoreOfType knows that.
   return m_maxSimultaneousOfType;
 }
 

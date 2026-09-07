@@ -533,6 +533,11 @@ public:
   NameKeyType getMaxSimultaneousLinkKey() const { return m_maxSimultaneousLinkKey; }
   UnsignedInt getMaxSimultaneousOfType() const;
 
+  // The INI says "MaxSimultaneousOfType = DeterminedBySuperweaponRestriction" on the superweapons,
+  // and every faction's variant of them carries it.  What the lobby's rule then leaves this player
+  // is SuperweaponBuildCap's answer, not the number above.
+  Bool isMaxSimultaneousFromSuperweaponRestriction() const { return m_maxSimultaneousDeterminedBySuperweaponRestriction; }
+
 	void validate();
 
 // The version that does not take an Object argument is labeled friend for use by WorldBuilder.  All game requests

@@ -100,6 +100,7 @@
 #include "GameLogic/VictoryConditions.h"
 
 #include "GameNetwork/GameInfo.h"
+#include "GameNetwork/GUIUtil.h"		// the SUPERWEAPONS_ modes the lobby sends
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -2967,11 +2968,48 @@ static void countExisting( Object *obj, void *userData )
 }  // end countInProduction
 
 //=============================================================================
+/* One cap for everybody is the one thing this rule cannot be.  The USA Superweapon General fields
+   three superweapons of his own and pays for them in weaker tanks, weaker infantry and a worse air
+   force, so a match that leaves every player one leaves him a third of an army and a match that
+   bans them leaves him no army at all.  Under Limit he keeps four of each and everybody else one;
+   under No he keeps one and nobody else may build any.  A mode this build does not know leaves the
+   game unrestricted rather than guessing at a number. */
+static const char theSuperweaponGeneralTemplate[] = "FactionAmericaSuperWeaponGeneral";
+
+Int SuperweaponBuildCap( Int restriction, const AsciiString &playerTemplateName )
+{
+  const Bool isSuperweaponGeneral =
+      playerTemplateName.compareNoCase( theSuperweaponGeneralTemplate ) == 0;
+
+  if ( restriction == SUPERWEAPONS_LIMIT )
+    return isSuperweaponGeneral ? SUPERWEAPONS_LIMIT_GENERAL : SUPERWEAPONS_LIMIT_OTHERS;
+
+  if ( restriction == SUPERWEAPONS_NONE )
+    return isSuperweaponGeneral ? SUPERWEAPONS_NONE_GENERAL : SUPERWEAPON_CAP_BANNED;
+
+  return SUPERWEAPON_CAP_UNLIMITED;
+}
+
+//=============================================================================
 // Make sure that building another of this unit/structure/object won't exceed MaxSimultaneousOfType()
 Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild ) const
 {
   // make sure we're not maxed out for this type of unit.
   UnsignedInt maxSimultaneousOfType = whatToBuild->getMaxSimultaneousOfType();
+
+  if ( whatToBuild->isMaxSimultaneousFromSuperweaponRestriction() )
+  {
+    const Int restriction = TheGameLogic ? (Int)TheGameLogic->getSuperweaponRestriction()
+                                         : (Int)SUPERWEAPONS_ALLOW;
+    const AsciiString templateName =
+        getPlayerTemplate() ? getPlayerTemplate()->getName() : AsciiString::TheEmptyString;
+    const Int cap = SuperweaponBuildCap( restriction, templateName );
+    if ( cap == SUPERWEAPON_CAP_BANNED )
+      return false;
+
+    maxSimultaneousOfType = (UnsignedInt)cap;
+  }
+
   if (maxSimultaneousOfType != 0)
   {
 

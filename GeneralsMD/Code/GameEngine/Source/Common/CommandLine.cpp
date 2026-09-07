@@ -1711,6 +1711,21 @@ Int parseLanLobby(char *args[], int num)
 	return 1;
 }
 
+/* -skirmishlobby opens the skirmish staging room, which is the screen the lobby settings live on.
+   No switch could reach it before: the room is behind two main menu clicks, so a change to its
+   layout could be argued about but not photographed.  With -screenshot it can now be looked at from
+   a script.  Same shell map handling as -lanlobby, and for the same reason - the room goes on top
+   of the main menu, and the main menu is only pushed when there is no shell map. */
+Int parseSkirmishLobby(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_skirmishLobbyOnStart = TRUE;
+		TheWritableGlobalData->m_shellMapOn = FALSE;
+	}
+	return 1;
+}
+
 Int parseNetSlot(char *args[], int num)
 {
 	if (TheWritableGlobalData && num > 1)
@@ -1976,6 +1991,7 @@ static CommandLineParam params[] =
 	{ "-lanip", parseLanIP },
 	{ "-lanname", parseLanName },
 	{ "-lanlobby", parseLanLobby },
+	{ "-skirmishlobby", parseSkirmishLobby },
 
 	//-allAdvice feature
 	//{ "-allAdvice", parseAllAdvice },

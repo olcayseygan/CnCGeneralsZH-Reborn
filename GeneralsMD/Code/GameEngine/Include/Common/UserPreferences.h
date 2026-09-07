@@ -46,6 +46,12 @@ class Money;
 
 typedef std::map<AsciiString, AsciiString> PreferenceMap;
 
+// The superweapon option is one of the SUPERWEAPONS_ modes now, and every lobby stores it under the
+// same key.  A file written before the dropdown existed holds EA's Yes/No, where Yes meant one of
+// each and nothing more, so it reads back as the mode that bans them.  Each lobby keeps its own
+// preferences class, so this is the one place that rule lives.
+Int SuperweaponRestrictionFromPreference( const AsciiString &stored );
+
 //-----------------------------------------------------------------------------
 // UserPreferences base class 
 //-----------------------------------------------------------------------------
@@ -145,9 +151,9 @@ public:
 	Int getNumRemoteIPs(void);					// convenience function
 	UnicodeString getRemoteIPEntry(Int i);	// convenience function
 
-  Bool getSuperweaponRestricted(void) const;
+  Int getSuperweaponRestriction(void) const;
   Money getStartingCash(void) const;
-  void setSuperweaponRestricted( Bool superweaponRestricted);
+  void setSuperweaponRestriction( Int restriction );
   void setStartingCash( const Money & startingCash );
 };
 

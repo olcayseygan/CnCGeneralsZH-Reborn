@@ -50,6 +50,7 @@
 #include "GameClient/MapUtil.h"
 #include "GameClient/ChallengeGenerals.h"
 #include "GameNetwork/GameSpy/PeerDefs.h"
+#include "GameNetwork/GUIUtil.h"		// the SUPERWEAPONS_ constants this file parses into
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -695,20 +696,32 @@ void CustomMatchPreferences::setPreferredMap(AsciiString val)
 
 static const char superweaponRestrictionKey[] = "SuperweaponRestrict";
 
-Bool CustomMatchPreferences::getSuperweaponRestricted(void) const
+Int SuperweaponRestrictionFromPreference( const AsciiString &stored )
+{
+  if ( stored.compareNoCase( "yes" ) == 0 )
+    return SUPERWEAPONS_NONE;
+  if ( stored.compareNoCase( "no" ) == 0 )
+    return SUPERWEAPONS_ALLOW;
+
+  return atoi( stored.str() );
+}
+
+Int CustomMatchPreferences::getSuperweaponRestriction(void) const
 {
   const_iterator it = find(superweaponRestrictionKey);
   if (it == end())
   {
-    return false;
+    return SUPERWEAPONS_ALLOW;
   }
-  
-  return ( it->second.compareNoCase( "yes" ) == 0 );
+
+  return SuperweaponRestrictionFromPreference( it->second );
 }
 
-void CustomMatchPreferences::setSuperweaponRestricted( Bool superweaponRestricted )
+void CustomMatchPreferences::setSuperweaponRestriction( Int restriction )
 {
-  (*this)[superweaponRestrictionKey] = superweaponRestricted ? "Yes" : "No";
+  AsciiString val;
+  val.format( "%d", restriction );
+  (*this)[superweaponRestrictionKey] = val;
 }
 
 static const char startingCashKey[] = "StartingCash";

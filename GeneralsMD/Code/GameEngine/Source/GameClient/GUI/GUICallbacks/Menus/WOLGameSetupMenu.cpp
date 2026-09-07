@@ -200,7 +200,7 @@ static NameKeyType windowMapID = NAMEKEY_INVALID;
 
 static NameKeyType windowMapSelectMapID = NAMEKEY_INVALID;
 static NameKeyType checkBoxUseStatsID = NAMEKEY_INVALID;
-static NameKeyType checkBoxLimitSuperweaponsID = NAMEKEY_INVALID;
+static NameKeyType comboBoxSuperweaponsID = NAMEKEY_INVALID;
 static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
 static NameKeyType comboBoxPeaceTimeID = NAMEKEY_INVALID;
 static NameKeyType checkBoxLimitArmiesID = NAMEKEY_INVALID;
@@ -215,7 +215,7 @@ static GameWindow *textEntryChat = NULL;
 static GameWindow *textEntryMapDisplay = NULL;
 static GameWindow *windowMap = NULL;
 static GameWindow *checkBoxUseStats = NULL;
-static GameWindow *checkBoxLimitSuperweapons = NULL;
+static GameWindow *comboBoxSuperweapons = NULL;
 static GameWindow *comboBoxStartingCash = NULL;
 static GameWindow *comboBoxPeaceTime = NULL;
 static GameWindow *checkBoxLimitArmies = NULL;
@@ -333,7 +333,7 @@ static void savePlayerInfo( void )
 				if (TheGameSpyGame->amIHost())
 				{
 					pref.setPreferredMap(TheGameSpyGame->getMap());
-          pref.setSuperweaponRestricted( TheGameSpyGame->getSuperweaponRestriction() != 0 );
+          pref.setSuperweaponRestriction( TheGameSpyGame->getSuperweaponRestriction() );
           pref.setStartingCash( TheGameSpyGame->getStartingCash() );
           pref.setInt( "PeaceTime", TheGameSpyGame->getPeaceTime() );
         }
@@ -799,6 +799,13 @@ static Bool peaceTimeIsTheHostsToPick( void )
   return TheGameSpyGame && TheGameSpyGame->amIHost() && !TheGameSpyGame->getUseStats();
 }
 
+// A recorded stats game is played on EA's rules, so the superweapon rule is off in one and the
+// host does not get to touch it either.
+static Bool superweaponIsTheHostsToPick( void )
+{
+  return TheGameSpyGame && TheGameSpyGame->amIHost() && !TheGameSpyGame->getUseStats();
+}
+
 static void handlePeaceTimeSelection()
 {
   GameInfo *myGame = TheGameSpyInfo->getCurrentStagingRoom();
@@ -816,22 +823,13 @@ static void handlePeaceTimeSelection()
   }
 }
 
-static void handleLimitSuperweaponsClick()
+static void handleSuperweaponSelection()
 {
   GameInfo *myGame = TheGameSpyInfo->getCurrentStagingRoom();
-  
-  if (myGame)
+
+  if (myGame && comboBoxSuperweapons)
   {
-    // At the moment, 1 and 0 are the only choices supported in the GUI, though the system could
-    // support more.
-    if ( GadgetCheckBoxIsChecked( checkBoxLimitSuperweapons ) )
-    {
-      myGame->setSuperweaponRestriction( 1 );
-    }
-    else
-    {
-      myGame->setSuperweaponRestriction( 0 );
-    }
+    myGame->setSuperweaponRestriction( SuperweaponRestrictionFromComboBox( comboBoxSuperweapons ) );
     myGame->resetAccepted();
     
     if (myGame->amIHost())
@@ -1049,11 +1047,12 @@ void WOLDisplayGameOptions( void )
     }
   }
 
-  // Note: must check if checkbox is already correct to avoid infinite recursion
-  Bool limitSuperweapons = (theGame->getSuperweaponRestriction() != 0);
-  if ( limitSuperweapons != GadgetCheckBoxIsChecked(checkBoxLimitSuperweapons))
-    GadgetCheckBoxSetChecked( checkBoxLimitSuperweapons, limitSuperweapons );
-  
+  // UpdateSuperweaponComboBox only writes when the selection is wrong, which is what keeps this
+  // out of the recursion the checkbox above had to be guarded against
+  if ( comboBoxSuperweapons )
+    UpdateSuperweaponComboBox( comboBoxSuperweapons, theGame, superweaponIsTheHostsToPick() );
+
+
   Int itemCount = GadgetComboBoxGetLength(comboBoxStartingCash);
   for ( Int index = 0; index < itemCount; index++ )
   {
@@ -1159,7 +1158,7 @@ void InitWOLGameGadgets( void )
 	buttonSelectMapID = TheNameKeyGenerator->nameToKey( AsciiString( "GameSpyGameOptionsMenu.wnd:ButtonSelectMap" ) );
 	checkBoxUseStatsID = TheNameKeyGenerator->nameToKey( AsciiString( "GameSpyGameOptionsMenu.wnd:CheckBoxUseStats" ) );
 	windowMapID = TheNameKeyGenerator->nameToKey( AsciiString( "GameSpyGameOptionsMenu.wnd:MapWindow" ) );
-  checkBoxLimitSuperweaponsID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckboxLimitSuperweapons"));
+  comboBoxSuperweaponsID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:ComboBoxSuperweapons"));
   comboBoxStartingCashID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:ComboBoxStartingCash"));
   comboBoxPeaceTimeID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:ComboBoxPeaceTime"));
   checkBoxLimitArmiesID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckBoxLimitArmies"));
@@ -1180,8 +1179,10 @@ void InitWOLGameGadgets( void )
 	windowMap = TheWindowManager->winGetWindowFromId( parentWOLGameSetup,windowMapID  );
   DEBUG_ASSERTCRASH(windowMap, ("Could not find the parentWOLGameSetup.wnd:MapWindow" ));
 
-  checkBoxLimitSuperweapons = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, checkBoxLimitSuperweaponsID );
-  DEBUG_ASSERTCRASH(windowMap, ("Could not find the GameSpyGameOptionsMenu.wnd:CheckboxLimitSuperweapons" ));
+  comboBoxSuperweapons = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, comboBoxSuperweaponsID );
+  DEBUG_ASSERTCRASH(comboBoxSuperweapons, ("Could not find the GameSpyGameOptionsMenu.wnd:ComboBoxSuperweapons" ));
+  if ( comboBoxSuperweapons )
+    PopulateSuperweaponComboBox( comboBoxSuperweapons, TheGameSpyGame, superweaponIsTheHostsToPick() );
   comboBoxStartingCash = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, comboBoxStartingCashID );
   DEBUG_ASSERTCRASH(windowMap, ("Could not find the GameSpyGameOptionsMenu.wnd:ComboBoxStartingCash" ));
   PopulateStartingCashComboBox( comboBoxStartingCash, TheGameSpyGame );
@@ -1203,7 +1204,6 @@ void InitWOLGameGadgets( void )
 
   if ( !TheGameSpyGame->amIHost() )
   {
-    checkBoxLimitSuperweapons->winEnable( false );
     comboBoxStartingCash->winEnable( false );
 		NameKeyType labelID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:StartingCashLabel"));
 		TheWindowManager->winGetWindowFromId(parentWOLGameSetup, labelID)->winEnable( FALSE );
@@ -1213,7 +1213,6 @@ void InitWOLGameGadgets( void )
 	{
 		// Recorded stats games can never limit superweapons, limit armies, or have inflated starting cash.
 		// This should probably be enforced at the gamespy level as well, to prevent expoits.
-		checkBoxLimitSuperweapons->winEnable( FALSE );
 		comboBoxStartingCash->winEnable( FALSE );
 		checkBoxLimitArmies->winEnable( FALSE );
 		NameKeyType labelID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:StartingCashLabel"));
@@ -1325,10 +1324,14 @@ void InitWOLGameGadgets( void )
 		buttonBack->winEnable(TRUE);
 	}
 		//GadgetButtonSetEnabledColor(buttonAccept[0], GameSpyColor[GSCOLOR_ACCEPT_TRUE]);
+
+	// the settings page and the chat log share one rectangle; this opens on the chat log
+	InitLobbyTabs( parentWOLGameSetup, "GameSpyGameOptionsMenu.wnd", "TabChat", "ListboxChatWindowGameSpyGameSetup" );
 }
 
 void DeinitWOLGameGadgets( void )
 {
+	ShutdownLobbyTabs();
 	parentWOLGameSetup = NULL;
 	buttonEmote = NULL;
 	buttonSelectMap = NULL;
@@ -1339,7 +1342,7 @@ void DeinitWOLGameGadgets( void )
 	textEntryMapDisplay = NULL;
 	windowMap = NULL;
 	checkBoxUseStats = NULL;
-  checkBoxLimitSuperweapons = NULL;
+  comboBoxSuperweapons = NULL;
   comboBoxStartingCash = NULL;
   comboBoxPeaceTime = NULL;
   
@@ -1436,7 +1439,7 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 		// This should probably be enforced at the gamespy level as well, to prevent expoits.
 		Int isUsingStats = TheGameSpyGame->getUseStats();
 		game->setStartingCash( isUsingStats? TheMultiplayerSettings->getDefaultStartingMoney() : customPref.getStartingCash() );
-		game->setSuperweaponRestriction( isUsingStats? 0 : customPref.getSuperweaponRestricted() ? 1 : 0 );
+		game->setSuperweaponRestriction( isUsingStats? 0 : customPref.getSuperweaponRestriction() );
 		game->setPeaceTime( isUsingStats? 0 : customPref.getInt( "PeaceTime", 0 ) );
 		if (isUsingStats)
 			game->setOldFactionsOnly( 0 );
@@ -1519,8 +1522,8 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 		buttonStart->winSetText(TheGameText->fetch("GUI:Accept"));
 		buttonStart->winEnable( FALSE );
 		buttonSelectMap->winEnable( FALSE );
-    checkBoxLimitSuperweapons->winEnable( FALSE ); // Can look but only host can touch
-    comboBoxStartingCash->winEnable( FALSE );      // Ditto
+    comboBoxStartingCash->winEnable( FALSE );      // Can look but only host can touch
+    // the superweapon box is UpdateSuperweaponComboBox's to enable; see superweaponIsTheHostsToPick
     // the peace time box is UpdatePeaceTimeComboBox's to enable; see peaceTimeIsTheHostsToPick
 		initialAcceptEnable = FALSE;
 	}
@@ -2663,6 +2666,10 @@ WindowMsgHandledType WOLGameSetupMenuSystem( GameWindow *window, UnsignedInt msg
         {
           handlePeaceTimeSelection();
         }
+        else if ( controlID == comboBoxSuperweaponsID )
+        {
+          handleSuperweaponSelection();
+        }
         else
         {
 				  GameSpyStagingRoom *myGame = TheGameSpyInfo->getCurrentStagingRoom();
@@ -2737,6 +2744,10 @@ WindowMsgHandledType WOLGameSetupMenuSystem( GameWindow *window, UnsignedInt msg
 				GameWindow *control = (GameWindow *)mData1;
 				Int controlID = control->winGetWindowId();
 				static NameKeyType buttonCommunicatorID = NAMEKEY("GameSpyGameOptionsMenu.wnd:ButtonCommunicator");
+
+				if ( LobbyTabClicked( (NameKeyType)controlID ) )
+					break;
+
 				if ( controlID == buttonBackID )
 				{
 					savePlayerInfo();
@@ -2808,10 +2819,6 @@ WindowMsgHandledType WOLGameSetupMenuSystem( GameWindow *window, UnsignedInt msg
 						WOLDisplaySlotList();
 					}
 				}
-        else if ( controlID == checkBoxLimitSuperweaponsID )
-        {
-          handleLimitSuperweaponsClick();
-        }
 				else
 				{
 					for (Int i = 0; i < MAX_SLOTS; i++)

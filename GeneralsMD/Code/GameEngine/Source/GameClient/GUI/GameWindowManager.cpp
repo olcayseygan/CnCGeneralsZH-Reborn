@@ -3640,6 +3640,21 @@ UnicodeString GameWindowManager::winTextLabelToText( AsciiString label )
 
 }  // end winTextLabelToText
 
+/* An open combo box grows to cover the list it dropped, and that list is drawn over whatever is
+	 under it - including out past the edge of the panel the box sits on.  Hit testing walks the
+	 parents first, so a row hanging past that edge belongs to nobody: it draws, it highlights
+	 nothing, and the pick never happens.  The open box is the one window allowed to be bigger than
+	 its parent, so it is asked before the panel is.  Extracted from getWindowUnderCursor so the
+	 rule can be checked without standing a window manager up. */
+Bool OpenWindowOwnsPoint( Bool isOpen, Int originX, Int originY, Int width, Int height, Int x, Int y )
+{
+	if( !isOpen )
+		return FALSE;
+
+	return x >= originX && x <= originX + width &&
+				 y >= originY && y <= originY + height;
+}
+
 //-------------------------------------------------------------------------------------------------
 /** find the top window at the given coordinates */
 //-------------------------------------------------------------------------------------------------
@@ -3655,6 +3670,16 @@ GameWindow *GameWindowManager::getWindowUnderCursor( Int x, Int y, Bool ignoreEn
 	{
 		// in what what window within the grabbed window are we?
 		return m_grabWindow->winPointInChild( x, y, ignoreEnabled );
+	}
+
+	if( m_loneWindow )
+	{
+		ICoord2D origin, size;
+		m_loneWindow->winGetScreenPosition( &origin.x, &origin.y );
+		m_loneWindow->winGetSize( &size.x, &size.y );
+		if( OpenWindowOwnsPoint( !m_loneWindow->winIsHidden(), origin.x, origin.y,
+														 size.x, size.y, x, y ) )
+			return m_loneWindow->winPointInChild( x, y, ignoreEnabled );
 	}
 
 	GameWindow *window = NULL;

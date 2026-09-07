@@ -394,6 +394,28 @@ void GameTextManager::init( void )
 
 	qsort( m_stringLUT, m_textCount, sizeof(StringLookUp), compareLUT  );
 
+	// An overlay that cannot overrule the CSF is half an overlay: a label the patch file also
+	// carries has two entries here and bsearch takes whichever qsort happened to leave first.
+	// Keep the patch one - it lives past mainCount - and drop the other.
+	if ( patchCount > 0 && m_textCount > 1 )
+	{
+		StringInfo *patchFirst = m_stringInfo + mainCount;
+		Int kept = 1;
+		for ( Int i = 1; i < m_textCount; i++ )
+		{
+			// stricmp, the same comparison compareLUT sorts and bsearch searches with
+			if ( m_stringLUT[i].label->compareNoCase( m_stringLUT[kept - 1].label->str() ) == 0 )
+			{
+				if ( m_stringLUT[i].info >= patchFirst )
+					m_stringLUT[kept - 1] = m_stringLUT[i];
+				continue;
+			}
+			m_stringLUT[kept] = m_stringLUT[i];
+			kept++;
+		}
+		m_textCount = kept;
+	}
+
 	UnicodeString ourName = fetch("GUI:Command&ConquerGenerals");
 	AsciiString ourNameA;
 	ourNameA.translate(ourName);	//get ASCII version for Win 9x

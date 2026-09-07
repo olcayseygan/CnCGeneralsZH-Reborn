@@ -711,6 +711,7 @@ GlobalData::GlobalData()
 	m_netGameLocalSlot = 0;
 	m_lanPlayerName.clear(); // the lobby name comes out of the preferences unless -lanname says otherwise
 	m_lanLobbyOnStart = FALSE;
+	m_skirmishLobbyOnStart = FALSE;
 	m_horizontalScrollSpeedFactor = 1.0;
 	m_verticalScrollSpeedFactor = 1.0;
 

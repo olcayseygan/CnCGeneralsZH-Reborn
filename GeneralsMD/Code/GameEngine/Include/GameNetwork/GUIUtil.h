@@ -30,6 +30,8 @@
 #ifndef __GUIUTIL_H__
 #define __GUIUTIL_H__
 
+#include "Common/NameKeyGenerator.h"		// NameKeyType, which LobbyTabClicked takes
+
 class GameWindow;
 class GameInfo;
 
@@ -52,6 +54,41 @@ void PopulateStartingCashComboBox(GameWindow *comboBox, GameInfo *myGame);
 void PopulatePeaceTimeComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
 void UpdatePeaceTimeComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
 Int PeaceTimeFromComboBox(GameWindow *comboBox);
+
+// The superweapon rule, which the host picks and which travels in the options string as SR.  EA
+// shipped it as one number for everybody, the cap on how many of each superweapon a player may have
+// standing; it is a mode now, because one number cannot be fair to the USA Superweapon General,
+// whose three superweapons are what he pays for a weaker everything else with.  SuperweaponBuildCap
+// in Player.h turns a mode into that player's cap.
+enum
+{
+	SUPERWEAPONS_ALLOW = 0,
+	SUPERWEAPONS_LIMIT = 1,
+	SUPERWEAPONS_NONE  = 2
+};
+
+// What each mode leaves a player, per superweapon type.  Allow leaves no cap at all, and under No
+// everybody but the Superweapon General is barred outright.
+enum
+{
+	SUPERWEAPONS_LIMIT_GENERAL = 4,
+	SUPERWEAPONS_LIMIT_OTHERS  = 1,
+	SUPERWEAPONS_NONE_GENERAL  = 1
+};
+
+void PopulateSuperweaponComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
+void UpdateSuperweaponComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
+Int SuperweaponRestrictionFromComboBox(GameWindow *comboBox);
+
+// The lobby's own tab strip: one page of host settings, and the window that page covers - the chat
+// log in the two network lobbies, the map info list in the skirmish one.  All three screens share
+// these because only one lobby is ever up, and because a tab strip written three times drifts.
+// InitLobbyTabs finds the windows and opens on the chat log; LobbyTabClicked answers TRUE when the
+// click was one of the two tabs and it has already switched pages.
+void InitLobbyTabs(GameWindow *parent, const char *layoutFilename,
+									 const char *otherTabName, const char *otherWindowName);
+Bool LobbyTabClicked(NameKeyType controlID);
+void ShutdownLobbyTabs(void);
 
 void EnableSlotListUpdates( Bool val );
 Bool AreSlotListUpdatesEnabled( void );

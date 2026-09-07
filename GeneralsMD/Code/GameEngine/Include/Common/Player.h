@@ -111,6 +111,16 @@ static const char *ScienceAvailabilityNames[] =
 };
 #endif	// end DEFINE_SCIENCE_AVAILABILITY_NAMES
 
+//
+// The lobby's superweapon rule reaches a building through here.  The host picks a mode - see the
+// SUPERWEAPONS_ constants in GameNetwork/GUIUtil.h - and this says what it leaves one player: no cap
+// at all, no superweapon at all, or a number of each type he may have standing.  It takes the
+// player template's name because the rule has one exception, the USA Superweapon General, and
+// because a name is what a test can hand it.
+//
+enum { SUPERWEAPON_CAP_BANNED = -1, SUPERWEAPON_CAP_UNLIMITED = 0 };
+Int SuperweaponBuildCap( Int restriction, const AsciiString &playerTemplateName );
+
 static const Int NUM_HOTKEY_SQUADS = 10;
 
 enum { NO_HOTKEY_SQUAD = -1 };
