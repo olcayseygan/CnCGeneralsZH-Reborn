@@ -668,8 +668,12 @@ TextureClass * W3DAssetManager::Recolor_Texture_One_Time(TextureClass *texture, 
 	// if texture is procedural return NULL
 	if (name && name[0]=='!') return NULL;
 
+	// and under -nodevice there is no surface to copy and recolour, so there is no house-coloured
+	// texture either.  Callers already cope with nothing coming back - see the line above.
+	if (TheGlobalData && TheGlobalData->m_noRenderDevice) return NULL;
+
 	// make sure texture is loaded
-	if (!texture->Is_Initialized())	
+	if (!texture->Is_Initialized())
 		TextureLoader::Request_Foreground_Loading(texture);
 
 	SurfaceClass::SurfaceDescription desc;

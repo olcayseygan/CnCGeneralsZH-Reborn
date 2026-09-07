@@ -108,12 +108,25 @@ W3DShroud::~W3DShroud(void)
 }
 
 //-----------------------------------------------------------------------------
+/**The shroud a player sees is two textures and a surface painted cell by cell.  Under -nodevice
+   there are none, and none is wanted: what logic knows about who can see what lives in
+   PartitionManager, and this class only ever turned that into a picture.
+*/
+static Bool shroudHasNoDevice( void )
+{
+	return TheGlobalData && TheGlobalData->m_noRenderDevice;
+}
+
+//-----------------------------------------------------------------------------
 /**Called to initialize a new shroud for a new map.  Should be done after the map is loaded
    into the terrain object.  worldCellSize is the world-space dimensions of each shroud cell.
    The system will generate enough cells to cover the full map.
 */
 void W3DShroud::init(WorldHeightMap *pMap, Real worldCellSizeX, Real worldCellSizeY)
 {
+	if (shroudHasNoDevice())
+		return;
+
 	DEBUG_ASSERTCRASH( m_pSrcTexture == NULL, ("ReAcquire of existing shroud textures"));
 	DEBUG_ASSERTCRASH( pMap != NULL, ("Shroud init with NULL WorldHeightMap"));
 
@@ -207,6 +220,9 @@ void W3DShroud::init(WorldHeightMap *pMap, Real worldCellSizeX, Real worldCellSi
 ///Called on map reset.
 void W3DShroud::reset()
 {
+	if (shroudHasNoDevice())
+		return;
+
 	//Free old shroud data since it may no longer fit new map.
 	if (m_pSrcTexture)
 		m_pSrcTexture->Release();
@@ -287,6 +303,9 @@ W3DShroudLevel W3DShroud::getShroudLevel(Int x, Int y)
 //-----------------------------------------------------------------------------
 void W3DShroud::setShroudLevel(Int x, Int y, W3DShroudLevel level, Bool textureOnly)
 {
+	if (shroudHasNoDevice())
+		return;
+
 	DEBUG_ASSERTCRASH( m_pSrcTexture != NULL, ("Writing empty shroud.  Usually means that map failed to load."));
 
 	if (!m_pSrcTexture)
@@ -355,6 +374,8 @@ void W3DShroud::setShroudLevel(Int x, Int y, W3DShroudLevel level, Bool textureO
 ///Quickly sets the shroud level of entire map to a single value
 void W3DShroud::fillShroudData(W3DShroudLevel level)
 {
+	if (shroudHasNoDevice())
+		return;
 
 	Int x,y;
 	UnsignedShort pixel;
@@ -510,6 +531,9 @@ void W3DShroud::fillBorderShroudData(W3DShroudLevel level, SurfaceClass* pDestSu
 /**Set the shroud color within the border area of the map*/
 void W3DShroud::setBorderShroudLevel(W3DShroudLevel level)
 {
+	if (shroudHasNoDevice())
+		return;
+
 	m_boderShroudLevel = level;
 	m_clearDstTexture = TRUE;
 }

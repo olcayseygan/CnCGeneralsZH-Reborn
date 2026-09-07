@@ -97,6 +97,12 @@ int TerrainTextureClass::update(WorldHeightMap *htMap)
 {
 	// D3DTexture is our texture;
 
+	//	Except under -nodevice, where there is none: nothing built one and nothing will read the
+	//	atlas this fills.  Every line below reaches through it.
+	if (Peek_D3D_Texture() == NULL) {
+		return 0;
+	}
+
 	IDirect3DSurface8 *surface_level;
 	D3DSURFACE_DESC surface_desc;
 	D3DLOCKED_RECT locked_rect;
@@ -212,6 +218,12 @@ int TerrainTextureClass::update(WorldHeightMap *htMap)
 int TerrainTextureClass::update(WorldHeightMap *htMap)
 {
 	// D3DTexture is our texture;
+
+	//	Except under -nodevice, where there is none: nothing built one and nothing will read the
+	//	atlas this fills.  Every line below reaches through it.
+	if (Peek_D3D_Texture() == NULL) {
+		return 0;
+	}
 
 	IDirect3DSurface8 *surface_level;
 	D3DSURFACE_DESC surface_desc;
@@ -375,6 +387,12 @@ void TerrainTextureClass::setLOD(Int LOD)
 Bool TerrainTextureClass::updateFlat(WorldHeightMap *htMap, Int xCell, Int yCell, Int cellWidth, Int pixelsPerCell)
 {
 	// D3DTexture is our texture;
+
+	//	Except under -nodevice, where there is none: nothing built one and nothing will read the
+	//	atlas this fills.  Every line below reaches through it.
+	if (Peek_D3D_Texture() == NULL) {
+		return 0;
+	}
 
 	IDirect3DSurface8 *surface_level;
 	D3DSURFACE_DESC surface_desc;
@@ -769,6 +787,12 @@ int AlphaEdgeTextureClass::update256(WorldHeightMap *htMap)
 int AlphaEdgeTextureClass::update(WorldHeightMap *htMap)
 {
 	// D3DTexture is our texture;
+
+	//	Except under -nodevice, where there is none: nothing built one and nothing will read the
+	//	atlas this fills.  Every line below reaches through it.
+	if (Peek_D3D_Texture() == NULL) {
+		return 0;
+	}
 
 	IDirect3DSurface8 *surface_level;
 	D3DSURFACE_DESC surface_desc;

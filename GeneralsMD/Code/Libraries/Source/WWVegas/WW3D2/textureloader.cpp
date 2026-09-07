@@ -375,6 +375,13 @@ void TextureLoader::Validate_Texture_Size
 	unsigned& depth
 )
 {
+	//	The whole of this is a clamp against what the device can hold, and with no device there is
+	//	nothing to clamp against - Get_Current_Caps has nothing to return.  Leave the sizes as asked:
+	//	nothing in such a run allocates the surface they describe anyway.
+	if (DX8Wrapper::_Get_D3D_Device8() == NULL) {
+		return;
+	}
+
 	const D3DCAPS8& dx8caps=DX8Wrapper::Get_Current_Caps()->Get_DX8_Caps();
 
 	unsigned poweroftwowidth = 1;

@@ -127,19 +127,20 @@ Bool W3DShadowManager::init( void )
 {
 	Bool result=TRUE;
 
-	// A shadow is nothing but a thing drawn, and ReAcquireResources below asks the device for the
-	// buffers to draw it with.  Under -nodevice there is nothing here to acquire.
-	if (TheGlobalData && TheGlobalData->m_noRenderDevice)
-		return result;
+	/* Both managers are still brought up under -nodevice - the rest of the client assumes they
+		 exist, and W3DTerrainVisual::reset walks the projected one's texture manager on the way out.
+		 What is skipped is ReAcquireResources, which is the half that asks the device for the buffers
+		 and the back buffer to draw a shadow with. */
+	const Bool haveDevice = !(TheGlobalData && TheGlobalData->m_noRenderDevice);
 
 	if	(TheW3DVolumetricShadowManager && TheW3DVolumetricShadowManager->init())
 	{
-		if (TheW3DVolumetricShadowManager->ReAcquireResources())
+		if (haveDevice && TheW3DVolumetricShadowManager->ReAcquireResources())
 			result = TRUE;
 	}
 	if ( TheW3DProjectedShadowManager && TheW3DProjectedShadowManager->init())
 	{
-		if (TheW3DProjectedShadowManager->ReAcquireResources())
+		if (haveDevice && TheW3DProjectedShadowManager->ReAcquireResources())
 			result = TRUE;
 	}
 

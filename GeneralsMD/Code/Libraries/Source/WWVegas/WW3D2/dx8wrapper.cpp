@@ -2969,6 +2969,12 @@ IDirect3DSurface8 * DX8Wrapper::_Create_DX8_Surface(unsigned int width, unsigned
 	// Paletted surfaces not supported!
 	WWASSERT(format!=D3DFMT_P8);
 
+	//	No device, no surface.  SurfaceClass carries the null and the callers that matter in such a
+	//	run check it; the alternative is CreateImageSurface on a null device.
+	if (_Get_D3D_Device8() == NULL) {
+		return NULL;
+	}
+
 	DX8CALL(CreateImageSurface(width, height, WW3DFormat_To_D3DFormat(format), &surface));
 
 	return surface;

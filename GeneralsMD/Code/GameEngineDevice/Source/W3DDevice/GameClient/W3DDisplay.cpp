@@ -463,12 +463,17 @@ W3DDisplay::~W3DDisplay()
 
 	// shutdown
 	Debug_Statistics::Shutdown_Statistics();
-	W3DShaderManager::shutdown();
+	// the shader manager and the browser control are the two things init skipped under -nodevice,
+	// so they are the two things there is nothing here to take down
+	const Bool hadDevice = !(TheGlobalData && TheGlobalData->m_noRenderDevice);
+	if( hadDevice )
+		W3DShaderManager::shutdown();
 	m_assetManager->Free_Assets();
 	delete m_assetManager;
 	WW3D::Shutdown();
 	WWMath::Shutdown();
-	DX8WebBrowser::Shutdown();
+	if( hadDevice )
+		DX8WebBrowser::Shutdown();
 	delete TheW3DFileSystem;
 	TheW3DFileSystem = NULL;
 
@@ -1902,6 +1907,11 @@ void W3DDisplay::draw( void )
 		return;
 	}
 
+	// -nodevice: there is no device to begin a scene on.  The load screen asks for a draw of its
+	// own while a map loads, so this is reached before the first frame and not only from the loop.
+	if (TheGlobalData && TheGlobalData->m_noRenderDevice) {
+		return;
+	}
 
 	updateAverageFPS();
 	if (TheGlobalData->m_enableDynamicLOD && TheGameLogic->getShowDynamicLOD())
