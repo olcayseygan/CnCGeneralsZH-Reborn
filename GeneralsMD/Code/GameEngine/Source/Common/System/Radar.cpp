@@ -458,13 +458,16 @@ void Radar::addObject( Object *obj )
 			useIndicatorColor = false;
 	}
 
+	// the colour the match agreed on, not the one this screen draws.  A blip is created once and
+	// read every frame after that, so the scheme is applied where it is drawn: otherwise a unit
+	// built before the setting was changed keeps the old colour until it dies.
 	if( useIndicatorColor || (player == NULL) )
 	{
-		newObj->setColor( clientColor( obj->getIndicatorColor() ) );
+		newObj->setColor( obj->getIndicatorColor() );
 	}
 	else
 	{
-		newObj->setColor( clientPlayerColor( player ) );
+		newObj->setColor( player->getPlayerColor() );
 	}
 
 	// set a chunk of radar data in the object

@@ -45,6 +45,7 @@
 #include "GameClient/GameWindow.h"
 #include "GameClient/Image.h"
 #include "GameClient/Line2D.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/TerrainVisual.h"
 #include "GameClient/Water.h"
 #include "W3DDevice/Common/W3DRadar.h"
@@ -683,7 +684,7 @@ void W3DRadar::renderObjectList( const RadarObject *listHead, TextureClass *text
       continue;
 
     // get the color we're going to draw in
-		Color c = rObj->getColor();
+		Color c = clientColor( rObj->getColor() );
 
 		
 		
@@ -1551,7 +1552,7 @@ void W3DRadar::refreshTerrain( TerrainLogic *terrain )
 		// if( obj->getRadarPriority() == RADAR_PRIORITY_LOCAL_UNIT_ONLY )
 		// ML-- What the heck is this? local-only and neutral-observier-viewed units are stealthy?? Since when?	
 		// Now it twinkles for any stealthed object, whether locally controlled or neutral-observier-viewed
-    c = rObj->getColor();
+    c = clientColor( rObj->getColor() );
 
 		if( g & r )
 		{
