@@ -55,6 +55,7 @@ STRINGS = [
     "GUI:PeaceTimeRemaining",
     "GUI:PeaceTimeOver",
     "GUI:PeaceTimeHud",
+    "GUI:PeaceTimeHudLabel",
     "TOOLTIP:PeaceTime",
 ]
 

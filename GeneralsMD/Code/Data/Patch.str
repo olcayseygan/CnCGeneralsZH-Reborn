@@ -608,7 +608,11 @@ GUI:PeaceTimeOver
 END
 
 GUI:PeaceTimeHud
-"PEACE %d:%02d"
+"%d:%02d"
+END
+
+GUI:PeaceTimeHudLabel
+"PEACE"
 END
 
 GUI:LobbyTabChat

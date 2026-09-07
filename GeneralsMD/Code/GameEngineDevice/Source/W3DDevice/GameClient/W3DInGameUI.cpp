@@ -476,7 +476,7 @@ void W3DInGameUI::draw( void )
 	// top of it - a dialog, the menu, the control bar's own art at the top of the screen - covered
 	// the one reading you want visible exactly when something is going wrong.
 	//
-	// the peace time countdown first: it owns the top of the corner and the clock plate sits under it
+	// the peace time clock across the top middle, and the clock plate in the corner beside it
 	drawPeaceTimer();
 	drawHudOverlay();
 	

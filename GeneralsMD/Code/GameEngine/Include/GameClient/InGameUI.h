@@ -1005,9 +1005,16 @@ protected:
 	SuperweaponMap							m_superweapons[MAX_PLAYER_COUNT];
 	enum { HUD_OVERLAY_POINT_SIZE = 9 };	///< small: this sits over the battlefield, not in a panel
 	enum { HUD_CLOCK_POINT_SIZE = 7 };		///< smaller still, and bold: the clock/rate plate is a glance, not a read
-	enum { PEACE_TIMER_POINT_SIZE = 12 };	///< the peace time countdown is the one number you watch, so it is the big one
+	enum { PEACE_TIMER_POINT_SIZE = 24 };	///< the peace time clock is the one number you watch, so it is read from across the room
+	enum { PEACE_TIMER_LABEL_POINT_SIZE = 12 };	///< the word over it, which is read once and then only glanced at
+	enum { PEACE_TIMER_TOP_PAD = 16 };	///< how far its plate hangs below the top edge, an 800x600 number like the strip's
+	enum { PEACE_COUNTDOWN_POINT_SIZE = 96 };	///< the last ten seconds, written across the middle of the battlefield
+	enum { PEACE_COUNTDOWN_SECONDS = 10 };	///< how much of the peace time is counted out in the middle of the screen
+	enum { PEACE_COUNTDOWN_SIZE_STEP = 12 };	///< the popping digit's point sizes are rounded to this, so the font library caches four of them rather than one per frame
+	enum { PEACE_COUNTDOWN_LABEL_SHARE = 4 };	///< the word over that digit is this fraction of it
 
-	void drawPeaceTimer( void );					///< the lobby's peace time, counting down in the top right corner
+	void drawPeaceTimer( void );					///< the lobby's peace time, counting down at the top of the screen
+	void drawPeaceCountdown( UnsignedInt framesLeft );	///< the last seconds of it, one big digit in the middle of the screen
 	void drawHudOverlay( void );					///< the small elapsed-time / fps plate (ShowHudOverlay)
 	void drawProductionStrip( void );			///< the production queue rows above the control bar
 	///< one run of cells - a column while playing, a player's row while watching - with its left
@@ -1024,7 +1031,9 @@ protected:
 	Real												m_placementRingRadius;	///< the radius that ring was built at, so it is not rebuilt every frame
 
 	DisplayString *							m_hudDisplayString;			///< the ShowHudOverlay line (fps / clock)
-	DisplayString *							m_peaceTimeDisplayString;	///< the peace time countdown in the corner
+	DisplayString *							m_peaceTimeDisplayString;	///< the peace time clock at the top of the screen
+	DisplayString *							m_peaceTimeLabelDisplayString;	///< the word written over that clock
+	DisplayString *							m_peaceCountdownDisplayString;	///< the big digit of its last ten seconds
 	Int													m_lastMoneyDisplayed;		///< so the money gadget is only written when the amount changes
 	UnsignedInt									m_hudDrawCount;					///< rendered frames counted by drawHudOverlay itself
 	UnsignedInt									m_hudLastSampleFrame;		///< m_hudDrawCount the fps sample was last refreshed on
