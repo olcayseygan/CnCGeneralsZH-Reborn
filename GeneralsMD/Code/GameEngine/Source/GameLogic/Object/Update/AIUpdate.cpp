@@ -4321,14 +4321,21 @@ void AIUpdateInterface::aiDoCommand(const AICommandParms* parms)
 			privateFollowWaypointPathAsTeamExact(parms->m_waypoint, parms->m_cmdSource);
 			break;
 		case AICMD_FOLLOW_PATH:
-			privateFollowPath(&parms->m_coords, parms->m_obj, parms->m_cmdSource, FALSE);
+		{
+			// The callee takes the path, so hand it a copy and leave the caller's parms intact.
+			std::vector<Coord3D> coords = parms->m_coords;
+			privateFollowPath(&coords, parms->m_obj, parms->m_cmdSource, FALSE);
 			break;
+		}
 		case AICMD_FOLLOW_PATH_APPEND:
 			privateFollowPathAppend(&parms->m_pos, parms->m_cmdSource);
 			break;
 		case AICMD_FOLLOW_EXITPRODUCTION_PATH:
-			privateFollowPath(&parms->m_coords, parms->m_obj, parms->m_cmdSource, TRUE);
+		{
+			std::vector<Coord3D> coords = parms->m_coords;
+			privateFollowPath(&coords, parms->m_obj, parms->m_cmdSource, TRUE);
 			break;
+		}
 		case AICMD_ATTACK_OBJECT:
 			privateAttackObject(parms->m_obj, parms->m_intValue, parms->m_cmdSource);
 			break;
@@ -5035,7 +5042,7 @@ void AIUpdateInterface::friend_setExitProductionRallyPoint( const Coord3D *pos )
 /**
  * Follow the path defined by the given array of points
  */
-void AIUpdateInterface::privateFollowPath( const std::vector<Coord3D>* path, Object *ignoreObject, CommandSourceType cmdSource, Bool exitProduction )
+void AIUpdateInterface::privateFollowPath( std::vector<Coord3D>* path, Object *ignoreObject, CommandSourceType cmdSource, Bool exitProduction )
 {
 	if (getObject()->isMobile() == FALSE)
 		return;
@@ -5483,8 +5490,11 @@ void AIUpdateInterface::privateExit( Object *objectToExit, CommandSourceType cmd
 	{
 		// An object cannot get out of something it is not inside.  The order carries a container
 		// with it, and a stale one - the transport it left last, a building it was told to leave
-		// before somebody else pulled it out - used to be obeyed anyway.
-		if (us->getContainedBy() != objectToExit)
+		// before somebody else pulled it out - used to be obeyed anyway.  Ask the container, not
+		// the passenger: a tunnel network shares one list, so the mouth being unloaded is rarely
+		// the mouth the passenger walked into.
+		const ContainModuleInterface *contain = objectToExit->getContain();
+		if (contain == NULL || !contain->isContained(us))
 			return;
 	}
 
@@ -5520,8 +5530,11 @@ void AIUpdateInterface::privateExitInstantly( Object *objectToExit, CommandSourc
 	{
 		// An object cannot get out of something it is not inside.  The order carries a container
 		// with it, and a stale one - the transport it left last, a building it was told to leave
-		// before somebody else pulled it out - used to be obeyed anyway.
-		if (us->getContainedBy() != objectToExit)
+		// before somebody else pulled it out - used to be obeyed anyway.  Ask the container, not
+		// the passenger: a tunnel network shares one list, so the mouth being unloaded is rarely
+		// the mouth the passenger walked into.
+		const ContainModuleInterface *contain = objectToExit->getContain();
+		if (contain == NULL || !contain->isContained(us))
 			return;
 	}
 
@@ -5543,7 +5556,7 @@ void AIUpdateInterface::privateExitInstantly( Object *objectToExit, CommandSourc
 /**
  * Get out of whatever it is inside of
  */
-void AIUpdateInterface::doQuickExit( const std::vector<Coord3D>* path )
+void AIUpdateInterface::doQuickExit( std::vector<Coord3D>* path )
 {
 
 	Bool locked = getStateMachine()->isLocked();

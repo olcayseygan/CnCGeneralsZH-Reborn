@@ -830,9 +830,9 @@ void AIStateMachine::loadPostProcess( void )
 /**
  * Define a simple path
  */
-void AIStateMachine::setGoalPath( const std::vector<Coord3D>* path )
+void AIStateMachine::setGoalPath( std::vector<Coord3D>* path )
 {
-	m_goalPath = *path;
+	m_goalPath.swap( *path );
 }
 
 #ifdef STATE_MACHINE_DEBUG
@@ -1029,6 +1029,13 @@ void AIStateMachine::clear()
 	m_goalPath.clear();
 	m_goalWaypoint = NULL;
 	m_goalSquad = NULL;
+
+	// TheSuperHackers @bugfix A temporary state survived the reset and kept running against the
+	// cleared goal. Infantry scattering out of a garrison went on pathing to the target they had.
+	if (m_temporaryState)
+		m_temporaryState->onExit( EXIT_RESET );
+
+	m_temporaryState = NULL;
 
 	AIUpdateInterface* ai = getOwner()->getAI();
 	if (ai)

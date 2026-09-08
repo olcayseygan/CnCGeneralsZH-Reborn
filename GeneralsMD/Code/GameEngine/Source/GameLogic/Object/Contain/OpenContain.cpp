@@ -373,6 +373,11 @@ void OpenContain::addToContain( Object *rider )
 }
 
 //-------------------------------------------------------------------------------------------------
+Bool OpenContain::isContained( const Object *obj ) const
+{
+	return obj != NULL && obj->getContainedBy() == getObject();
+}
+
 //-------------------------------------------------------------------------------------------------
 void OpenContain::addToContainList( Object *rider )
 {
@@ -754,6 +759,9 @@ void OpenContain::scatterToNearbyPosition(Object* rider)
 		// set position of the object at center of building and move them toward pos
 		rider->setPosition( theContainer->getPosition() );
 		ai->ignoreObstacle(theContainer);
+		// TheSuperHackers @bugfix Drop the goal object first. An attacker scattering out of a
+		// garrison kept the victim as its goal and pathed straight back toward it.
+		ai->friend_setGoalObject( NULL );
 		ai->aiMoveToPosition( &pos, CMD_FROM_AI );
 
 	}  // end if

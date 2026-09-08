@@ -118,7 +118,8 @@ public:
 	virtual void iterateContained( ContainIterateFunc func, void *userData, Bool reverse );
 	virtual UnsignedInt getContainCount() const;
 	virtual Int getContainMax( void ) const;
-	virtual const ContainedItemsList* getContainedItemsList() const;	
+	virtual const ContainedItemsList* getContainedItemsList() const;
+	virtual Bool isContained( const Object *obj ) const;	
 	virtual Bool isDisplayedOnControlBar() const { return TRUE; } ///< Does this container display its contents on the ControlBar?
 	virtual Bool isKickOutOnCapture(){ return FALSE; }///< Caves and Tunnels don't kick out on capture.
 

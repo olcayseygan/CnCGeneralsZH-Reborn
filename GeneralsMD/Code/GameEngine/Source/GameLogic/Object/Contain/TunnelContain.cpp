@@ -284,6 +284,18 @@ void TunnelContain::onSelling()
 }
 
 //-------------------------------------------------------------------------------------------------
+// The whole tunnel network shares one passenger list, so a passenger belongs to the mouth it walked
+// into, not to the one that was told to unload. Either answer means it may leave through this one.
+Bool TunnelContain::isContained( const Object *obj ) const
+{
+	if( OpenContain::isContained( obj ) )
+		return TRUE;
+
+	const ContainedItemsList *items = getContainedItemsList();
+	return items != NULL && std::find( items->begin(), items->end(), obj ) != items->end();
+}
+
+//-------------------------------------------------------------------------------------------------
 Bool TunnelContain::isValidContainerFor(const Object* obj, Bool checkCapacity) const
 {
 	TunnelTracker *tunnelTracker = getTunnelTracker();

@@ -152,7 +152,19 @@ void CaveContain::onContaining( Object *obj, Bool wasSelected )
 }
 
 //-------------------------------------------------------------------------------------------------
-void CaveContain::onRemoving( Object *obj ) 
+// The whole cave network shares one passenger list, so a passenger belongs to the mouth it walked
+// into, not to the one that was told to unload. Either answer means it may leave through this one.
+Bool CaveContain::isContained( const Object *obj ) const
+{
+	if( OpenContain::isContained( obj ) )
+		return TRUE;
+
+	const ContainedItemsList *items = getContainedItemsList();
+	return items != NULL && std::find( items->begin(), items->end(), obj ) != items->end();
+}
+
+//-------------------------------------------------------------------------------------------------
+void CaveContain::onRemoving( Object *obj )
 {
 	OpenContain::onRemoving(obj);
 	// object is no longer held inside a garrisoned building
