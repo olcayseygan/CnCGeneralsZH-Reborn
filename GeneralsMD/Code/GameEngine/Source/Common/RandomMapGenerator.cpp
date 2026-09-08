@@ -118,6 +118,7 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 #define RMG_FLAT_RADIUS			13.0f
 #define RMG_BLEND_RADIUS		26.0f
 #define RMG_START_MARGIN		10.0f	///< cells of playable area kept outside the blend disc
+#define RMG_START_EDGE_FRACTION	0.14f	///< and this much of the map besides, so a base has ground behind it
 #define RMG_START_STRIDE		3		///< cells between the spots the search looks at
 #define RMG_START_ROUGHNESS		2.6f	///< height bytes a base site may vary by, on average
 
@@ -1032,9 +1033,15 @@ void RMGLayout::chooseStarts( void )
 
 	Int playable = m_settings.m_playableCells;
 
-	// Only the flat disc has to be inside the playable area. The blend ring outside it may run
-	// into the border, which is ground the camera sees and nobody builds on.
+	/* The flat disc has to be inside the playable area, and a good deal more than that: the search
+		below takes whichever site is furthest from the ones already picked, which on its own walks
+		every base into a corner. A share of the map is kept clear of the edge as well, so there is
+		ground behind a base to retreat into and to be attacked through. A map too small to give
+		that up keeps the disc's own margin and nothing more. */
 	Int margin = (Int)(RMG_FLAT_RADIUS + RMG_START_MARGIN);
+	Int inset = (Int)((Real)playable * RMG_START_EDGE_FRACTION);
+	if( inset > margin && playable - 2 * inset >= (Int)(4.0f * RMG_FLAT_RADIUS) )
+		margin = inset;
 
 	struct RMGCandidate { Real m_cellX, m_cellY, m_roughness; };
 	std::vector<RMGCandidate> candidates;

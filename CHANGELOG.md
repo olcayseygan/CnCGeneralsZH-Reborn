@@ -1018,6 +1018,10 @@ found and fixed â€” EA's own, not port damage.**
   map is one field of noise, and the bases are found in it: the flattest ground first, then
   whichever good ground is furthest from everything already taken. Some seeds give you four corners
   and some give you a long diagonal, and where the fighting happens is different every time.
+- Nobody starts with their back against the edge of the map. Taking the site furthest from every
+  base already placed walks the next one into a corner, so a seventh of the map is now kept clear
+  of start positions on every side: there is ground behind a base to fall back into, and a way
+  round it for whoever is attacking.
 - It is a map, not a field. The ground comes in layers: a flat shelf to build and fight on, a cliff
   down to the next one, and ramps cut where the route between two players has to change level, so
   taking the high ground means holding a ramp. Lakes sit in the hollows with a shoreline that

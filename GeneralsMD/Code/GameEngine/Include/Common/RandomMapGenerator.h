@@ -34,7 +34,7 @@
 	rather than desyncing partway through it. The fingerprint test in
 	test_gameengine.cpp fails until the version and the recorded CRCs agree, so
 	the bump cannot be forgotten. */
-#define RANDOM_MAP_GENERATOR_VERSION 3
+#define RANDOM_MAP_GENERATOR_VERSION 4
 
 /// How much ground the map gives everybody, before the per-player share.
 enum RandomMapSize

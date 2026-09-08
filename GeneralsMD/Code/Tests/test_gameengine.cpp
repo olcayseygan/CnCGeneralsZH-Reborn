@@ -6950,7 +6950,11 @@ TEST(start_positions_land_inside_the_map_with_room_between_them)
 		CHECK_EQ( numSupplyDocks, players * 2 );
 
 		Real extent = (Real)settings.m_playableCells * MAP_XY_FACTOR;
-		Real margin = 20.0f * MAP_XY_FACTOR;		// enough ground for a base
+
+		/* Enough ground for a base, and then a share of the map behind it: the site search takes
+			whichever candidate is furthest from the starts already chosen, which walks every base
+			into a corner unless the edge is kept clear of them. */
+		Real margin = (Real)settings.m_playableCells * 0.13f * MAP_XY_FACTOR;
 
 		Int i, j;
 		for( i = 0; i < players; i++ )
@@ -7368,14 +7372,14 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 3 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 4 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0xF59BF75C },
-		{ 12345, 4, 96, 0x6B8891F3 },
-		{ 7, 8, 128, 0x4D5C3AD3 },
+		{ 0, 2, 64, 0xF5A3F75C },
+		{ 12345, 4, 96, 0x6B8C91F3 },
+		{ 7, 8, 128, 0x4D643AD3 },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
