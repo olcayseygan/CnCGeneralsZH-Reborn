@@ -187,6 +187,8 @@ W3DView::W3DView()
 	m_shakerAngles.Y =0.0f;
 	m_shakerAngles.Z =0.0f;
 
+	m_recalcCamera = false;
+
 }  // end W3DView
 
 //-------------------------------------------------------------------------------------------------
@@ -738,8 +740,7 @@ void W3DView::init( void )
 	// create our 3D camera
 	m_3DCamera = NEW_REF( CameraClass, () );
 
-
-	setCameraTransform();
+	m_recalcCamera = true;
 
 	// create our 2D camera for the GUI overlay
 	m_2DCamera = NEW_REF( CameraClass, () );
@@ -1172,7 +1173,9 @@ DECLARE_PERF_TIMER(W3DView_updateView)
 void W3DView::update(void)
 {
 	USE_PERF_TIMER(W3DView_updateView)
-	Bool recalcCamera = false;
+	// The camera transform is rebuilt once, here, rather than at every setter that dirtied it.
+	// Setting angle, pitch and zoom in one breath used to build it three times.
+	Bool recalcCamera = m_recalcCamera;
 	Bool didScriptedMovement = false;
 #ifdef LOG_FRAME_TIMES
 	__int64 curTime64,freq64;
@@ -1539,6 +1542,7 @@ void W3DView::update(void)
 	if ((recalcCamera) || (m_isCameraSlaved)) {
 		setCameraTransform();
 	}
+	m_recalcCamera = false;
 
 
 #ifdef DO_SEISMIC_SIMULATIONS
@@ -2129,8 +2133,7 @@ void W3DView::scrollBy( Coord2D *delta )
 		//m_cameraConstraintValid = false;	// pos change does NOT invalidate cam constraints
 
 		m_doingRotateCamera = false;
-		// set new camera position
-		setCameraTransform();
+		m_recalcCamera = true;
 
 	}  // end if
 
@@ -2140,9 +2143,7 @@ void W3DView::scrollBy( Coord2D *delta )
 //-------------------------------------------------------------------------------------------------
 void W3DView::forceRedraw()
 {
-
-	// set the camera
-	setCameraTransform();
+	m_recalcCamera = true;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2157,8 +2158,7 @@ void W3DView::setAngle( Real angle )
 
 
 	stopDoingScriptedCamera();
-	// set the camera
-	setCameraTransform();
+	m_recalcCamera = true;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2175,8 +2175,7 @@ void W3DView::setPitch( Real angle )
 
 
 	stopDoingScriptedCamera();
-	// set the camera
-	setCameraTransform();
+	m_recalcCamera = true;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2189,8 +2188,7 @@ void W3DView::setAngleAndPitchToDefault( void )
 
 	this->m_FXPitch = 1.0;
 
-	// set the camera
-	setCameraTransform();
+	m_recalcCamera = true;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2225,7 +2223,7 @@ void W3DView::setHeightAboveGround(Real z)
 
 	stopDoingScriptedCamera();
 	m_cameraConstraintValid = false; // recalc it.
-	setCameraTransform();
+	m_recalcCamera = true;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2239,7 +2237,7 @@ void W3DView::setZoom(Real z)
 
 	stopDoingScriptedCamera();
 	m_cameraConstraintValid = false; // recalc it.
-	setCameraTransform();
+	m_recalcCamera = true;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2260,7 +2258,7 @@ void W3DView::setZoomToHeight( Real heightAboveGround )
 
 	stopDoingScriptedCamera();
 	m_cameraConstraintValid = false; // recalc it.
-	setCameraTransform();
+	m_recalcCamera = true;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2292,9 +2290,9 @@ void W3DView::setFieldOfView( Real angle )
 	m_cameraConstraintValid = false;
 
 #if defined(_DEBUG) || defined(_INTERNAL)
-	// this is only for testing, and recalculating the 
+	// this is only for testing, and recalculating the
 	// camera every frame is wasteful
-	setCameraTransform();
+	m_recalcCamera = true;
 #endif
 }
 
@@ -2663,7 +2661,7 @@ void W3DView::lookAt( const Coord3D *o )
 	setPosition(&pos);
 	stopDoingScriptedCamera();
 
-	setCameraTransform();
+	m_recalcCamera = true;
 
 }
 
@@ -2681,7 +2679,7 @@ void W3DView::initHeightForMap( void )
 	m_cameraOffset.y = -(m_cameraOffset.z / tan(TheGlobalData->m_cameraPitch * (PI / 180.0)));
 	m_cameraOffset.x = -(m_cameraOffset.y * tan(TheGlobalData->m_cameraYaw * (PI / 180.0)));
 	m_cameraConstraintValid = false;	// possible ground level change invalidates cam constraints
-	setCameraTransform();
+	m_recalcCamera = true;
 
 }
 
@@ -3639,7 +3637,7 @@ void W3DView::cameraDisableRealZoomMode(void) //WST added 10/18/2002
 	m_FXPitch = 1.0f;	//Reset to default
 	//m_zoom = 1.0f;
 	m_FOV = 50.0f * PI/180.0f;
-	setCameraTransform();
+	m_recalcCamera = true;
 	updateView();
 }
 

@@ -282,6 +282,7 @@ private:
 	
 	Region2D m_cameraConstraint;										///< m_pos should be constrained to be within this area
 	Bool m_cameraConstraintValid;										///< if f, recalc cam constraints
+	Bool m_recalcCamera;														///< if t, rebuild the camera transform in the next render update
 
 	Bool isDoingScriptedCamera( void ) const;				///< True while any scripted camera movement owns the view
 	void stopDoingScriptedCamera( void );						///< Hand the view back to the user, whatever the script was doing
