@@ -1260,7 +1260,7 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				} 
 				else 
 				{
-					TheInGameUI->deselectAllDrawables( false ); //No need to post message because we're just creating a new group!
+					TheInGameUI->deselectAllDrawables(); //The clear is dropped in the stream, the new group follows it
 
 					// no need to send two messages for selecting the same group.
 					TheMessageStream->appendMessage((GameMessage::Type)(GameMessage::MSG_SELECT_TEAM0 + group));

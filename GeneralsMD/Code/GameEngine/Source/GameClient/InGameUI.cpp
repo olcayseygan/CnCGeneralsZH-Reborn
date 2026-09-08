@@ -4587,9 +4587,10 @@ void InGameUI::deselectDrawable( Drawable *draw )
 //-------------------------------------------------------------------------------------------------
 /** Clear all drawables' "select" status */
 //-------------------------------------------------------------------------------------------------
-void InGameUI::deselectAllDrawables( Bool postMsg )
+void InGameUI::deselectAllDrawables( void )
 {
 	const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
+	const Bool hadSelectedDrawables = !selected->empty();
 
 	// loop through all the selected drawables
 	for ( DrawableListCIt it = selected->begin(); it != selected->end(); )
@@ -4611,12 +4612,9 @@ void InGameUI::deselectAllDrawables( Bool postMsg )
 	m_soloNexusSelectedDrawableID = INVALID_DRAWABLE_ID;
 
 
-	///@todo don't we want to not emit this message if there wasn't a group at all? (CBD)
-	/** @todo also, we probably are sending this message too much, we should come up with
-	some kind of "selections are dirty" status that we can check once per frame and send
-	the correct group info over the network ... could be tricky tho (or impossible) given
-	the order of operations of things happening in the code (CBD) */
-	if( postMsg )
+	// TheSuperHackers @tweak Only send this when something actually was selected. The rest of the
+	// spam is dropped in the stream, where a clear followed by a fresh selection is recognised.
+	if( hadSelectedDrawables )
 	{
 		// The message carried one boolean that nothing on the receiving side ever read: the handler
 		// deselects the whole group and always did.

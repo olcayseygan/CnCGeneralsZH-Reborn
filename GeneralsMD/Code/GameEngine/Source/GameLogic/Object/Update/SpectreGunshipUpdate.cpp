@@ -620,8 +620,9 @@ UpdateSleepTime SpectreGunshipUpdate::update()
 
 
           // GATTLING TARGETING LOGIC------------------------------------------
-				  const ParticleSystemTemplate *tmp = data->m_gattlingStrafeFXParticleSystem;
-				  if (tmp && gattling && gattling->testStatus( OBJECT_STATUS_IS_FIRING_WEAPON) )
+				  // TheSuperHackers @fix A missing client-side particle template used to switch off the
+				  // gattling's aiming and its howitzer counter, which are logic state and CRC'd.
+				  if (gattling && gattling->testStatus( OBJECT_STATUS_IS_FIRING_WEAPON) )
 				  {
 
 
@@ -654,7 +655,7 @@ UpdateSleepTime SpectreGunshipUpdate::update()
 			{
 
 				// This makes the client smoke effects of the gattling cannon strafing the ground toward the attack position
-						  ParticleSystem *sys = TheParticleSystemManager->createParticleSystem(tmp);
+						  ParticleSystem *sys = TheParticleSystemManager->createParticleSystem(data->m_gattlingStrafeFXParticleSystem);
 						  if (sys)
 				{
 				  Coord3D impactPosition;

@@ -806,14 +806,8 @@ void RecorderClass::writeToFile(GameMessage * msg) {
 		argType = argType->getNext();
 	}
 
-//	UnsignedByte lasttype = (UnsignedByte)ARGUMENTDATATYPE_UNKNOWN;
-	Int numArgs = msg->getArgumentCount();
+	const Int numArgs = msg->getArgumentCount();
 	for (Int i = 0; i < numArgs; ++i) {
-//		UnsignedByte type = (UnsignedByte)(msg->getArgumentDataType(i));
-//		if (lasttype != type) {
-//			fwrite(&type, sizeof(type), 1, m_file);
-//			lasttype = type;
-//		}
 		writeArgument(msg->getArgumentDataType(i), *(msg->getArgument(i)));
 	}
 

@@ -2622,13 +2622,15 @@ void JetAIUpdate::crc( Xfer *xfer )
 // ------------------------------------------------------------------------------------------------
 /** Xfer method
 	* Version Info:
-	* 1: Initial version */
+	* 1: Initial version
+	* 2: Save engine on/off state.
+	* 3: TheSuperHackers @bugfix Save the helipad landing position. */
 // ------------------------------------------------------------------------------------------------
 void JetAIUpdate::xfer( Xfer *xfer )
 {
 
   // version
-  XferVersion currentVersion = 2;
+  XferVersion currentVersion = 3;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
  
@@ -2678,6 +2680,11 @@ void JetAIUpdate::xfer( Xfer *xfer )
 		{
 			m_enginesOn = FALSE;
 		}
+	}
+
+	if( version >= 3 )
+	{
+		xfer->xferCoord3D( &m_landingPosForHelipadStuff );
 	}
 
 }  // end xfer

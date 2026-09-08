@@ -31,6 +31,8 @@
 #ifndef _MESSAGE_STREAM_H_
 #define _MESSAGE_STREAM_H_
 
+#include <vector>
+
 #include "Common/GameCommon.h"	// ensure we get DUMP_PERF_STATS, or not
 #include "Common/SubsystemInterface.h"
 #include "Lib/BaseType.h"
@@ -671,10 +673,12 @@ public:
 	GameMessage( Type type );
 
 	GameMessage *next( void ) { return m_next; }		///< Return next message in the stream
+	const GameMessage *next( void ) const { return m_next; }		///< Return next message in the stream
 	GameMessage *prev( void ) { return m_prev; }		///< Return prev message in the stream
+	const GameMessage *prev( void ) const { return m_prev; }		///< Return prev message in the stream
 
 	Type getType( void ) const { return m_type; }					///< Return the message type
-	UnsignedByte getArgumentCount( void ) const { return m_argCount; }	///< Return the number of arguments for this msg
+	UnsignedByte getArgumentCount( void ) const { return (UnsignedByte)m_argList.size(); }	///< Return the number of arguments for this msg
 
 	AsciiString getCommandAsAsciiString( void ); ///< returns a string representation of the command type.
 	static AsciiString getCommandTypeAsAsciiString(GameMessage::Type t);
@@ -697,10 +701,9 @@ public:
 
 	/**
 	 * Return the given argument union.
-	 * @todo This should be a more list-like interface.  Very inefficient.
 	 */
 	const GameMessageArgumentType *getArgument( Int argIndex ) const;
-	GameMessageArgumentDataType getArgumentDataType( Int argIndex );
+	GameMessageArgumentDataType getArgumentDataType( Int argIndex ) const;
 
 	void friend_setNext(GameMessage* m) { m_next = m; }
 	void friend_setPrev(GameMessage* m) { m_prev = m; }
@@ -718,10 +721,9 @@ private:
 
 	Int m_playerIndex;													///< The Player who issued the command
 
-	/// @todo If a GameMessage needs more than 255 arguments, it needs to be split up into multiple GameMessage's.
-	UnsignedByte m_argCount;										///< The number of arguments of this message
-
-	GameMessageArgument *m_argList, *m_argTail;						///< This message's arguments
+	// A message used to walk a linked list to reach argument n, which made reading every argument of
+	// a message quadratic. The Recorder does exactly that for every command it writes.
+	std::vector<GameMessageArgument *> m_argList;						///< This message's arguments
 
 	/// allocate a new argument, add it to list, return pointer to its data
 	GameMessageArgument *allocArg( void );
@@ -808,6 +810,9 @@ public:
 	void removeTranslator( TranslatorID );				///< Remove a previously attached translator
 
 protected:
+
+	/// True when the message says nothing the message right behind it does not already say.
+	Bool isRedundantMessage( const GameMessage *msg ) const;
 
 	struct TranslatorData
 	{

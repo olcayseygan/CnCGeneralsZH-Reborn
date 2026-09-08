@@ -60,11 +60,8 @@ CommandList *TheCommandList = NULL;
 GameMessage::GameMessage( GameMessage::Type type ) 
 { 
 	m_playerIndex = ThePlayerList->getLocalPlayer()->getPlayerIndex();
-	m_type = type; 
-	m_argList = NULL;
-	m_argTail = NULL;
-	m_argCount = 0; 
-	m_list = 0; 
+	m_type = type;
+	m_list = 0;
 }
 
 
@@ -74,13 +71,8 @@ GameMessage::GameMessage( GameMessage::Type type )
 GameMessage::~GameMessage( ) 
 { 
 	// free all arguments
-	GameMessageArgument *arg, *nextArg;
-
-	for( arg = m_argList; arg; arg=nextArg )
-	{
-		nextArg = arg->m_next;
-		arg->deleteInstance();
-	}
+	for( size_t i = 0; i < m_argList.size(); ++i )
+		m_argList[i]->deleteInstance();
 
 	// detach message from list
 	if (m_list)
@@ -89,16 +81,13 @@ GameMessage::~GameMessage( )
 
 /**
  * Return the given argument union.
- * @todo This should be a more list-like interface.  Very inefficient.
  */
 const GameMessageArgumentType *GameMessage::getArgument( Int argIndex ) const
 {
 	static const GameMessageArgumentType junk = { 0 };
 
-	int i=0;
-	for( GameMessageArgument *a = m_argList; a; a=a->m_next, i++ )
-		if (i == argIndex)
-			return &a->m_data;
+	if( argIndex >= 0 && (size_t)argIndex < m_argList.size() )
+		return &m_argList[argIndex]->m_data;
 
 	DEBUG_CRASH(("argument not found"));
 	return &junk;
@@ -107,19 +96,11 @@ const GameMessageArgumentType *GameMessage::getArgument( Int argIndex ) const
 /**
  * Return the given argument data type
  */
-GameMessageArgumentDataType GameMessage::getArgumentDataType( Int argIndex )
+GameMessageArgumentDataType GameMessage::getArgumentDataType( Int argIndex ) const
 {
-	if (argIndex >= m_argCount) {
-		return ARGUMENTDATATYPE_UNKNOWN;
-	}
-	int i=0;
-	GameMessageArgument *a;
-	for (a = m_argList; a && (i < argIndex); a=a->m_next, ++i );
+	if( argIndex >= 0 && (size_t)argIndex < m_argList.size() )
+		return m_argList[argIndex]->m_type;
 
-	if (a != NULL)
-	{
-		return a->m_type;
-	}
 	return ARGUMENTDATATYPE_UNKNOWN;
 }
 
@@ -129,21 +110,12 @@ GameMessageArgumentDataType GameMessage::getArgumentDataType( Int argIndex )
 GameMessageArgument *GameMessage::allocArg( void ) 
 { 
 	// allocate a new argument
-	GameMessageArgument *arg = newInstance(GameMessageArgument); 
-
-	// add to end of argument list
-	if (m_argTail)
-		m_argTail->m_next = arg;
-	else
-	{
-		m_argList = arg;
-		m_argTail = arg;
-	}
-
+	GameMessageArgument *arg = newInstance(GameMessageArgument);
 	arg->m_next = NULL;
-	m_argTail = arg;
+	m_argList.push_back(arg);
 
-	m_argCount++;
+	DEBUG_ASSERTCRASH( m_argList.size() <= 255,
+		("A GameMessage with more than 255 arguments has to be split into several messages.") );
 
 	return arg;
 }
@@ -1129,24 +1101,33 @@ void MessageStream::propagateMessages( void )
 	for( ss=m_firstTranslator; ss; ss=ss->m_next )
 	{
 		for( msg=m_firstMessage; msg; msg=next )
-		{			
-			if (ss->m_translator 
+		{
+			// TheSuperHackers @tweak Drop messages we already know say nothing, before any translator
+			// spends work on them. Fewer commands reach the network. Anything that needs to look back
+			// at an earlier message has to invalidate here and delete later instead.
+			if (isRedundantMessage(msg))
+			{
+				next = msg->next();
+				msg->deleteInstance();
+				continue;
+			}
+
+			if (ss->m_translator
 #if defined(_DEBUG) || defined(_INTERNAL)
 				&& !isInvalidDebugCommand(msg->getType())
 #endif
 				)
 			{
 				GameMessageDisposition disp = ss->m_translator->translateGameMessage(msg);
-				next = msg->next();
 				if (disp == DESTROY_MESSAGE)
 				{
+					next = msg->next();
 					msg->deleteInstance();
+					continue;
 				}
-			} 
-			else 
-			{
-				next = msg->next();
 			}
+
+			next = msg->next();
 		}
 	}
 
@@ -1158,6 +1139,39 @@ void MessageStream::propagateMessages( void )
 	m_firstMessage = NULL;
 	m_lastMessage = NULL;
 
+}
+
+Bool MessageStream::isRedundantMessage( const GameMessage *msg ) const
+{
+	if( msg->getType() != GameMessage::MSG_DESTROY_SELECTED_GROUP )
+		return FALSE;
+
+	const GameMessage *msgNext = msg->next();
+	if( msgNext == NULL )
+		return FALSE;
+
+	switch( msgNext->getType() )
+	{
+		// A fresh group replaces the selection outright, so clearing it first says nothing.
+		case GameMessage::MSG_CREATE_SELECTED_GROUP:
+		case GameMessage::MSG_CREATE_SELECTED_GROUP_NO_SOUND:
+			return msgNext->getArgumentCount() >= 1 && msgNext->getArgument( 0 )->boolean;
+
+		case GameMessage::MSG_DESTROY_SELECTED_GROUP:
+		case GameMessage::MSG_SELECT_TEAM0:
+		case GameMessage::MSG_SELECT_TEAM1:
+		case GameMessage::MSG_SELECT_TEAM2:
+		case GameMessage::MSG_SELECT_TEAM3:
+		case GameMessage::MSG_SELECT_TEAM4:
+		case GameMessage::MSG_SELECT_TEAM5:
+		case GameMessage::MSG_SELECT_TEAM6:
+		case GameMessage::MSG_SELECT_TEAM7:
+		case GameMessage::MSG_SELECT_TEAM8:
+		case GameMessage::MSG_SELECT_TEAM9:
+			return TRUE;
+	}
+
+	return FALSE;
 }
 
 
