@@ -1279,11 +1279,15 @@ void GameClient::preloadAssets( TimeOfDay timeOfDay )
 	//
 	AsciiString side;
 	const ThingTemplate *tTemplate;
+	Int preloaded = 0, considered = 0;
+	Int64 preloadStart, preloadEnd, preloadFreq = 0;
+	QueryPerformanceCounter( (LARGE_INTEGER *)&preloadStart );
 	for( tTemplate = TheThingFactory->firstTemplate();
 			 tTemplate;
 			 tTemplate = tTemplate->friend_getNextTemplate() )
 	{
-			
+		++considered;
+
 		// if this isn't one of the objects that can be preloaded ignore it
 		if( tTemplate->isKindOf( KINDOF_PRELOAD ) == FALSE && !TheGlobalData->m_preloadEverything )
 			continue;
@@ -1292,6 +1296,7 @@ void GameClient::preloadAssets( TimeOfDay timeOfDay )
 		draw = TheThingFactory->newDrawable( tTemplate );
 		if( draw )
 		{
+			++preloaded;
 
 			// preload the assets
 			draw->preloadAssets( timeOfDay );
@@ -1302,6 +1307,10 @@ void GameClient::preloadAssets( TimeOfDay timeOfDay )
 		}  // end if
 
 	}  // end for
+	QueryPerformanceCounter( (LARGE_INTEGER *)&preloadEnd );
+	QueryPerformanceFrequency( (LARGE_INTEGER *)&preloadFreq );
+	DEBUG_LOG(("PRELOAD: %d of %d templates in %.0f ms\n", preloaded, considered,
+						 preloadFreq ? (Real)((double)(preloadEnd - preloadStart) * 1000.0 / (double)preloadFreq) : 0.0f));
 	GlobalMemoryStatus(&after);
 
 	DEBUG_LOG(("Preloading memory dwAvailPageFile %d --> %d : %d\n",

@@ -730,17 +730,7 @@ Int parseBuildMapCache(char *args[], int)
 }
 
 
-#if defined(_DEBUG) || defined(_INTERNAL) || defined(_ALLOW_DEBUG_CHEATS_IN_RELEASE)
-Int parsePreload( char *args[], int num )
-{
-	if( TheWritableGlobalData )
-		TheWritableGlobalData->m_preloadAssets = TRUE;
-	return 1;
-}
-#endif
-
-
-#if defined(_DEBUG) || defined(_INTERNAL) 
+#if defined(_DEBUG) || defined(_INTERNAL)
 Int parseDisplayDebug(char *args[], int)
 {
 	if (TheWritableGlobalData)
@@ -764,10 +754,7 @@ Int parseFile(char *args[], int num)
 Int parsePreloadEverything( char *args[], int num )
 {
 	if( TheWritableGlobalData )
-	{
-		TheWritableGlobalData->m_preloadAssets = TRUE;
 		TheWritableGlobalData->m_preloadEverything = TRUE;
-	}
 	return 1;
 }
 
@@ -2049,8 +2036,6 @@ static CommandLineParam params[] =
 	{ "-displayDebug", parseDisplayDebug },
 	{ "-file", parseFile },
   
-//	{ "-preload", parsePreload },
-	
   { "-preloadEverything", parsePreloadEverything },
 	{ "-logAssets", parseLogAssets },
 	{ "-netMinPlayers", parseNetMinPlayers },
@@ -2132,9 +2117,6 @@ static CommandLineParam params[] =
 	//-allAdvice feature
 	//{ "-allAdvice", parseAllAdvice },
 
-#if defined(_DEBUG) || defined(_INTERNAL) || defined(_ALLOW_DEBUG_CHEATS_IN_RELEASE)
-  { "-preload", parsePreload },
-#endif
 
 
 };

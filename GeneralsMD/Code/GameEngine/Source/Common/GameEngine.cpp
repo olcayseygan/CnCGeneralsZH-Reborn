@@ -1334,6 +1334,16 @@ static Bool theFrameTimesStarted = FALSE;
 
 void GameEngine_noteFrameTime( Real ms, UnsignedInt logicFrame )
 {
+	/* The histogram deliberately ignores the opening second of a match, and the opening second of a
+		 match is exactly where a player feels the game stutter.  So every long pass gets a line of its
+		 own from the first frame onwards, whether or not the histogram has started.  Read it beside
+		 SLOW LOGIC FRAME: a long pass with no logic line under it was spent on the client side. */
+	const Real SLOW_PASS_MS = 25.0f;
+	if( ms > SLOW_PASS_MS && TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
+	{
+		DEBUG_LOG(("SLOW PASS frame %d: %.1f ms\n", logicFrame, ms));
+	}
+
 	if( !theFrameTimesStarted )
 		return;
 	theFrameTimes.note( ms, logicFrame );

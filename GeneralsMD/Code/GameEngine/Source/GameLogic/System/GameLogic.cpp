@@ -2068,7 +2068,13 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 	// will build and various damage states for all the structures on the map so that we
 	// don't have big pauses when building those objects or switching to those states
 	//
-	if( TheGlobalData->m_preloadAssets )
+	// EA wrote that and left it behind a flag that no shipping build could set, so the game read
+	// a unit's models on whichever logic frame the first one of its kind appeared: 18ms of a 33ms
+	// frame for the first Ranger out of a barracks, and the opening of a match is nothing but
+	// first appearances.  It is not a flag any more.  The shell map is the one exception - it
+	// builds none of this and would only pay the loading second for nothing.
+	//
+	if( !isInShellGame() )
 	{
 		if (TheGlobalData->m_preloadEverything)
 		{
@@ -3795,6 +3801,7 @@ enum { MODULE_PROFILE_MAX = 96 };
 static NameKeyType	theModuleKindKey[ MODULE_PROFILE_MAX ];
 static Int64				theModuleKindTicks[ MODULE_PROFILE_MAX ];
 static Int					theModuleKindCount[ MODULE_PROFILE_MAX ];
+static Int					theModuleKindQueries[ MODULE_PROFILE_MAX ];
 static Int					theModuleKindsUsed = 0;
 
 static void resetModuleProfile( void )
@@ -3806,7 +3813,7 @@ static void resetModuleProfile( void )
 	theModuleKindsUsed = 0;
 }
 
-static void addModuleProfile( NameKeyType key, Int64 ticks )
+static void addModuleProfile( NameKeyType key, Int64 ticks, Int queries )
 {
 	for( Int at = 0; at < theModuleKindsUsed; at++ )
 	{
@@ -3814,6 +3821,7 @@ static void addModuleProfile( NameKeyType key, Int64 ticks )
 		{
 			theModuleKindTicks[ at ] += ticks;
 			theModuleKindCount[ at ]++;
+			theModuleKindQueries[ at ] += queries;
 			return;
 		}
 	}
@@ -3824,7 +3832,52 @@ static void addModuleProfile( NameKeyType key, Int64 ticks )
 	theModuleKindKey[ theModuleKindsUsed ] = key;
 	theModuleKindTicks[ theModuleKindsUsed ] = ticks;
 	theModuleKindCount[ theModuleKindsUsed ] = 1;
+	theModuleKindQueries[ theModuleKindsUsed ] = queries;
 	theModuleKindsUsed++;
+}
+
+//
+// Who asks the partition manager for a range query.  THREADING-ROADMAP counted 117 of them a logic
+// frame and could name 17 - the units looking for something to shoot.  A sampling profile cannot
+// name the other hundred, because they all end up inside the same getClosestObjects.  Attributing
+// each one to the module that was updating when it happened does name them, and the count is a
+// static int read either side of a call that already carries two QueryPerformanceCounter reads.
+//
+static const char *getModuleQueryReport( void )
+{
+	static char report[ 256 ];
+	Bool taken[ MODULE_PROFILE_MAX ];
+
+	Int used = snprintf( report, ARRAY_SIZE(report), "queries by module:" );
+	if( used < 0 || used >= (Int)ARRAY_SIZE(report) )
+		return report;
+
+	for( Int at = 0; at < theModuleKindsUsed; at++ )
+		taken[ at ] = FALSE;
+
+	for( Int rank = 0; rank < 5; rank++ )
+	{
+		Int best = -1;
+		for( Int at = 0; at < theModuleKindsUsed; at++ )
+			if( !taken[ at ] && theModuleKindQueries[ at ] > 0
+					&& ( best < 0 || theModuleKindQueries[ at ] > theModuleKindQueries[ best ] ) )
+				best = at;
+
+		if( best < 0 )
+			break;
+
+		const Int room = (Int)ARRAY_SIZE(report) - used;
+		const Int wrote = snprintf( report + used, room, " %s %dq/%dx",
+										 TheNameKeyGenerator->keyToName( theModuleKindKey[ best ] ).str(),
+										 theModuleKindQueries[ best ], theModuleKindCount[ best ] );
+		if( wrote < 0 || wrote >= room )
+			break;
+		used += wrote;
+
+		taken[ best ] = TRUE;
+	}
+
+	return report;
 }
 
 static const char *getModuleProfileReport( void )
@@ -4421,6 +4474,7 @@ void GameLogic::update( void )
 				const NameKeyType profModuleKey = u->getModuleNameKey();
 				const ThingTemplate *profModuleThing = u->friend_getObject() ? u->friend_getObject()->getTemplate() : NULL;
 				const ObjectID profModuleObjID = u->friend_getObject() ? u->friend_getObject()->getID() : INVALID_ID;
+				const Int profModuleQueriesBefore = PartitionManager::getQueryCountThisFrame();
 				Int64 profModuleStart;
 				QueryPerformanceCounter( (LARGE_INTEGER *)&profModuleStart );
 #endif
@@ -4433,7 +4487,8 @@ void GameLogic::update( void )
 					QueryPerformanceCounter( (LARGE_INTEGER *)&profModuleEnd );
 					theModuleUpdateCount++;
 					const Int64 profModuleTicks = profModuleEnd - profModuleStart;
-					addModuleProfile( profModuleKey, profModuleTicks );
+					addModuleProfile( profModuleKey, profModuleTicks,
+														PartitionManager::getQueryCountThisFrame() - profModuleQueriesBefore );
 					if( profModuleTicks > theWorstModuleTicks )
 					{
 						theWorstModuleTicks = profModuleTicks;
@@ -4560,7 +4615,7 @@ void GameLogic::update( void )
 			const Real stores = logicElapsedMS( tCommandList, tStores );
 			const Real victory = logicElapsedMS( tStores, tVictory );
 			const Real disabled = logicElapsedMS( tVictory, tFrameEnd );
-			DEBUG_LOG(("SLOW LOGIC FRAME %d: %.1fms | scripts %.1f | objects %.1f | ai %.1f (pathfind %.1f, players %.1f) | partition %.1f (%d queries, %d gathers, %d target scans, %d objects) | rest %.1f (destroy %.1f, cmdlist %.1f, stores %.1f, victory %.1f, disabled %.1f)\n  sc: %s\n  ob: %s\n  pf: %s\n  ai: %s\n",
+			DEBUG_LOG(("SLOW LOGIC FRAME %d: %.1fms | scripts %.1f | objects %.1f | ai %.1f (pathfind %.1f, players %.1f) | partition %.1f (%d queries, %d gathers, %d target scans, %d objects) | rest %.1f (destroy %.1f, cmdlist %.1f, stores %.1f, victory %.1f, disabled %.1f)\n  sc: %s\n  ob: %s\n  qy: %s\n  pf: %s\n  ai: %s\n",
 								 now, total, scripts, objects, ai, AI::getLastPathfindMS(), AI::getLastPlayerUpdateMS(), partition,
 								 PartitionManager::getQueryCountThisFrame(), PartitionManager::getGatherCountThisFrame(),
 								 AI::getEnemyScanCountThisFrame(),
@@ -4568,6 +4623,7 @@ void GameLogic::update( void )
 								 destroy, cmdlist, stores, victory, disabled,
 								 TheScriptEngine->getProfileReport(),
 								 getModuleProfileReport(),
+								 getModuleQueryReport(),
 								 Pathfinder::getProfileReport(),
 								 AIPlayer::getProfileReport()));
 		}
@@ -4908,7 +4964,23 @@ UnsignedInt GameLogic::getCRC( Int mode, AsciiString deepCRCFileName )
 // ------------------------------------------------------------------------------------------------
 void GameLogic::sendObjectCreated( Object *obj )
 {
+	/* The first drawable of a template loads that template's models, and with the assets on demand
+		 that load lands on whichever logic frame the unit happens to appear on: the first Ranger out
+		 of a barracks cost 18ms of a 33ms frame.  The preload in startNewGame is what keeps this
+		 quiet; a line here is one that got past it, which is the only way anybody would notice. */
+	Int64 firstDrawStart, firstDrawEnd, firstDrawFreq = 0;
+	QueryPerformanceCounter( (LARGE_INTEGER *)&firstDrawStart );
 	Drawable *draw = TheThingFactory->newDrawable(obj->getTemplate());
+	QueryPerformanceCounter( (LARGE_INTEGER *)&firstDrawEnd );
+	QueryPerformanceFrequency( (LARGE_INTEGER *)&firstDrawFreq );
+	{
+		const Real ASSET_LOAD_WORTH_LOGGING_MS = 3.0f;
+		const Real drawMS = firstDrawFreq
+			? (Real)((double)(firstDrawEnd - firstDrawStart) * 1000.0 / (double)firstDrawFreq) : 0.0f;
+		if( drawMS > ASSET_LOAD_WORTH_LOGGING_MS )
+			DEBUG_LOG(("SLOW DRAWABLE frame %d: %s took %.1f ms to build\n", m_frame,
+								 obj->getTemplate()->getName().str(), drawMS));
+	}
 
 /// @todo COLIN ... shouldn't we have a check here for existing drawable!!!!!
 

@@ -924,7 +924,6 @@ GlobalData::GlobalData()
 	m_stealthFriendlyOpacity = 0.5f;
 	m_defaultOcclusionDelay = LOGICFRAMES_PER_SECOND * 3;	//default to 3 seconds
 
-	m_preloadAssets = FALSE;
 	m_preloadEverything = FALSE;
 	m_preloadReport = FALSE;
 

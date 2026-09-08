@@ -200,7 +200,6 @@ public:
 	Real m_stealthFriendlyOpacity;
 	UnsignedInt m_defaultOcclusionDelay;	///<time to delay building occlusion after object is created.
 
-	Bool m_preloadAssets;
 	Bool m_preloadEverything;			///< Preload everything, everywhere (for debugging only)
 	Bool m_preloadReport;					///< dump a log of all W3D assets that are being preloaded.
 
