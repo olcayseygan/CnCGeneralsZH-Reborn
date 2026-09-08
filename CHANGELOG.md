@@ -890,6 +890,11 @@ found and fixed â€” EA's own, not port damage.**
   with it, since it looks those up in a folder while it is running rather than at load, and an
   install short of them starts and then plays nothing at all. All of it is the retail files, and the
   old copies are backed up like everything else the installer writes over.
+- The game no longer needs a Visual C++ redistributable installed. The exe asked Windows for two
+  support libraries by name at load, so a machine that had never installed one failed exactly the
+  way a missing `mss32.dll` did: a dialog naming a file, nothing written to any log, nothing to send
+  back to anyone. Both libraries are compiled into the exe and into the graphics translator now. The
+  download is half a megabyte larger and there is nothing left to install alongside it.
 - Over a build that is already there it updates rather than installs, and says which number it is
   moving you from and to. Running an older package over a newer install stops instead, since the
   usual reason for doing that by accident is having two zips in the downloads folder; the word

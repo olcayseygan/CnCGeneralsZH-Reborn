@@ -1,4 +1,16 @@
 cmake_minimum_required(VERSION 3.20)
+
+# The zip goes to machines that have never installed a Visual Studio redistributable, and
+# generals.exe imported MSVCP140.dll and VCRUNTIME140.dll by name.  That fails in the Windows
+# loader before a line of our code runs, so there is no DebugLogFile.txt and no crash file to
+# send back - the same undiagnosable failure the retail Miles and Bink DLLs are packaged to
+# avoid.  Link the CRT into the exe and into d3d8.dll instead of depending on a machine having
+# it.  CMAKE_POLICY_DEFAULT is what reaches the vendored subdirectories: d3d8to9 declares
+# cmake_minimum_required(3.12), which predates CMP0091, and would otherwise ignore the setting
+# below and keep importing the DLL.
+set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 project(GeneralsMD CXX C)
 
 # Win32 only: the code is full of 32-bit inline __asm, which MSVC x64 rejects outright.
