@@ -23,6 +23,7 @@
 #include "Common/AsciiString.h"
 #include "Common/GameAudio.h"
 #include "MSS/MSS.h"
+#include "mutex.h"
 
 class AudioEventRTS;
 
@@ -36,11 +37,18 @@ enum PlayingAudioType
 	PAT_INVALID
 };
 
+//
+// Stopping a sound has two halves and they cannot happen together.  The first half talks to Miles
+// (stop the sample, unregister the callback) and must not hold a lock, because Miles calls back
+// into us from its own timer thread.  The second half takes the object off our lists and frees it,
+// and must hold one, because that same timer thread walks those lists.  PS_Stopping is the state
+// between the two, and the transitions are interlocked so only one thread performs each half.
+//
 enum PlayingStatus
 {
 	PS_Playing,
-	PS_Stopped,
-	PS_Paused
+	PS_Stopping,	///< about to be stopped
+	PS_Stopped		///< about to be released
 };
 
 enum PlayingWhich
@@ -66,14 +74,19 @@ struct PlayingAudio
 	void *m_file;		// The file that was opened to play this
 	Bool m_requestStop;
 	Bool m_cleanupAudioEventRTS;
+	/// Asked to fade out.  Moving from the playing list to the fading list writes two lists, so it
+	/// happens in processPlayingList holding both locks rather than wherever the fade is asked for.
+	Bool m_fade;
 	Int m_framesFaded;
-	
-	PlayingAudio() : 
-		m_type(PAT_INVALID), 
-		m_audioEventRTS(NULL), 
-		m_requestStop(false), 
+
+	PlayingAudio() :
+		m_type(PAT_INVALID),
+		m_status(PS_Playing),
+		m_audioEventRTS(NULL),
+		m_requestStop(false),
 		m_cleanupAudioEventRTS(true),
-		m_sample(0), 
+		m_fade(false),
+		m_sample(0),
 		m_3DSample(0),
 		m_stream(0),
 		m_framesFaded(0)
@@ -210,7 +223,6 @@ class MilesAudioManager : public AudioManager
 		virtual void processRequestList( void );
 		virtual void processPlayingList( void );
 		virtual void processFadingList( void );
-		virtual void processStoppedList( void );
 
 		Bool shouldProcessRequestThisFrame( AudioRequest *req ) const;
 		void adjustRequest( AudioRequest *req );
@@ -263,6 +275,11 @@ class MilesAudioManager : public AudioManager
 		PlayingAudio *allocatePlayingAudio( void );
 		void releaseMilesHandles( PlayingAudio *release );
 		void releasePlayingAudio( PlayingAudio *release );
+		/// First half of a stop: everything that talks to Miles.  Safe to call twice, and safe to
+		/// call with no lock held, which is the point of it.
+		void stopPlayingAudio( PlayingAudio *release );
+		/// Second half: take the stopped ones off the list and free them, holding its lock.
+		void releasePlayingAudioInListIfStopped( std::list<PlayingAudio *> &list, CriticalSectionClass &cs );
 		
 		void stopAllAudioImmediately( void );
 		void freeAllMilesHandles( void );
@@ -312,10 +329,14 @@ class MilesAudioManager : public AudioManager
 		// on the next update
 		std::list<PlayingAudio *> m_fadingAudio;
 
-		// Stuff that is done playing (either because it has finished or because it was killed)
-		// This stuff should be cleaned up during the next update cycle. This includes updating counts
-		// in the sound engine
-		std::list<PlayingAudio *> m_stoppedAudio;
+		// Miles calls notifyOfAudioCompletion from its own timer thread, and that walks these lists
+		// looking for the sample that finished.  Erasing from them on the main thread at the same
+		// moment invalidates the iterator it is holding, so every write that can move an element
+		// is guarded.  Reads of a single member are left alone; m_status is volatile for that.
+		CriticalSectionClass m_playingSoundsCS;
+		CriticalSectionClass m_playing3DSoundsCS;
+		CriticalSectionClass m_playingStreamsCS;
+		CriticalSectionClass m_fadingAudioCS;
 
 		AudioFileCache *m_audioCache;
 		PlayingAudio *m_binkHandle;
