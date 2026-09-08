@@ -3905,6 +3905,11 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		}  // end case GameMessage::MSG_MOUSEOVER_LOCATION_HINT
 
 		//-----------------------------------------------------------------------------
+		// A double click is a button press too, and the second press of one used to arrive here
+		// as nothing at all.  The anchor and the press time then still held the first click's
+		// values, so the button-up that followed measured against the wrong moment and a plain
+		// single click right after a double click was read as a drag.
+		case GameMessage::MSG_RAW_MOUSE_RIGHT_DOUBLE_CLICK:
 		case GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_DOWN:
 		{
 			// There are two ways in which we can ignore this as a deselect:
