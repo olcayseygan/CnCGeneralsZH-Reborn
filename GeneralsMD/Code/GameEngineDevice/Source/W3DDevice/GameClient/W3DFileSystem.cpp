@@ -144,8 +144,9 @@ char const * GameFileClass::Set_Name( char const *filename )
 	if( Is_Open() ) 
 		Close();
 
-	// save the filename
-	strncpy( m_filename, filename, _MAX_PATH );
+	// save the filename.  strncpy with the full size leaves it unterminated when the name is
+	// exactly that long, and everything downstream reads m_filename as a C string.
+	strlcpy( m_filename, filename, ARRAY_SIZE(m_filename) );
 
 	char name[_MAX_PATH];
 	const Int EXT_LEN = 32;

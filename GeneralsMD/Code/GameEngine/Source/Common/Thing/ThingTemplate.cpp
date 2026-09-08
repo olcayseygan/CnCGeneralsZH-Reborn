@@ -1321,7 +1321,9 @@ void ThingTemplate::initForLTA(const AsciiString& name)
 	m_nameString = name;
 
 	char buffer[1024];
-	strncpy(buffer, name.str(), sizeof(buffer));
+	// strncpy leaves no terminator when the source fills the buffer, and the loop below reads
+	// until it finds one.  A 1024 character template name would have walked off the end.
+	strlcpy(buffer, name.str(), ARRAY_SIZE(buffer));
 	// i indexes buffer after the loop: it is the character past the first '/', or
 	// the terminator when the name has none.
 	int i;

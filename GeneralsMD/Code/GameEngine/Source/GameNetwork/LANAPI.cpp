@@ -638,7 +638,9 @@ void LANAPI::RequestGameJoin( LANGameInfo *game, UnsignedInt ip /* = 0 */ )
 
 	AsciiString s = "";
 	GetStringFromRegistry("\\ergc", "", s);
-	strncpy(msg.GameToJoin.serial, s.str(), g_maxSerialLength);
+	// strncpy with the field's own length leaves it unterminated whenever the source fills it,
+	// and the far end reads these as C strings out of the packet.
+	strlcpy(msg.GameToJoin.serial, s.str(), ARRAY_SIZE(msg.GameToJoin.serial));
 	msg.GameToJoin.serial[g_maxSerialLength-1] = '\0';
 
 	sendMessage(&msg, ip);
@@ -667,8 +669,10 @@ void LANAPI::RequestGameJoinDirectConnect(UnsignedInt ipaddress)
 	msg.LANMessageType = LANMessage::MSG_REQUEST_GAME_INFO;
 	fillInLANMessage(&msg);
 	msg.PlayerInfo.ip = GetLocalIP();
-	wcsncpy(msg.PlayerInfo.playerName, m_name.str(), m_name.getLength());
-	msg.PlayerInfo.playerName[m_name.getLength()] = 0;
+	// Every other copy in this file is bounded by the field, this one was bounded by the source:
+	// a name longer than the field ran the copy and then the terminator past the end of it.
+	wcsncpy(msg.PlayerInfo.playerName, m_name.str(), g_lanPlayerNameLength);
+	msg.PlayerInfo.playerName[g_lanPlayerNameLength] = 0;
 
 	sendMessage(&msg, ipaddress);
 
@@ -713,7 +717,7 @@ void LANAPI::RequestGameAnnounce( void )
 			reply.LANMessageType = LANMessage::MSG_GAME_ANNOUNCE;
 
 			AsciiString gameOpts = GameInfoToAsciiString(m_currentGame);
-			strncpy(reply.GameInfo.options,gameOpts.str(),m_lanMaxOptionsLength);
+			strlcpy(reply.GameInfo.options,gameOpts.str(),ARRAY_SIZE(reply.GameInfo.options));
 			wcsncpy(reply.GameInfo.gameName, m_currentGame->getName().str(), g_lanGameNameLength);
 			reply.GameInfo.gameName[g_lanGameNameLength] = 0;
 			reply.GameInfo.inProgress = m_currentGame->isGameInProgress();
@@ -845,7 +849,7 @@ void LANAPI::RequestGameOptions( AsciiString gameOptions, Bool isPublic, Unsigne
 	LANMessage msg;
 	fillInLANMessage( &msg );
 	msg.LANMessageType = LANMessage::MSG_GAME_OPTIONS;
-	strncpy(msg.GameOptions.options, gameOptions.str(), m_lanMaxOptionsLength);
+	strlcpy(msg.GameOptions.options, gameOptions.str(), ARRAY_SIZE(msg.GameOptions.options));
 	msg.GameOptions.options[m_lanMaxOptionsLength] = 0;
 	sendMessage(&msg, ip);
 
