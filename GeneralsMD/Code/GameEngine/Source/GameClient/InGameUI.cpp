@@ -845,7 +845,9 @@ void InGameUI::setSuperweaponDisplayEnabledByScript(Bool enable)
 // ------------------------------------------------------------------------------------------------
 Bool InGameUI::getSuperweaponDisplayEnabledByScript(void) const
 {
-	return m_superweaponHiddenByScript;
+	// The getter asks whether the display is enabled, so it is the negation of the hidden flag.
+	// Nothing calls it yet, which is why the inversion went unnoticed.
+	return !m_superweaponHiddenByScript;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -2438,7 +2440,17 @@ void InGameUI::reset( void )
 	m_shiftAttackQueueUnits.clear();
 	m_shiftAttackQueueRunning = FALSE;
 	m_clientQuiet    = false;
-	
+
+	// TheSuperHackers @bugfix A key or button still held when the game ended left its camera
+	// interaction latched on, and the shell then scrolled or spun on its own.
+	setScrolling(false);
+	setSelecting(false);
+	setCameraRotateLeft(false);
+	setCameraRotateRight(false);
+	setCameraZoomIn(false);
+	setCameraZoomOut(false);
+	setCameraTrackingDrawable(false);
+
 	m_windowLayouts.clear();
 
 	m_tooltipsDisabledUntil = 0;
@@ -8176,8 +8188,10 @@ void InGameUI::updateAndDrawWorldAnimations( void )
 			UnsignedInt width = wad->m_anim->getCurrentFrameWidth();
 			UnsignedInt height = wad->m_anim->getCurrentFrameHeight();
 
-			// scale the width and height given the camera zoom level
-			Real zoomScale = TheTacticalView->getMaxZoom() / TheTacticalView->getZoom();
+			// scale the width and height given the camera zoom level.  The 1.3 was the old maximum
+			// zoom value, which is gone; this number is the size the artwork was drawn against.
+			const Real WORLD_ANIM_ZOOM_REFERENCE = 1.3f;
+			Real zoomScale = WORLD_ANIM_ZOOM_REFERENCE / TheTacticalView->getZoom();
 			width *= zoomScale;
 			height *= zoomScale;
 

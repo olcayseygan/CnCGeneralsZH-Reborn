@@ -32,6 +32,7 @@
 #include "Common/Xfer.h"
 #include "GameClient/View.h"
 #include "GameClient/Drawable.h"
+#include "GameClient/GameClient.h"
 
 UnsignedInt View::m_idNext = 1;
 
@@ -79,9 +80,8 @@ View::View( void )
 	m_heightAboveGround = 0.0f;
 	m_lockDist = 0.0f;
 	m_maxHeightAboveGround = 0.0f;
-	m_maxZoom = 0.0f;
 	m_minHeightAboveGround = 0.0f;
-	m_minZoom = 0.0f;
+	m_viewLockedUntilFrame = 0;
 	m_next = NULL;
 	m_okToAdjustHeight = TRUE;
 	m_originX = 0;
@@ -129,9 +129,7 @@ void View::init( void )
 	m_cameraLockDrawable = NULL;
 	m_zoomLimited = TRUE;
 	
-	m_maxZoom = 1.3f;
-	m_minZoom = 0.2f;
-	m_zoom = m_maxZoom;
+	m_zoom = 1.0f;
 	m_maxHeightAboveGround = TheGlobalData->m_maxCameraHeight;
 	m_minHeightAboveGround = TheGlobalData->m_minCameraHeight;
 	m_okToAdjustHeight = FALSE;
@@ -144,6 +142,13 @@ void View::reset( void )
 {
 	// Only fixing the reported bug.  Who knows what side effects resetting the rest could have.
 	m_zoomLimited = TRUE;
+
+	m_viewLockedUntilFrame = 0;
+}
+
+void View::lockViewForOneFrame()
+{
+	m_viewLockedUntilFrame = TheGameClient->getFrame() + 1;
 }
 
 /**

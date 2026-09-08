@@ -2174,6 +2174,10 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 					loc.init(pos.x, pos.y, pos.z, angle, pitch, zoom);
 					TheTacticalView->setLocation( &loc );
 
+					// TheSuperHackers @fix Hold the restored location for this frame, or the user's
+					// own scroll and zoom input lands on top of it and the camera never arrives.
+					TheTacticalView->lockViewForOneFrame();
+
 					if (!TheLookAtTranslator->hasMouseMovedRecently())
 					{
 						TheMouse->setCursor( (Mouse::MouseCursor)(msg->getArgument( 4 )->integer) );

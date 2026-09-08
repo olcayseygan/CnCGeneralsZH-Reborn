@@ -611,6 +611,9 @@ void W3DView::getPickRay(const ICoord2D *screen, Vector3 *rayStart, Vector3 *ray
 //-------------------------------------------------------------------------------------------------
 void W3DView::setCameraTransform( void )
 {
+	if (m_viewLockedUntilFrame > TheGameClient->getFrame())
+		return;
+
 	m_cameraHasMovedSinceRequest = true;
 	Matrix3D cameraTransform( 1 );
 	
@@ -1472,7 +1475,9 @@ void W3DView::update(void)
 	{
 		Real desiredHeight = (m_terrainHeightUnderCamera + m_heightAboveGround);
 		Real desiredZoom = desiredHeight / m_cameraOffset.z;
-  	if (didScriptedMovement || (TheGameLogic->isInReplayGame() && TheGlobalData->m_useCameraInReplay))
+  	// TheSuperHackers @bugfix Watching a replay pinned the height to whatever the camera happened
+  	// to be at, so the camera stopped following the terrain under it for the whole playback.
+  	if (didScriptedMovement)
   	{
   		// if we are in a scripted camera movement, take its height above ground as our desired height.
   		m_heightAboveGround = m_currentHeightAboveGround;
@@ -2219,15 +2224,12 @@ void W3DView::setHeightAboveGround(Real z)
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// TheSuperHackers @bugfix setZoom is no longer clamped by a min and max zoom; the camera height is
+// clamped in setHeightAboveGround instead. A zoom clamp fought camera playback in a replay, where a
+// rise in the terrain under the camera could not raise the camera with it.
 void W3DView::setZoom(Real z)
 {
-	m_zoom = z;
-
-	if (m_zoom < m_minZoom)
-		m_zoom = m_minZoom;
-
-	if (m_zoom > m_maxZoom)
-		m_zoom = m_maxZoom;
+	View::setZoom(z);
 
 	m_doingMoveCameraOnWaypointPath = false;
 	m_CameraArrivedAtWaypointOnPathFlag = false;

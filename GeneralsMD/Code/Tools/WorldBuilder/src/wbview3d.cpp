@@ -242,7 +242,6 @@ public:
 	virtual void zoomIn( void ) {  }																			///< Zoom in, closer to the ground, limit to min
 	virtual void zoomOut( void ) {  }																		///< Zoom out, farther away from the ground, limit to max
 	virtual void setZoomToDefault( void ) { }														///< Set zoom to default value
-	virtual Real getMaxZoom( void ) { return 0.0f; }
 	virtual void setOkToAdjustHeight( Bool val ) { }						///< Set this to adjust camera height
 
 	virtual Real getTerrainHeightUnderCamera() { return 0.0f; }
