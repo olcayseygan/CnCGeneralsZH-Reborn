@@ -528,9 +528,54 @@ GameMessageDisposition MetaEventTranslator::translateGameMessage(const GameMessa
 			return DESTROY_MESSAGE;
 		}
 
+		//
+		// A command bound to a key plus a modifier, with an UP transition, used to fire only when
+		// the key came up while the modifier was still held.  Letting go of Ctrl first meant the
+		// key's own release carried no Ctrl, the record no longer matched, and whatever the DOWN
+		// had switched on stayed on.  Every key remembers the combinations it was pressed with, so
+		// a modifier release can finish them off in whatever order the player let go.
+		//
+		const Bool isModifierKey = ( key == KEY_LCTRL || key == KEY_RCTRL ||
+																 key == KEY_LSHIFT || key == KEY_RSHIFT ||
+																 key == KEY_LALT || key == KEY_RALT );
+
+		if( isModifierKey && ( keyState & KEY_STATE_UP ) )
+		{
+			for( Int keyIndex = 0; keyIndex < NUM_MAPPABLE_KEYS; ++keyIndex )
+			{
+				KeyDownInfo &keyDownInfo = m_keyDownInfos[ keyIndex ];
+				if( !keyDownInfo.isKeyDown() )
+					continue;
+
+				for( Int modIndex = 0; modIndex < KeyDownInfo::MOD_STATE_COUNT; ++modIndex )
+				{
+					if( !keyDownInfo.hasModStateAtIndex( modIndex ) )
+						continue;
+
+					const Int heldModState = KeyDownInfo::modStateAtIndex( modIndex );
+					if( ( newModState & heldModState ) == heldModState )
+						continue;	// every modifier of that combination is still down
+
+					keyDownInfo.clearModStateAtIndex( modIndex );
+
+					for( const MetaMapRec *map = TheMetaMap->getFirstMetaMapRec(); map; map = map->m_next )
+					{
+						if( map->m_key != keyIndex || map->m_transition != UP )
+							continue;
+
+						const Int wantedModState = metaIgnoresShift( map ) ? ( heldModState & ~SHIFT ) : heldModState;
+						if( map->m_modState != wantedModState )
+							continue;
+
+						TheMessageStream->appendMessage( map->m_meta );
+					}
+				}
+			}
+		}
+
     for (const MetaMapRec *map = TheMetaMap->getFirstMetaMapRec(); map; map = map->m_next)
 		{
-			DEBUG_ASSERTCRASH(map->m_meta > GameMessage::MSG_BEGIN_META_MESSAGES && 
+			DEBUG_ASSERTCRASH(map->m_meta > GameMessage::MSG_BEGIN_META_MESSAGES &&
 				map->m_meta < GameMessage::MSG_END_META_MESSAGES, ("hmm, expected only meta-msgs here"));
 			
 			//
@@ -626,6 +671,15 @@ GameMessageDisposition MetaEventTranslator::translateGameMessage(const GameMessa
 		} 
 
 
+
+		// remember, or forget, that this key is held with these modifiers
+		if( !isModifierKey && newModState != NONE && key >= 0 && key < NUM_MAPPABLE_KEYS )
+		{
+			if( keyState & KEY_STATE_DOWN )
+				m_keyDownInfos[ key ].setModState( newModState );
+			else
+				m_keyDownInfos[ key ].clearModState( newModState );
+		}
 
 		if (t == GameMessage::MSG_RAW_KEY_DOWN)
     {

@@ -43,6 +43,7 @@
 #include "Common/Energy.h"
 #include "Common/RandomValue.h"
 #include "GameClient/ClickTolerance.h"
+#include "GameClient/KeyDownInfo.h"
 #include "GameLogic/ScenarioDrill.h"
 #include "Common/ControlServer.h"
 #include "GameLogic/LogicRandomValue.h"
@@ -10399,4 +10400,59 @@ TEST(click_tolerance_is_a_radius_in_time_screen_and_world)
 	// the world moved under a pointer that did not
 	CHECK( ClickTolerance_isClick( 0.0f, 0.0f, 20.0f, 0, screenTolerance, cameraTolerance, msTolerance ) );
 	CHECK( !ClickTolerance_isClick( 0.0f, 0.0f, 20.5f, 0, screenTolerance, cameraTolerance, msTolerance ) );
+}
+
+/* Which modifiers a key is held with.
+ *
+ * The modifier masks are the KEY_STATE_L* bits, which are 0x04, 0x10 and 0x40 - not consecutive,
+ * so the seven combinations cannot index anything directly. Getting that mapping wrong is silent:
+ * a released Ctrl would clear the wrong slot and the key's UP command would fire for a combination
+ * that is still held, or never fire at all.
+ */
+TEST(key_down_info_remembers_each_modifier_combination)
+{
+	const Int CTRL_MASK = KEY_STATE_LCONTROL;
+	const Int SHIFT_MASK = KEY_STATE_LSHIFT;
+	const Int ALT_MASK = KEY_STATE_LALT;
+
+	// the seven combinations round-trip through their slot numbers, and nothing shares a slot
+	Int seen = 0;
+	const Int combos[ KeyDownInfo::MOD_STATE_COUNT ] = {
+		CTRL_MASK, SHIFT_MASK, ALT_MASK,
+		CTRL_MASK | SHIFT_MASK, CTRL_MASK | ALT_MASK, SHIFT_MASK | ALT_MASK,
+		CTRL_MASK | SHIFT_MASK | ALT_MASK
+	};
+	for( Int i = 0; i < KeyDownInfo::MOD_STATE_COUNT; ++i )
+	{
+		const Int index = KeyDownInfo::indexOfModState( combos[ i ] );
+		CHECK( index >= 0 && index < KeyDownInfo::MOD_STATE_COUNT );
+		CHECK_EQ( KeyDownInfo::modStateAtIndex( index ), combos[ i ] );
+		CHECK( ( seen & ( 1 << index ) ) == 0 );
+		seen |= 1 << index;
+	}
+	CHECK_EQ( seen, ( 1 << KeyDownInfo::MOD_STATE_COUNT ) - 1 );
+
+	// no modifier at all has no slot, and neither does a stray bit such as caps lock
+	CHECK_EQ( KeyDownInfo::indexOfModState( 0 ), -1 );
+	CHECK_EQ( KeyDownInfo::indexOfModState( KEY_STATE_CAPSLOCK ), -1 );
+
+	// a key pressed under two different combinations remembers both, and releasing one leaves
+	// the other alone - this is the case the old single "last modifier state" could not hold
+	KeyDownInfo info;
+	CHECK( !info.isKeyDown() );
+
+	info.setModState( CTRL_MASK );
+	info.setModState( CTRL_MASK | SHIFT_MASK );
+	CHECK( info.isKeyDown() );
+	CHECK( info.hasModState( CTRL_MASK ) );
+	CHECK( info.hasModState( CTRL_MASK | SHIFT_MASK ) );
+	CHECK( !info.hasModState( ALT_MASK ) );
+
+	info.clearModState( CTRL_MASK );
+	CHECK( !info.hasModState( CTRL_MASK ) );
+	CHECK( info.hasModState( CTRL_MASK | SHIFT_MASK ) );
+	CHECK( info.isKeyDown() );
+
+	info.clearModState( CTRL_MASK | SHIFT_MASK );
+	CHECK( !info.isKeyDown() );
 }

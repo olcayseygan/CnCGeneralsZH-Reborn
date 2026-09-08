@@ -32,6 +32,7 @@
 
 #include "Common/SubsystemInterface.h"
 #include "GameClient/InGameUI.h"
+#include "GameClient/KeyDownInfo.h"
 
 
 enum MappableKeyCategories
@@ -342,6 +343,11 @@ private:
 
 	Int						m_lastKeyDown;	// really a MappableKeyType
 	Int						m_lastModState;	// really a MappableKeyModState
+
+	// Which modifier combinations each key is currently held down with, so that a release can be
+	// matched whichever of the key and the modifier the player lets go of first.
+	enum { NUM_MAPPABLE_KEYS = 256 };
+	KeyDownInfo		m_keyDownInfos[NUM_MAPPABLE_KEYS];
 
 	enum { NUM_MOUSE_BUTTONS = 3 };
 	ICoord2D m_mouseDownPosition[NUM_MOUSE_BUTTONS];
