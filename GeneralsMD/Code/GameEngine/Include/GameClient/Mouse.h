@@ -294,7 +294,11 @@ public:
 
 	void mouseNotifyResolutionChange(void);
 
-	Bool isClick(const ICoord2D *anchor, const ICoord2D *dest, UnsignedInt previousMouseClick, UnsignedInt currentMouseClick);
+	/// True when press and release are close enough in time, on screen and in the world to be a click.
+	/// Pass NULL for both camera positions where the camera cannot have moved between the two.
+	Bool isClick(const ICoord2D *anchor, const ICoord2D *dest,
+							 const Coord3D *cameraAtAnchor, const Coord3D *cameraAtDest,
+							 UnsignedInt previousMouseClick, UnsignedInt currentMouseClick);
 
 
 	AsciiString m_tooltipFontName;		///< tooltip font

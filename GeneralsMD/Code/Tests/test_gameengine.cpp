@@ -42,6 +42,7 @@
 #include "GameNetwork/LinkSimulation.h"
 #include "Common/Energy.h"
 #include "Common/RandomValue.h"
+#include "GameClient/ClickTolerance.h"
 #include "GameLogic/ScenarioDrill.h"
 #include "Common/ControlServer.h"
 #include "GameLogic/LogicRandomValue.h"
@@ -10364,4 +10365,38 @@ TEST(control_server_answers_the_rfc_handshake_example)
 	// a buffer too small to hold the 28 characters and the terminator is refused, not overrun
 	char tooSmall[ 8 ];
 	CHECK( !ControlServer_computeAcceptKey( "dGhlIHNhbXBsZSBub25jZQ==", tooSmall, sizeof( tooSmall ) ) );
+}
+
+/* Telling a click from a drag.
+ *
+ * Three terms, and each of them has been wrong at some point. The screen distance was compared one
+ * axis at a time, which let a diagonal drag of 1.41 times the tolerance pass as a click. The camera
+ * term existed in the selection translator and was simply missing from the command translator, so
+ * a right click that scrolled the map still counted as a click there.
+ */
+TEST(click_tolerance_is_a_radius_in_time_screen_and_world)
+{
+	const Real screenTolerance = 10.0f;
+	const Real cameraTolerance = 20.0f;
+	const UnsignedInt msTolerance = 250;
+
+	// dead centre, no time, no camera movement
+	CHECK( ClickTolerance_isClick( 0.0f, 0.0f, 0.0f, 0, screenTolerance, cameraTolerance, msTolerance ) );
+
+	// held too long
+	CHECK( !ClickTolerance_isClick( 0.0f, 0.0f, 0.0f, 251, screenTolerance, cameraTolerance, msTolerance ) );
+	CHECK( ClickTolerance_isClick( 0.0f, 0.0f, 0.0f, 250, screenTolerance, cameraTolerance, msTolerance ) );
+
+	// on the axes the tolerance is exactly the tolerance
+	CHECK( ClickTolerance_isClick( 10.0f, 0.0f, 0.0f, 0, screenTolerance, cameraTolerance, msTolerance ) );
+	CHECK( !ClickTolerance_isClick( 11.0f, 0.0f, 0.0f, 0, screenTolerance, cameraTolerance, msTolerance ) );
+	CHECK( ClickTolerance_isClick( 0.0f, -10.0f, 0.0f, 0, screenTolerance, cameraTolerance, msTolerance ) );
+
+	// the diagonal is what the old per-axis test got wrong: 8,8 is 11.3 away, outside a radius of 10
+	CHECK( !ClickTolerance_isClick( 8.0f, 8.0f, 0.0f, 0, screenTolerance, cameraTolerance, msTolerance ) );
+	CHECK( ClickTolerance_isClick( 7.0f, 7.0f, 0.0f, 0, screenTolerance, cameraTolerance, msTolerance ) );
+
+	// the world moved under a pointer that did not
+	CHECK( ClickTolerance_isClick( 0.0f, 0.0f, 20.0f, 0, screenTolerance, cameraTolerance, msTolerance ) );
+	CHECK( !ClickTolerance_isClick( 0.0f, 0.0f, 20.5f, 0, screenTolerance, cameraTolerance, msTolerance ) );
 }

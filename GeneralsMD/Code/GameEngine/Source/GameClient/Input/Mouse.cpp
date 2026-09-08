@@ -35,6 +35,7 @@
 #include "Common/GlobalData.h"
 #include "Common/INI.h"
 
+#include "GameClient/ClickTolerance.h"
 #include "GameClient/Display.h"
 #include "GameClient/DisplayStringManager.h"
 #include "GameClient/GameClient.h"
@@ -393,22 +394,26 @@ void Mouse::checkForDrag( void )
 //-------------------------------------------------------------------------------------------------
 /** Check for mouse click, using allowed drag forgiveness */
 //-------------------------------------------------------------------------------------------------
-Bool Mouse::isClick(const ICoord2D *anchor, const ICoord2D *dest, UnsignedInt previousMouseClick, UnsignedInt currentMouseClick)
+Bool Mouse::isClick(const ICoord2D *anchor, const ICoord2D *dest,
+										const Coord3D *cameraAtAnchor, const Coord3D *cameraAtDest,
+										UnsignedInt previousMouseClick, UnsignedInt currentMouseClick)
 {
-	ICoord2D delta;
-	delta.x = anchor->x - dest->x;
-	delta.y = anchor->y - dest->y;
-
-
-	// if the mouse hasn't moved further than the tolerance distance
-	// or the click took less than the tolerance duration
-	if (	abs(delta.x) > m_dragTolerance
-		||	abs(delta.y) > m_dragTolerance
-		||	currentMouseClick - previousMouseClick > m_dragToleranceMS)
+	Real cameraDelta = 0.0f;
+	if (cameraAtAnchor && cameraAtDest)
 	{
-		return FALSE;
+		Coord3D delta = *cameraAtDest;
+		delta.sub(cameraAtAnchor);
+		cameraDelta = delta.length();
 	}
-	return TRUE;
+
+	return ClickTolerance_isClick(
+		(Real)(anchor->x - dest->x),
+		(Real)(anchor->y - dest->y),
+		cameraDelta,
+		currentMouseClick - previousMouseClick,
+		(Real)m_dragTolerance,
+		(Real)m_dragTolerance3D,
+		m_dragToleranceMS );
 }
 
 

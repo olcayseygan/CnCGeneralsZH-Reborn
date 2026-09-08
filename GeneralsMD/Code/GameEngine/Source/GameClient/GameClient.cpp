@@ -682,12 +682,13 @@ void GameClient::update( void )
 		if( TheMouse )
 			TheMouse->setVisibility( TRUE );
 
-		// redraw all views, update the GUI
-		{
-			TheDisplay->DRAW();
-		}
+		// Update before drawing, the way every other pass does it.  The other order drew the
+		// frame the update was about to change, so the intro was always one frame behind.
 		{
 			TheDisplay->UPDATE();
+		}
+		{
+			TheDisplay->DRAW();
 		}
 		return;
 	}

@@ -1399,6 +1399,8 @@ CommandTranslator::CommandTranslator() :
 	m_mouseRightDragAnchor.y = 0;
 	m_mouseRightDragLift.x = 0;
 	m_mouseRightDragLift.y = 0;
+	m_mouseRightDragAnchorCamera.zero();
+	m_mouseRightDragLiftCamera.zero();
 }
 
 //====================================================================================
@@ -3917,6 +3919,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			// 2) Time has exceeded the time which we allow for this to be a click.
 			m_mouseRightDragAnchor = msg->getArgument( 0 )->pixel;
 			m_mouseRightDown = (UnsignedInt) msg->getArgument( 2 )->integer;
+			TheTacticalView->getPosition( &m_mouseRightDragAnchorCamera );
 
 			m_formationDragArmed = isFormationDragArmed();
 
@@ -3953,6 +3956,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			// register this event for determining if the click was fast or short enough not to be a drag
 			m_mouseRightDragLift = msg->getArgument( 0 )->pixel;
 			m_mouseRightUp = (UnsignedInt) msg->getArgument( 2 )->integer;
+			TheTacticalView->getPosition( &m_mouseRightDragLiftCamera );
 
 			if( m_formationDragArmed )
 			{
@@ -4005,7 +4009,9 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			//a bug where you couldn't cancel the sneak attack mode via right click. This only happened when you
 			//didn't have anything selected which is possible via the shortcut bar. Normally, it would get deselected
 			//via the deselect drawable code.
-			if( TheMouse->isClick(&m_mouseRightDragAnchor, &m_mouseRightDragLift, m_mouseRightDown, m_mouseRightUp) )
+			if( TheMouse->isClick(&m_mouseRightDragAnchor, &m_mouseRightDragLift,
+					&m_mouseRightDragAnchorCamera, &m_mouseRightDragLiftCamera,
+					m_mouseRightDown, m_mouseRightUp) )
 			{
 				TheInGameUI->placeBuildAvailable( NULL, NULL );
 			}
@@ -4038,7 +4044,9 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			// The right button is the order button, always.  It used to depend on UseAlternateMouse,
 			// which is gone: a click here commands, a drag draws a formation line, and neither of
 			// them scrolls.
-			if (TheMouse->isClick(&m_mouseRightDragAnchor, &m_mouseRightDragLift, m_mouseRightDown, m_mouseRightUp))
+			if (TheMouse->isClick(&m_mouseRightDragAnchor, &m_mouseRightDragLift,
+					&m_mouseRightDragAnchorCamera, &m_mouseRightDragLiftCamera,
+					m_mouseRightDown, m_mouseRightUp))
 			{
 				Bool isPoint = (msg->getArgument(0)->pixelRegion.height() == 0 && msg->getArgument(0)->pixelRegion.width() == 0);
 

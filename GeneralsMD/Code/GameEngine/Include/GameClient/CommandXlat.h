@@ -58,6 +58,8 @@ private:
 	ICoord2D m_mouseRightDragLift;			// the location of a possible mouse drag end
 	UnsignedInt m_mouseRightDown;	// when the mouse down happened
 	UnsignedInt m_mouseRightUp;		// when the mouse up happened
+	Coord3D m_mouseRightDragAnchorCamera;	// where the camera was at the press
+	Coord3D m_mouseRightDragLiftCamera;		// where the camera was at the release
 
 	// latched the moment the right button goes down: whether this drag is drawing a formation line.
 	// Latched rather than asked again, so a selection that changes mid-drag cannot abandon a line
