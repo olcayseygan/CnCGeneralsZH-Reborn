@@ -1004,17 +1004,22 @@ found and fixed â€” EA's own, not port damage.**
 
 ## A new map whenever you want one
 
-- The skirmish map list ends with a random map. Pick it and the game builds one, then starts the
-  match on it; pick it again and you get a different one. There is nothing to install and nothing
-  to download, and the map shows up in the list with a picture like any other.
-- Every player gets the same ground. The layout is drawn once and turned into each player's corner,
-  so nobody starts on the hill while somebody else starts in the hollow - the buildable ground
-  around each base and the walk to each player's supply are identical, cell for cell.
-- It is a map, not a field. A ridge runs between one player and the next, too steep to drive up,
-  with one crossing cut through it that both of them have to use. There are lakes off to the side
-  of the lanes, sand where the ground drops, rock where it turns steep, trees and boulders in
-  drifts across the open ground, and neutral buildings to fight over: an oil derrick on every
-  crossing, a pair of civilian blocks in each corner and a hospital in the middle of a big map.
+- The skirmish map list ends with three random maps, one per size. Pick one and the game builds it,
+  then starts the match on it; pick it again and you get a different one. There is nothing to
+  install and nothing to download, and the map shows up in the list with a picture like any other.
+  The bigger the game, the bigger the map: every player who joins brings ground with them, so an
+  eight-way fight is not eight bases crammed onto a duel map.
+- No two of them are the same shape. Nothing is mirrored, rotated or laid out on a ring. The whole
+  map is one field of noise, and the bases are found in it: the flattest ground first, then
+  whichever good ground is furthest from everything already taken. Some seeds give you four corners
+  and some give you a long diagonal, and where the fighting happens is different every time.
+- It is a map, not a field. Hills step up into mesas you cannot drive over, and where that walls
+  somebody off a pass is cut through to reach them. Lakes sit in the hollows with sand along the
+  shore, dirt covers the high ground, rock breaks through where it turns steep, and woods stand in
+  proper stands rather than scattered singly. The ground changes texture the way ground does, with
+  one blending into the next instead of meeting it at a straight line.
+- Everybody opens with the same money. One supply dock beside each base, a second one out between
+  you and your nearest neighbour to fight over, and two oil derricks apiece within reach of home.
 - The number that made the map is in its name, so the same number always makes the same map, on
   every machine. Two people who type it get the same ground, and a map worth keeping can be found
   again.

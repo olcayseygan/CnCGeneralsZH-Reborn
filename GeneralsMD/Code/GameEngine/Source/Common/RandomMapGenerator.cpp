@@ -21,9 +21,10 @@
 // WorldBuilder saves (see WHeightMapEdit::saveToFile), minus everything a
 // skirmish map does not need.
 //
-// The layout is built in one canonical sector and rotated into the others, so
-// every player gets the same ground in their own frame and a win rate measured
-// over these maps is not measuring the terrain.
+// Nothing here is laid out by hand. The ground is warped fractal noise with
+// mesas cut into it; the start positions, the money, the water and the scenery
+// are all found in that ground by looking for the places that suit them. Two
+// seeds are two different maps rather than one map turned round.
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
@@ -34,12 +35,17 @@
 #include "Lib/Trig.h"
 #include "Common/crc.h"
 #include "Common/DataChunk.h"
+#include "Common/Dict.h"
 #include "Common/FileSystem.h"
 #include "Common/GlobalData.h"
-#include "Common/Dict.h"
 #include "Common/MapObject.h"
 #include "Common/MapReaderWriterInfo.h"
 #include "GameLogic/FPUControl.h"
+
+/** The sentinel WorldHeightMap::ParseBlendTileData asserts on after every blend entry. It is
+	FLAG_VAL in WorldHeightMap.h, which lives in GameEngineDevice and so cannot be included from
+	here; the number is the file format's, not that header's. */
+static const Int RMG_BLEND_FLAG_VALUE = 0x7ADA0000;
 
 // Chunk versions the writers of these chunks use. They live in the .cpp files
 // that write them (SidesList.cpp, Scripts.cpp), not in MapReaderWriterInfo.h.
@@ -55,73 +61,73 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 // edges, so it is scenery, not play space.
 #define RMG_BORDER_CELLS		20
 
-// Four texture classes, each read as the four tiles of a 2x2 sheet. Named the
-// way Terrain.ini names them, since the reader looks the texture up by name.
+// Each texture class is read as the four tiles of a 2x2 sheet.
 #define RMG_TILES_PER_CLASS		4
 #define RMG_TILE_SHEET_WIDTH	2
 
+// How big a map is: a floor everybody gets, plus a share for each player.
+#define RMG_SMALL_FLOOR			72
+#define RMG_SMALL_PER_PLAYER	10
+#define RMG_NORMAL_FLOOR		96
+#define RMG_NORMAL_PER_PLAYER	14
+#define RMG_LARGE_FLOOR			120
+#define RMG_LARGE_PER_PLAYER	18
+
 // Height field, in height map bytes (a byte is MAP_HEIGHT_SCALE world units).
 #define RMG_BASE_HEIGHT			40.0f
-#define RMG_AMPLITUDE			20.0f
-#define RMG_OCTAVES				4
-#define RMG_FEATURES_PER_MAP	4.0f
+// Five octaves of Perlin average out to about a third of their nominal range, so this is roughly
+// three times the relief it looks like: a map runs about 30 height bytes from valley to hilltop.
+#define RMG_AMPLITUDE			60.0f
+#define RMG_OCTAVES				5
+#define RMG_FEATURES_PER_MAP	3.0f
+#define RMG_WARP_STRENGTH		0.45f	///< how far the noise drags its own coordinates
+
+// The high ground. A mesa is a hard-edged step in the height field, which is
+// what makes a cliff: the pathfinder calls a cell impassable when its corners
+// span more than PATHFIND_CLIFF_SLOPE_LIMIT_F world units.
+#define RMG_MESA_RISE			27.0f	///< height bytes; a cliff needs more than 15.7
+#define RMG_MESA_THRESHOLD		0.24f	///< of the mesa noise field
+#define RMG_MESA_FEATURES		2.2f
+
+// Water. Lakes are carved into the lowest ground the map has, then written out
+// as water areas the engine reads as impassable to anything that cannot swim.
+#define RMG_WATER_DROP			11.0f	///< height bytes: water surface below the base height
+#define RMG_LAKE_DEPTH			13.0f	///< and how far the bed sits below that surface
+#define RMG_LAKE_SHORE			5.0f	///< cells the basin eases out over
+#define RMG_LAKE_RADIUS			0.05f	///< fraction of the playable size
+#define RMG_LAKE_MIN_CELLS		96
 
 // A start position gets a flat disc to build on, easing back into the terrain.
-// Eight players on a small map sit close enough together that the full-size
-// discs would overlap and flatten the whole map, so both radii are capped by
-// the spacing between neighbouring starts as well.
-#define RMG_FLAT_RADIUS			14.0f
-#define RMG_BLEND_RADIUS		30.0f
-#define RMG_FLAT_OF_SPACING		0.35f
-#define RMG_BLEND_OF_SPACING	0.75f
+#define RMG_FLAT_RADIUS			13.0f
+#define RMG_BLEND_RADIUS		26.0f
+#define RMG_START_MARGIN		10.0f	///< cells of playable area kept outside the blend disc
+#define RMG_START_STRIDE		3		///< cells between the spots the search looks at
+#define RMG_START_ROUGHNESS		2.6f	///< height bytes a base site may vary by, on average
 
-// No ridge comes closer than this to a start, whatever the player count does to
-// the geometry. A base has to fit, and the pathfinder has to be able to leave.
-#define RMG_BASE_CLEARANCE		20.0f
+// Money. One dock beside each base, one more out where it has to be fought
+// over, and two oil derricks a player somewhere in between.
+#define RMG_HOME_SUPPLY_MIN		18.0f	///< cells from the start
+#define RMG_HOME_SUPPLY_MAX		30.0f
+#define RMG_FAR_SUPPLY_SEPARATION	0.22f	///< fraction of the playable size
+#define RMG_DERRICKS_PER_PLAYER	2
+#define RMG_SITE_CLEARANCE		7.0f	///< cells kept clear around anything placed
 
-// Where the start positions sit, as a fraction of the playable size.
-#define RMG_START_RING			0.34f
-// Supply docks per player, and how far from the start they sit, in cells.
-#define RMG_SUPPLY_PER_PLAYER	2
-#define RMG_SUPPLY_DISTANCE		20.0f
-
-// The ridge that separates one player's ground from the next. It runs along the
-// sector boundary, is raised in one step so both of its sides read as cliff to
-// the pathfinder, and is cut by one gap - the chokepoint every crossing between
-// two neighbours has to use.
-#define RMG_RIDGE_RISE			34.0f	///< height bytes; a cliff needs more than 15.7
-#define RMG_RIDGE_HALF_WIDTH	2.5f	///< cells to either side of the boundary
-#define RMG_RIDGE_INNER			0.12f	///< fraction of the playable size
-#define RMG_RIDGE_OUTER			0.46f
-#define RMG_GAP_RADIUS			0.30f	///< where the chokepoint sits along the ridge
-#define RMG_GAP_HALF			0.05f	///< half the gap, as a fraction of the playable size
-#define RMG_GAP_WIDEN_STEP		1.4f	///< how much a failed connectivity check widens it
-#define RMG_LAYOUT_ATTEMPTS		5
-
-// One lake per player, off to the side of the lane rather than across it.
-#define RMG_LAKE_MIN_CELLS		96
-#define RMG_LAKE_RADIUS			0.045f	///< fraction of the playable size
-#define RMG_LAKE_DOCK_CLEARANCE	8.0f	///< cells of dry land kept around a supply dock
-#define RMG_LAKE_OF_SPACING		0.16f	///< and no wider than this much of the start spacing
-#define RMG_LAKE_SHORE			4.0f	///< cells of shore the basin eases out over
-#define RMG_LAKE_DEPTH			16.0f	///< height bytes below the water surface
-#define RMG_WATER_DROP			7.0f	///< height bytes: water surface below the base height
-
-// Scenery. The cap is per sector, so the map keeps the same object count per
-// player whatever the seed does.
-#define RMG_PROPS_PER_SECTOR	44
-#define RMG_PROP_STEP			3		///< cells between placement candidates
-#define RMG_PROP_CLEARANCE		4.0f	///< cells kept clear beyond a start's blend radius
-#define RMG_SUPPLY_CLEARANCE	12.0f	///< cells kept clear around a supply dock
-#define RMG_GAP_CLEARANCE		9.0f	///< cells kept clear around the chokepoint
-#define RMG_CIVILIANS_PER_SECTOR 2
-#define RMG_CIVILIAN_RING		0.24f
-#define RMG_CIVILIAN_SPREAD		6.0f	///< cells between the two buildings of a cluster
-#define RMG_HOSPITAL_MIN_CELLS	128
+// Scenery.
+#define RMG_TREES_PER_PLAYER	46
+#define RMG_ROCKS_PER_PLAYER	9
+#define RMG_PROP_STRIDE			2
+#define RMG_FOREST_FEATURES		5.0f
+#define RMG_CIVILIANS_PER_CLUSTER	3
+#define RMG_CIVILIAN_SPACING	7.0f
 
 // What counts as a cliff. WorldHeightMap marks a cell impassable when its four
 // corners span more than this many world units (PATHFIND_CLIFF_SLOPE_LIMIT_F).
 #define RMG_CLIFF_WORLD_SPAN	9.8f
+// And the most a carved pass may climb from one cell to the next, in height
+// bytes, which has to leave room under that span for the noise either side.
+#define RMG_PASS_MAX_STEP		8.0f
+#define RMG_PASS_HALF_WIDTH		2		///< cells either side of the route that get cut
+#define RMG_PASS_ATTEMPTS		12
 
 //-----------------------------------------------------------------------------
 // Chunk writer
@@ -266,7 +272,7 @@ void MapChunkWriter::finish( std::vector<char>& out )
 }
 
 //-----------------------------------------------------------------------------
-// Perlin noise
+// Noise
 //-----------------------------------------------------------------------------
 
 /** Permutation seeded by an integer generator only - no rand(), no clock - so
@@ -348,14 +354,14 @@ static Real perlin2( const UnsignedByte perm[512], Real x, Real y )
 }
 
 /// Sum of octaves, normalized back into [-1,1].
-static Real fractalNoise( const UnsignedByte perm[512], Real x, Real y )
+static Real fractalNoise( const UnsignedByte perm[512], Real x, Real y, Int octaves )
 {
 	Real total = 0.0f;
 	Real amplitude = 1.0f;
 	Real frequency = 1.0f;
 	Real range = 0.0f;
 
-	for( Int octave = 0; octave < RMG_OCTAVES; octave++ )
+	for( Int octave = 0; octave < octaves; octave++ )
 	{
 		total += amplitude * perlin2( perm, x * frequency, y * frequency );
 		range += amplitude;
@@ -382,12 +388,15 @@ static UnsignedInt hashCell( Int seed, Int x, Int y )
 // Layout
 //-----------------------------------------------------------------------------
 
+/** Ordered by which one bleeds into which. A cell only ever takes a blend from
+	a neighbour above it in this list, so two neighbouring cells never both try
+	to blend into each other and leave a seam down the middle. */
 enum RMGTerrainClass
 {
 	RMG_TERRAIN_GRASS = 0,
+	RMG_TERRAIN_SAND,
 	RMG_TERRAIN_DIRT,
 	RMG_TERRAIN_ROCK,
-	RMG_TERRAIN_SAND,
 
 	RMG_TERRAIN_COUNT
 };
@@ -396,24 +405,15 @@ enum RMGTerrainClass
 static const char *theTerrainClassNames[RMG_TERRAIN_COUNT] =
 {
 	"GrassType1",
+	"SandLargeType1",
 	"DirtType1",
-	"RocksType1",
-	"SandLargeType1"
+	"RocksType1"
 };
 
-struct RMGStart
+struct RMGPoint
 {
-	Real m_cellX;		///< in playable cells
+	Real m_cellX;
 	Real m_cellY;
-	Real m_angle;		///< direction from the middle of the map outwards
-};
-
-/// Where a point sits relative to the sector its player owns.
-struct RMGPolar
-{
-	Real m_radius;			///< cells from the middle of the playable area
-	Real m_offsetAngle;		///< radians from the sector's own start bearing, in [-half, +half)
-	Int m_sector;			///< which player's sector the point fell in
 };
 
 struct RMGObject
@@ -433,6 +433,14 @@ struct RMGLake
 	Real m_radius;
 };
 
+/// A place something has been put, and how much room it wants around it.
+struct RMGSite
+{
+	Real m_cellX;
+	Real m_cellY;
+	Real m_radius;
+};
+
 /** Everything derived from the settings, in one place, so the map bytes and the
 	preview tga are two views of the same layout rather than two guesses at it. */
 class RMGLayout
@@ -444,205 +452,161 @@ public:
 	UnsignedByte heightAtCell( Int x, Int y ) const { return m_heights[cellIndex( x, y )]; }
 	UnsignedByte terrainAtCell( Int x, Int y ) const { return m_terrain[cellIndex( x, y )]; }
 	Bool passableAtCell( Int x, Int y ) const { return m_passable[cellIndex( x, y )] != 0; }
-
-	/// True when the point is inside a lake outline; the distance is to the nearest shore.
-	Bool insideLake( Real cellX, Real cellY, Real *distanceOut ) const;
+	Bool underwaterAtCell( Int x, Int y ) const;
 
 	RandomMapSettings m_settings;
 	Int m_width;						///< map cells per side, border included
 	Int m_height;
-	Real m_baseAngle;					///< bearing of player one, from the middle
-	Real m_sectorAngle;					///< 2 pi / players
-	Real m_gapHalfCells;				///< half the chokepoint, after any widening
-	Real m_flatRadius;					///< the disc a base is laid out on
-	Real m_blendRadius;					///< where that disc has eased back into the terrain
 	Real m_waterHeight;					///< height bytes; the surface of every lake
-	RMGStart m_starts[RandomMapGenerator::MAX_PLAYERS];
+	std::vector<RMGPoint> m_starts;
 	std::vector<UnsignedByte> m_heights;
 	std::vector<UnsignedByte> m_terrain;
+	std::vector<Short> m_blendIndex;	///< into m_blends, 0 for a cell with no blend
 	std::vector<char> m_passable;
 	std::vector<RMGLake> m_lakes;
 	std::vector<RMGObject> m_objects;
 
-private:
-	void computeStarts( void );
-	void placeLakes( void );
-	void buildHeights( const UnsignedByte perm[512] );
-	void buildTerrainClasses( void );
-	void buildPassability( void );
-	Bool everyStartReachable( void ) const;
-	void buildObjects( const UnsignedByte perm[512] );
-	void addProps( const UnsignedByte perm[512] );
-	void addTechAndCivilians( void );
-	void addRotatedCopies( const char *templateName, const char *idPrefix, Real cellX, Real cellY,
-												 Real angle, Int& runningID );
+	/// The blend table the BlendTileData chunk carries; entry 0 is the "no blend" default.
+	struct RMGBlend
+	{
+		Int m_blendTileIndex;
+		UnsignedByte m_horizontal;
+		UnsignedByte m_vertical;
+		UnsignedByte m_rightDiagonal;
+		UnsignedByte m_leftDiagonal;
+		UnsignedByte m_inverted;
+		UnsignedByte m_longDiagonal;
+	};
+	std::vector<RMGBlend> m_blends;
 
-	RMGPolar toPolar( Real cellX, Real cellY ) const;
-	Real distanceToNearestStart( Real cellX, Real cellY ) const;
-	Real ridgeAndLakeHeight( const UnsignedByte perm[512], Real cellX, Real cellY ) const;
+private:
+	void buildHeights( const UnsignedByte perm[512] );
+	void placeLakes( const UnsignedByte perm[512] );
+	void carveLakeBasins( void );
+	void chooseStarts( void );
+	void flattenBases( void );
+	void buildPassability( void );
+	void connectStarts( void );
+	Bool carvePassTo( Int startIndex );
+	void buildTerrainClasses( const UnsignedByte perm[512] );
+	void buildBlends( void );
+	void buildObjects( const UnsignedByte perm[512] );
+	void placeSupplyAndDerricks( void );
+	void placeCivilians( void );
+	void placeScenery( const UnsignedByte perm[512] );
+
 	Real cellSpanWorld( Int x, Int y ) const;
-	void rotateAboutCentre( Real cellX, Real cellY, Real angle, Real *outX, Real *outY ) const;
+	Real roughnessAt( Int cellX, Int cellY, Int radius ) const;
+	Bool insideLake( Real cellX, Real cellY, Real *distanceOut ) const;
+	Real distanceToNearestStart( Real cellX, Real cellY ) const;
+	Bool siteIsClear( Real cellX, Real cellY, Real radius ) const;
+	Bool findSiteNear( Real centreX, Real centreY, Real minRadius, Real maxRadius, Real clearance,
+										 RMGPoint *out ) const;
+	void reserveSite( Real cellX, Real cellY, Real radius );
+	void addObject( const char *templateName, const char *uniqueID, Real cellX, Real cellY,
+									Real angle );
+	Short blendEntryFor( Int blendTileIndex, Int cornerMask );
+
+	std::vector<RMGSite> m_sites;		///< everything placed so far, with its elbow room
+	std::vector<char> m_visited;		///< scratch for the flood fill
+	Int m_startSearchStride;
 };
 
-RMGPolar RMGLayout::toPolar( Real cellX, Real cellY ) const
-{
-	Real centre = (Real)m_settings.m_playableCells * 0.5f;
-	Real dx = cellX - centre;
-	Real dy = cellY - centre;
+//-----------------------------------------------------------------------------
+// Height field
+//-----------------------------------------------------------------------------
 
-	RMGPolar polar;
-	polar.m_radius = sqrtf( dx * dx + dy * dy );
-
-	// ATan2, not atan2f: the simulation takes its trigonometry from Lib/Trig.h so
-	// every machine gets the same answer, and a generated map is simulation input.
-	Real angle = ATan2( dy, dx ) - m_baseAngle + m_sectorAngle * 0.5f;
-	Real turns = angle / (2.0f * PI);
-	angle -= floorf( turns ) * 2.0f * PI;			// into [0, 2 pi)
-
-	Real sector = floorf( angle / m_sectorAngle );
-	if( sector >= (Real)m_settings.m_numPlayers )
-		sector = (Real)(m_settings.m_numPlayers - 1);
-
-	polar.m_sector = (Int)sector;
-	polar.m_offsetAngle = angle - sector * m_sectorAngle - m_sectorAngle * 0.5f;
-	return polar;
-}
-
-void RMGLayout::rotateAboutCentre( Real cellX, Real cellY, Real angle, Real *outX, Real *outY ) const
-{
-	Real centre = (Real)m_settings.m_playableCells * 0.5f;
-	Real dx = cellX - centre;
-	Real dy = cellY - centre;
-	Real c = Cos( angle );
-	Real s = Sin( angle );
-
-	*outX = centre + dx * c - dy * s;
-	*outY = centre + dx * s + dy * c;
-}
-
-void RMGLayout::computeStarts( void )
+/** Warped fractal noise with mesas cut into it. The warp is what stops the
+	terrain reading as a bowl of dents: it drags the noise's own coordinates
+	around with a second field, so ridges bend and valleys wander. The mesa is a
+	hard step, and a hard step is what the pathfinder reads as a cliff. */
+void RMGLayout::buildHeights( const UnsignedByte perm[512] )
 {
 	Real playable = (Real)m_settings.m_playableCells;
-	Real centre = playable * 0.5f;
-	Real ring = playable * RMG_START_RING;
+	Real scale = RMG_FEATURES_PER_MAP / playable;
+	Real mesaScale = RMG_MESA_FEATURES / playable;
 
-	// One of 1024 rotations, so different seeds do not all put player one in
-	// the same corner.
-	UnsignedInt state = (UnsignedInt)m_settings.m_seed * 2654435761U + 12345U;
-	state ^= state >> 15;
-	m_baseAngle = (Real)(state % 1024U) * (2.0f * PI / 1024.0f);
-	m_sectorAngle = 2.0f * PI / (Real)m_settings.m_numPlayers;
+	m_heights.resize( m_width * m_height );
 
-	for( Int i = 0; i < m_settings.m_numPlayers; i++ )
+	for( Int y = 0; y < m_height; y++ )
 	{
-		Real angle = m_baseAngle + m_sectorAngle * (Real)i;
-		m_starts[i].m_cellX = centre + ring * Cos( angle );
-		m_starts[i].m_cellY = centre + ring * Sin( angle );
-		m_starts[i].m_angle = angle;
-	}
-}
-
-/** One lake per sector, off the lane rather than across it. The first candidate that clears the
-	start it belongs to, and both of that start's supply docks, wins; a dock standing in water is
-	not a dock anybody can use. If none of them is clear the map simply has no lakes. */
-void RMGLayout::placeLakes( void )
-{
-	m_lakes.clear();
-
-	if( m_settings.m_playableCells < RMG_LAKE_MIN_CELLS )
-		return;
-
-	Real playable = (Real)m_settings.m_playableCells;
-	Real centre = playable * 0.5f;
-
-	// A lake is sized by the sector it has to fit in as well as by the map: eight players leave
-	// each other a wedge, and a lake that does not fit in the wedge is not placed at all.
-	Real spacing = 2.0f * PI * playable * RMG_START_RING / (Real)m_settings.m_numPlayers;
-	Real radius = playable * RMG_LAKE_RADIUS;
-	if( radius > spacing * RMG_LAKE_OF_SPACING )
-		radius = spacing * RMG_LAKE_OF_SPACING;
-
-	// Where the docks of the first player sit, which is where every player's sit once the layout
-	// is turned into their sector.
-	Real dockX[RMG_SUPPLY_PER_PLAYER];
-	Real dockY[RMG_SUPPLY_PER_PLAYER];
-	for( Int k = 0; k < RMG_SUPPLY_PER_PLAYER; k++ )
-	{
-		Real side = (k == 0) ? (PI * 0.5f) : (-PI * 0.5f);
-		Real angle = m_starts[0].m_angle + side;
-		dockX[k] = m_starts[0].m_cellX + RMG_SUPPLY_DISTANCE * Cos( angle );
-		dockY[k] = m_starts[0].m_cellY + RMG_SUPPLY_DISTANCE * Sin( angle );
-	}
-
-	Real edge = radius + RMG_LAKE_SHORE;
-	Real startClearance = edge + m_flatRadius;
-	Real dockClearance = edge + RMG_LAKE_DOCK_CLEARANCE;
-
-	/* Walk the sector out from the middle rather than trying a handful of named spots: on a small
-		map with eight players there is very little room that is not somebody's base, somebody's
-		dock or the ridge, and a fixed list either misses it or drops a lake on a dock. */
-	// Outward first: a lake in the quiet part of a sector is better than one beside the middle of
-	// the map, and the inner radii are what a cramped layout falls back on.
-	for( Int radiusStep = 48; radiusStep >= 12; radiusStep -= 2 )
-	{
-		for( Int angleStep = 9; angleStep >= -9; angleStep-- )
+		for( Int x = 0; x < m_width; x++ )
 		{
-			Real lakeAngle = m_baseAngle + m_sectorAngle * 0.5f * (Real)angleStep * 0.1f;
-			Real lakeRing = playable * (Real)radiusStep * 0.01f;
-			Real x = centre + lakeRing * Cos( lakeAngle );
-			Real y = centre + lakeRing * Sin( lakeAngle );
+			Real px = (Real)(x - RMG_BORDER_CELLS) * scale;
+			Real py = (Real)(y - RMG_BORDER_CELLS) * scale;
 
-			if( distanceToNearestStart( x, y ) < startClearance )
-				continue;
+			Real warpX = px + RMG_WARP_STRENGTH * fractalNoise( perm, px + 5.2f, py + 1.3f, 3 );
+			Real warpY = py + RMG_WARP_STRENGTH * fractalNoise( perm, px - 3.7f, py + 8.1f, 3 );
 
-			// The ridge and its chokepoint stay out of the water.
-			Real arcToBoundary = (m_sectorAngle * 0.5f
-				- fabsf( m_sectorAngle * 0.5f * (Real)angleStep * 0.1f )) * lakeRing;
-			if( arcToBoundary < edge + RMG_RIDGE_HALF_WIDTH )
-				continue;
+			Real h = RMG_BASE_HEIGHT + RMG_AMPLITUDE * fractalNoise( perm, warpX, warpY, RMG_OCTAVES );
 
-			Bool clear = TRUE;
-			for( Int k = 0; k < RMG_SUPPLY_PER_PLAYER; k++ )
-			{
-				Real dx = x - dockX[k];
-				Real dy = y - dockY[k];
-				if( sqrtf( dx * dx + dy * dy ) < dockClearance )
-					clear = FALSE;
-			}
-			if( !clear )
-				continue;
+			Real mx = (Real)(x - RMG_BORDER_CELLS) * mesaScale;
+			Real my = (Real)(y - RMG_BORDER_CELLS) * mesaScale;
+			Real mesa = fractalNoise( perm, mx + 17.0f, my - 11.0f, 3 );
+			if( mesa > RMG_MESA_THRESHOLD )
+				h += RMG_MESA_RISE;
 
-			// The lake also has to stay inside the playable area, shore and all.
-			if( x - edge < 0.0f || y - edge < 0.0f || x + edge > playable || y + edge > playable )
-				continue;
+			if( h < 1.0f ) h = 1.0f;
+			if( h > 254.0f ) h = 254.0f;
 
-			for( Int i = 0; i < m_settings.m_numPlayers; i++ )
-			{
-				RMGLake lake;
-				rotateAboutCentre( x, y, m_sectorAngle * (Real)i, &lake.m_cellX, &lake.m_cellY );
-				lake.m_radius = radius;
-				m_lakes.push_back( lake );
-			}
-			return;
+			m_heights[cellIndex( x, y )] = (UnsignedByte)(h + 0.5f);
 		}
 	}
 }
 
-Real RMGLayout::distanceToNearestStart( Real cellX, Real cellY ) const
+Real RMGLayout::cellSpanWorld( Int x, Int y ) const
 {
-	Real nearest = 1.0e9f;
+	if( x < 0 || y < 0 || x + 1 >= m_width || y + 1 >= m_height )
+		return 0.0f;
 
-	for( Int i = 0; i < m_settings.m_numPlayers; i++ )
+	Int a = m_heights[cellIndex( x, y )];
+	Int b = m_heights[cellIndex( x + 1, y )];
+	Int c = m_heights[cellIndex( x, y + 1 )];
+	Int d = m_heights[cellIndex( x + 1, y + 1 )];
+
+	Int lo = a, hi = a;
+	if( b < lo ) lo = b;
+	if( b > hi ) hi = b;
+	if( c < lo ) lo = c;
+	if( c > hi ) hi = c;
+	if( d < lo ) lo = d;
+	if( d > hi ) hi = d;
+
+	return (Real)(hi - lo) * MAP_HEIGHT_SCALE;
+}
+
+/// Mean height difference from the middle of a disc, in height bytes: how flat a site is.
+Real RMGLayout::roughnessAt( Int cellX, Int cellY, Int radius ) const
+{
+	if( cellX - radius < 0 || cellY - radius < 0 ||
+			cellX + radius >= m_width || cellY + radius >= m_height )
+		return 1000.0f;
+
+	Real centre = (Real)m_heights[cellIndex( cellX, cellY )];
+	Real total = 0.0f;
+	Int samples = 0;
+
+	for( Int dy = -radius; dy <= radius; dy += 2 )
 	{
-		Real dx = cellX - m_starts[i].m_cellX;
-		Real dy = cellY - m_starts[i].m_cellY;
-		Real distance = sqrtf( dx * dx + dy * dy );
-		if( distance < nearest )
-			nearest = distance;
+		for( Int dx = -radius; dx <= radius; dx += 2 )
+		{
+			if( dx * dx + dy * dy > radius * radius )
+				continue;
+
+			total += fabsf( (Real)m_heights[cellIndex( cellX + dx, cellY + dy )] - centre );
+			samples++;
+		}
 	}
 
-	return nearest;
+	if( samples == 0 )
+		return 1000.0f;
+
+	return total / (Real)samples;
 }
+
+//-----------------------------------------------------------------------------
+// Water
+//-----------------------------------------------------------------------------
 
 Bool RMGLayout::insideLake( Real cellX, Real cellY, Real *distanceOut ) const
 {
@@ -666,64 +630,100 @@ Bool RMGLayout::insideLake( Real cellX, Real cellY, Real *distanceOut ) const
 	return inside;
 }
 
-/** The parts of the height field that come from the layout rather than the
-	noise: the ridge between two players and the basin under a lake. Both are
-	written in sector-local terms, so they appear identically in every sector. */
-Real RMGLayout::ridgeAndLakeHeight( const UnsignedByte perm[512], Real cellX, Real cellY ) const
+Bool RMGLayout::underwaterAtCell( Int x, Int y ) const
 {
-	Real playable = (Real)m_settings.m_playableCells;
-	Real scale = RMG_FEATURES_PER_MAP / playable;
+	Real px = (Real)(x - RMG_BORDER_CELLS);
+	Real py = (Real)(y - RMG_BORDER_CELLS);
 
-	RMGPolar polar = toPolar( cellX, cellY );
-
-	// Sample the noise at the sector-zero image of this point, which is what
-	// makes two players' ground the same ground.
-	Real canonicalAngle = m_baseAngle + polar.m_offsetAngle;
-	Real centre = playable * 0.5f;
-	Real nx = centre + polar.m_radius * Cos( canonicalAngle );
-	Real ny = centre + polar.m_radius * Sin( canonicalAngle );
-
-	Real height = RMG_BASE_HEIGHT + RMG_AMPLITUDE * fractalNoise( perm, nx * scale, ny * scale );
-
-	// The ridge, along the boundary the sector shares with its neighbour.
-	Real halfSector = m_sectorAngle * 0.5f;
-	Real arcToBoundary = (halfSector - fabsf( polar.m_offsetAngle )) * polar.m_radius;
-	Real gapCentre = playable * RMG_GAP_RADIUS;
-	Bool insideGap = fabsf( polar.m_radius - gapCentre ) < m_gapHalfCells;
-
-	if( arcToBoundary < RMG_RIDGE_HALF_WIDTH &&
-			polar.m_radius > playable * RMG_RIDGE_INNER &&
-			polar.m_radius < playable * RMG_RIDGE_OUTER &&
-			!insideGap &&
-			distanceToNearestStart( cellX, cellY ) > RMG_BASE_CLEARANCE )
-	{
-		height += RMG_RIDGE_RISE;
-	}
-
-	// The lake basin. Inside the shore it drops to a flat floor, so the water
-	// surface has something to sit on.
-	Real distanceToShore;
-	if( insideLake( cellX, cellY, &distanceToShore ) || distanceToShore < RMG_LAKE_SHORE )
-	{
-		Real floorHeight = RMG_BASE_HEIGHT - RMG_WATER_DROP - RMG_LAKE_DEPTH;
-		Real t = 0.0f;
-		if( distanceToShore > 0.0f )
-			t = distanceToShore / RMG_LAKE_SHORE;
-
-		height = lerpReal( floorHeight, height, fadeCurve( t ) );
-	}
-
-	return height;
+	return insideLake( px, py, NULL ) && (Real)m_heights[cellIndex( x, y )] < m_waterHeight;
 }
 
-void RMGLayout::buildHeights( const UnsignedByte perm[512] )
+/** Lakes go where the map is already lowest, so the water sits in the hollows
+	the noise made rather than in holes punched through a hillside. */
+void RMGLayout::placeLakes( const UnsignedByte perm[512] )
 {
-	m_heights.resize( m_width * m_height );
+	m_lakes.clear();
 
-	// The flat disc under each start takes the height the terrain has at that
-	// spot, so the discs sit in the landscape instead of on top of it. Every
-	// start has the same one, because the sampled point is the same point.
-	Real startHeight = ridgeAndLakeHeight( perm, m_starts[0].m_cellX, m_starts[0].m_cellY );
+	if( m_settings.m_playableCells < RMG_LAKE_MIN_CELLS )
+		return;
+
+	Real playable = (Real)m_settings.m_playableCells;
+	Real radius = playable * RMG_LAKE_RADIUS;
+
+	// Far enough apart to be separate lakes rather than one marsh with islands in it.
+	Real separation = playable * 0.22f;
+	Int wanted = (m_settings.m_numPlayers + 2) / 2;
+
+	while( (Int)m_lakes.size() < wanted )
+	{
+		Real lowest = 1000.0f;
+		RMGPoint best;
+		best.m_cellX = -1.0f;
+		best.m_cellY = -1.0f;
+
+		for( Int y = (Int)(radius + RMG_LAKE_SHORE);
+				 y < m_settings.m_playableCells - (Int)(radius + RMG_LAKE_SHORE); y += 3 )
+		{
+			for( Int x = (Int)(radius + RMG_LAKE_SHORE);
+					 x < m_settings.m_playableCells - (Int)(radius + RMG_LAKE_SHORE); x += 3 )
+			{
+				Int mapX = x + RMG_BORDER_CELLS;
+				Int mapY = y + RMG_BORDER_CELLS;
+
+				// The middle of a lake is the average of the ground it drowns, not one cell of it.
+				Real total = 0.0f;
+				Int samples = 0;
+				for( Int dy = -3; dy <= 3; dy += 3 )
+				{
+					for( Int dx = -3; dx <= 3; dx += 3 )
+					{
+						total += (Real)m_heights[cellIndex( mapX + dx, mapY + dy )];
+						samples++;
+					}
+				}
+
+				Real average = total / (Real)samples;
+				if( average >= lowest )
+					continue;
+
+				Bool clear = TRUE;
+				for( UnsignedInt i = 0; i < m_lakes.size(); i++ )
+				{
+					Real dx = (Real)x - m_lakes[i].m_cellX;
+					Real dy = (Real)y - m_lakes[i].m_cellY;
+					if( sqrtf( dx * dx + dy * dy ) < separation )
+						clear = FALSE;
+				}
+				if( !clear )
+					continue;
+
+				lowest = average;
+				best.m_cellX = (Real)x;
+				best.m_cellY = (Real)y;
+			}
+		}
+
+		if( best.m_cellX < 0.0f )
+			break;
+
+		RMGLake lake;
+		lake.m_cellX = best.m_cellX;
+		lake.m_cellY = best.m_cellY;
+
+		// A little variety in size, from the seed rather than from a constant.
+		UnsignedInt hash = hashCell( m_settings.m_seed, (Int)lake.m_cellX, (Int)lake.m_cellY );
+		lake.m_radius = radius * (0.75f + 0.5f * (Real)(hash % 1000U) / 1000.0f);
+		m_lakes.push_back( lake );
+	}
+}
+
+/// Drop the ground inside every lake outline to a bed, easing out over the shore.
+void RMGLayout::carveLakeBasins( void )
+{
+	if( m_lakes.empty() )
+		return;
+
+	Real bed = RMG_BASE_HEIGHT - RMG_WATER_DROP - RMG_LAKE_DEPTH;
 
 	for( Int y = 0; y < m_height; y++ )
 	{
@@ -732,20 +732,227 @@ void RMGLayout::buildHeights( const UnsignedByte perm[512] )
 			Real px = (Real)(x - RMG_BORDER_CELLS);
 			Real py = (Real)(y - RMG_BORDER_CELLS);
 
-			Real h = ridgeAndLakeHeight( perm, px, py );
+			Real distanceToShore;
+			insideLake( px, py, &distanceToShore );
+			if( distanceToShore >= RMG_LAKE_SHORE )
+				continue;
 
-			// The nearest start only. Blending against every start in turn lets
-			// two overlapping discs flatten ground that belongs to neither.
-			Real dist = distanceToNearestStart( px, py );
-			if( dist < m_blendRadius )
+			Real t = 0.0f;
+			if( distanceToShore > 0.0f )
+				t = distanceToShore / RMG_LAKE_SHORE;
+
+			Real h = lerpReal( bed, (Real)m_heights[cellIndex( x, y )], fadeCurve( t ) );
+			if( h < 1.0f ) h = 1.0f;
+
+			m_heights[cellIndex( x, y )] = (UnsignedByte)(h + 0.5f);
+		}
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Start positions
+//-----------------------------------------------------------------------------
+
+Real RMGLayout::distanceToNearestStart( Real cellX, Real cellY ) const
+{
+	Real nearest = 1.0e9f;
+
+	for( UnsignedInt i = 0; i < m_starts.size(); i++ )
+	{
+		Real dx = cellX - m_starts[i].m_cellX;
+		Real dy = cellY - m_starts[i].m_cellY;
+		Real distance = sqrtf( dx * dx + dy * dy );
+		if( distance < nearest )
+			nearest = distance;
+	}
+
+	return nearest;
+}
+
+/** The starts are found, not placed: every spot the search looks at is scored
+	for how flat and how dry it is, the flattest one starts the list, and each
+	one after that is whichever good site is furthest from the sites already
+	taken. Nothing about the map is turned round or mirrored to make them fair -
+	they are all standing on ground the same noise field made. */
+void RMGLayout::chooseStarts( void )
+{
+	m_starts.clear();
+
+	Int playable = m_settings.m_playableCells;
+
+	// Only the flat disc has to be inside the playable area. The blend ring outside it may run
+	// into the border, which is ground the camera sees and nobody builds on.
+	Int margin = (Int)(RMG_FLAT_RADIUS + RMG_START_MARGIN);
+
+	struct RMGCandidate { Real m_cellX, m_cellY, m_roughness; };
+	std::vector<RMGCandidate> candidates;
+
+	for( Int y = margin; y < playable - margin; y += m_startSearchStride )
+	{
+		for( Int x = margin; x < playable - margin; x += m_startSearchStride )
+		{
+			Int mapX = x + RMG_BORDER_CELLS;
+			Int mapY = y + RMG_BORDER_CELLS;
+
+			// Far enough that flattening the base does not leave a puddle in the middle of it.
+			Real distanceToShore;
+			insideLake( (Real)x, (Real)y, &distanceToShore );
+			if( distanceToShore < RMG_BLEND_RADIUS )
+				continue;
+
+			Real roughness = roughnessAt( mapX, mapY, (Int)RMG_FLAT_RADIUS );
+			if( roughness > RMG_START_ROUGHNESS * 3.0f )
+				continue;
+
+			RMGCandidate candidate;
+			candidate.m_cellX = (Real)x;
+			candidate.m_cellY = (Real)y;
+			candidate.m_roughness = roughness;
+			candidates.push_back( candidate );
+		}
+	}
+
+	if( candidates.empty() )
+	{
+		// Nowhere is flat: fall back to a ring, which is always somewhere.
+		Real centre = (Real)playable * 0.5f;
+		for( Int i = 0; i < m_settings.m_numPlayers; i++ )
+		{
+			Real angle = 2.0f * PI * (Real)i / (Real)m_settings.m_numPlayers;
+			RMGPoint start;
+			start.m_cellX = centre + centre * 0.62f * Cos( angle );
+			start.m_cellY = centre + centre * 0.62f * Sin( angle );
+			m_starts.push_back( start );
+		}
+		return;
+	}
+
+	// The flattest candidate opens the list.
+	UnsignedInt flattest = 0;
+	for( UnsignedInt i = 1; i < candidates.size(); i++ )
+	{
+		if( candidates[i].m_roughness < candidates[flattest].m_roughness )
+			flattest = i;
+	}
+
+	RMGPoint start;
+	start.m_cellX = candidates[flattest].m_cellX;
+	start.m_cellY = candidates[flattest].m_cellY;
+	m_starts.push_back( start );
+
+	/* Two base discs may not touch, whatever the map looks like. A candidate inside this is not
+		scored against the others at all; only a map with nowhere else to go falls back to it. */
+	Real hardFloor = 2.0f * RMG_FLAT_RADIUS + 6.0f;
+
+	while( (Int)m_starts.size() < m_settings.m_numPlayers )
+	{
+		Real bestScore = -1.0e9f;
+		UnsignedInt bestCandidate = 0;
+		Bool foundClearOne = FALSE;
+
+		for( UnsignedInt i = 0; i < candidates.size(); i++ )
+		{
+			Real distance = distanceToNearestStart( candidates[i].m_cellX, candidates[i].m_cellY );
+
+			Bool clearOfTheFloor = distance >= hardFloor;
+			if( foundClearOne && !clearOfTheFloor )
+				continue;
+
+			/* Distance first, flatness second, and distance is never traded away: a base that
+				gives up ten cells of separation for slightly better ground is a base sharing its
+				half of the map with a neighbour, and then both of them are fighting over one
+				supply dock while the far side of the map stands empty. */
+			Real score = distance - candidates[i].m_roughness * 2.0f;
+			if( score > bestScore || (clearOfTheFloor && !foundClearOne) )
 			{
-				Real t = 0.0f;
-				if( dist > m_flatRadius )
-					t = (dist - m_flatRadius) / (m_blendRadius - m_flatRadius);
+				bestScore = score;
+				bestCandidate = i;
+				foundClearOne = clearOfTheFloor;
+			}
+		}
 
-				h = lerpReal( startHeight, h, fadeCurve( t ) );
+		start.m_cellX = candidates[bestCandidate].m_cellX;
+		start.m_cellY = candidates[bestCandidate].m_cellY;
+		m_starts.push_back( start );
+	}
+}
+
+/// Flatten a disc under each start so a base can be laid out on it.
+void RMGLayout::flattenBases( void )
+{
+	std::vector<Real> startHeights;
+	std::vector<Real> flatRadii;
+	std::vector<Real> blendRadii;
+
+	for( UnsignedInt i = 0; i < m_starts.size(); i++ )
+	{
+		Int mapX = (Int)(m_starts[i].m_cellX + 0.5f) + RMG_BORDER_CELLS;
+		Int mapY = (Int)(m_starts[i].m_cellY + 0.5f) + RMG_BORDER_CELLS;
+		startHeights.push_back( (Real)m_heights[cellIndex( mapX, mapY )] );
+
+		/* Two discs at different heights meeting in the middle is a cliff between two bases, so
+			on a map too cramped to hold everybody at the full radius each disc gives way rather
+			than overlapping its neighbour. */
+		Real nearestOther = 1.0e9f;
+		for( UnsignedInt j = 0; j < m_starts.size(); j++ )
+		{
+			if( j == i )
+				continue;
+
+			Real dx = m_starts[i].m_cellX - m_starts[j].m_cellX;
+			Real dy = m_starts[i].m_cellY - m_starts[j].m_cellY;
+			Real distance = sqrtf( dx * dx + dy * dy );
+			if( distance < nearestOther )
+				nearestOther = distance;
+		}
+
+		Real flat = RMG_FLAT_RADIUS;
+		if( flat > nearestOther * 0.45f )
+			flat = nearestOther * 0.45f;
+
+		Real blend = RMG_BLEND_RADIUS;
+		if( blend > nearestOther * 0.9f )
+			blend = nearestOther * 0.9f;
+		if( blend < flat + 4.0f )
+			blend = flat + 4.0f;
+
+		flatRadii.push_back( flat );
+		blendRadii.push_back( blend );
+	}
+
+	for( Int y = 0; y < m_height; y++ )
+	{
+		for( Int x = 0; x < m_width; x++ )
+		{
+			Real px = (Real)(x - RMG_BORDER_CELLS);
+			Real py = (Real)(y - RMG_BORDER_CELLS);
+
+			// The nearest start only. Blending against every start in turn lets two
+			// overlapping discs flatten ground that belongs to neither.
+			Real nearest = 1.0e9f;
+			UnsignedInt nearestIndex = 0;
+			for( UnsignedInt i = 0; i < m_starts.size(); i++ )
+			{
+				Real dx = px - m_starts[i].m_cellX;
+				Real dy = py - m_starts[i].m_cellY;
+				Real distance = sqrtf( dx * dx + dy * dy );
+				if( distance < nearest )
+				{
+					nearest = distance;
+					nearestIndex = i;
+				}
 			}
 
+			if( nearest >= blendRadii[nearestIndex] )
+				continue;
+
+			Real t = 0.0f;
+			if( nearest > flatRadii[nearestIndex] )
+				t = (nearest - flatRadii[nearestIndex])
+					/ (blendRadii[nearestIndex] - flatRadii[nearestIndex]);
+
+			Real h = lerpReal( startHeights[nearestIndex], (Real)m_heights[cellIndex( x, y )],
+												 fadeCurve( t ) );
 			if( h < 1.0f ) h = 1.0f;
 			if( h > 254.0f ) h = 254.0f;
 
@@ -754,104 +961,69 @@ void RMGLayout::buildHeights( const UnsignedByte perm[512] )
 	}
 }
 
-Real RMGLayout::cellSpanWorld( Int x, Int y ) const
-{
-	Int a = m_heights[cellIndex( x, y )];
-	Int b = m_heights[cellIndex( x + 1, y )];
-	Int c = m_heights[cellIndex( x, y + 1 )];
-	Int d = m_heights[cellIndex( x + 1, y + 1 )];
-
-	Int lo = a, hi = a;
-	if( b < lo ) lo = b;
-	if( b > hi ) hi = b;
-	if( c < lo ) lo = c;
-	if( c > hi ) hi = c;
-	if( d < lo ) lo = d;
-	if( d > hi ) hi = d;
-
-	return (Real)(hi - lo) * MAP_HEIGHT_SCALE;
-}
-
-void RMGLayout::buildTerrainClasses( void )
-{
-	m_terrain.resize( m_width * m_height );
-
-	for( Int y = 0; y < m_height; y++ )
-	{
-		for( Int x = 0; x < m_width; x++ )
-		{
-			Real px = (Real)(x - RMG_BORDER_CELLS);
-			Real py = (Real)(y - RMG_BORDER_CELLS);
-			Real height = (Real)m_heights[cellIndex( x, y )];
-
-			Real span = 0.0f;
-			if( x + 1 < m_width && y + 1 < m_height )
-				span = cellSpanWorld( x, y );
-
-			UnsignedByte terrainClass = RMG_TERRAIN_GRASS;
-
-			Real distanceToShore;
-			insideLake( px, py, &distanceToShore );
-
-			// Sand is the low ground, whether the low ground is a lake bed or just the bottom of
-			// a hollow. A map with no room for a lake still gets its shores.
-			if( height < m_waterHeight + 2.0f || distanceToShore < RMG_LAKE_SHORE )
-				terrainClass = RMG_TERRAIN_SAND;
-			else if( span > RMG_CLIFF_WORLD_SPAN * 0.55f )
-				terrainClass = RMG_TERRAIN_ROCK;
-			else if( height > RMG_BASE_HEIGHT + RMG_AMPLITUDE * 0.45f )
-				terrainClass = RMG_TERRAIN_DIRT;
-
-			m_terrain[cellIndex( x, y )] = terrainClass;
-		}
-	}
-}
+//-----------------------------------------------------------------------------
+// Passability, and cutting a pass where there is none
+//-----------------------------------------------------------------------------
 
 void RMGLayout::buildPassability( void )
 {
-	m_passable.resize( m_width * m_height, 0 );
+	m_passable.assign( m_width * m_height, 0 );
 
 	for( Int y = 0; y < m_height - 1; y++ )
 	{
 		for( Int x = 0; x < m_width - 1; x++ )
 		{
 			Bool passable = cellSpanWorld( x, y ) <= RMG_CLIFF_WORLD_SPAN;
-
-			if( passable )
-			{
-				Real px = (Real)(x - RMG_BORDER_CELLS);
-				Real py = (Real)(y - RMG_BORDER_CELLS);
-				if( insideLake( px, py, NULL ) && (Real)m_heights[cellIndex( x, y )] < m_waterHeight )
-					passable = FALSE;
-			}
+			if( passable && underwaterAtCell( x, y ) )
+				passable = FALSE;
 
 			m_passable[cellIndex( x, y )] = passable ? 1 : 0;
 		}
 	}
 }
 
-/** A map nobody can cross is not a map. Flood fill from player one's build
-	area and demand that every other start, and every supply dock, comes back.
-	The ridge is the only thing that can break this, so a failure widens its gap
-	and the whole layout is built again. */
-Bool RMGLayout::everyStartReachable( void ) const
+/** A route from the first start to a start it cannot reach, priced so that flat
+	ground is nearly free and a cliff is expensive but not forbidden, then the
+	ground along that route is cut into a ramp no steeper than the pathfinder
+	will walk. What comes out is a pass through the high ground rather than a
+	trench across the map, because the search went round whatever it could. */
+Bool RMGLayout::carvePassTo( Int startIndex )
 {
-	std::vector<char> seen( m_width * m_height, 0 );
-	std::vector<Int> stack;
+	Int fromX = (Int)(m_starts[0].m_cellX + 0.5f) + RMG_BORDER_CELLS;
+	Int fromY = (Int)(m_starts[0].m_cellY + 0.5f) + RMG_BORDER_CELLS;
+	Int toX = (Int)(m_starts[startIndex].m_cellX + 0.5f) + RMG_BORDER_CELLS;
+	Int toY = (Int)(m_starts[startIndex].m_cellY + 0.5f) + RMG_BORDER_CELLS;
 
-	Int startX = (Int)(m_starts[0].m_cellX + 0.5f) + RMG_BORDER_CELLS;
-	Int startY = (Int)(m_starts[0].m_cellY + 0.5f) + RMG_BORDER_CELLS;
-	Int startIndex = cellIndex( startX, startY );
-	if( m_passable[startIndex] == 0 )
-		return FALSE;
+	const Int cellCount = m_width * m_height;
+	std::vector<Int> cost( cellCount, 0x7FFFFFFF );
+	std::vector<Int> cameFrom( cellCount, -1 );
 
-	seen[startIndex] = 1;
-	stack.push_back( startIndex );
+	/* Dijkstra with a bucket queue rather than a heap: every step costs one of a
+		handful of values, so the buckets are shallow and the queue is a vector. */
+	const Int flatCost = 1;
+	const Int cliffCost = 60;
+	const Int waterCost = 250;
 
-	while( !stack.empty() )
+	std::vector<Int> open;
+	open.push_back( fromY * m_width + fromX );
+	cost[fromY * m_width + fromX] = 0;
+
+	while( !open.empty() )
 	{
-		Int index = stack.back();
-		stack.pop_back();
+		// Cheapest open cell.
+		Int bestSlot = 0;
+		for( UnsignedInt i = 1; i < open.size(); i++ )
+		{
+			if( cost[open[i]] < cost[open[bestSlot]] )
+				bestSlot = i;
+		}
+
+		Int index = open[bestSlot];
+		open[bestSlot] = open.back();
+		open.pop_back();
+
+		if( index == toY * m_width + toX )
+			break;
 
 		Int x = index % m_width;
 		Int y = index / m_width;
@@ -863,57 +1035,631 @@ Bool RMGLayout::everyStartReachable( void ) const
 		{
 			Int nx = x + offsetX[i];
 			Int ny = y + offsetY[i];
-			if( nx < 0 || ny < 0 || nx >= m_width - 1 || ny >= m_height - 1 )
+			if( nx < 1 || ny < 1 || nx >= m_width - 2 || ny >= m_height - 2 )
 				continue;
 
-			Int next = cellIndex( nx, ny );
-			if( seen[next] || m_passable[next] == 0 )
+			Int step = flatCost;
+			if( m_passable[cellIndex( nx, ny )] == 0 )
+				step = underwaterAtCell( nx, ny ) ? waterCost : cliffCost;
+
+			Int next = ny * m_width + nx;
+			if( cost[index] + step >= cost[next] )
 				continue;
 
-			seen[next] = 1;
-			stack.push_back( next );
+			cost[next] = cost[index] + step;
+			cameFrom[next] = index;
+			open.push_back( next );
 		}
 	}
 
-	for( Int i = 1; i < m_settings.m_numPlayers; i++ )
+	if( cameFrom[toY * m_width + toX] < 0 )
+		return FALSE;
+
+	// Walk the route back, then cut it as a ramp: each cell of the route may
+	// only be so much higher or lower than the one before it.
+	std::vector<Int> route;
+	for( Int index = toY * m_width + toX; index >= 0; index = cameFrom[index] )
 	{
-		Int x = (Int)(m_starts[i].m_cellX + 0.5f) + RMG_BORDER_CELLS;
-		Int y = (Int)(m_starts[i].m_cellY + 0.5f) + RMG_BORDER_CELLS;
-		if( !seen[cellIndex( x, y )] )
+		route.push_back( index );
+		if( index == fromY * m_width + fromX )
+			break;
+	}
+
+	std::vector<Real> profile( route.size() );
+	for( UnsignedInt i = 0; i < route.size(); i++ )
+		profile[i] = (Real)m_heights[route[i]];
+
+	Real waterFloor = m_waterHeight + 2.0f;
+	for( UnsignedInt i = 0; i < profile.size(); i++ )
+	{
+		if( profile[i] < waterFloor )
+			profile[i] = waterFloor;
+	}
+
+	for( Int pass = 0; pass < 2; pass++ )
+	{
+		for( UnsignedInt i = 1; i < profile.size(); i++ )
+		{
+			Real limit = profile[i - 1] + RMG_PASS_MAX_STEP;
+			if( profile[i] > limit )
+				profile[i] = limit;
+
+			limit = profile[i - 1] - RMG_PASS_MAX_STEP;
+			if( profile[i] < limit )
+				profile[i] = limit;
+		}
+
+		for( Int i = (Int)profile.size() - 2; i >= 0; i-- )
+		{
+			Real limit = profile[i + 1] + RMG_PASS_MAX_STEP;
+			if( profile[i] > limit )
+				profile[i] = limit;
+
+			limit = profile[i + 1] - RMG_PASS_MAX_STEP;
+			if( profile[i] < limit )
+				profile[i] = limit;
+		}
+	}
+
+	for( UnsignedInt i = 0; i < route.size(); i++ )
+	{
+		Int x = route[i] % m_width;
+		Int y = route[i] / m_width;
+
+		for( Int dy = -RMG_PASS_HALF_WIDTH - 2; dy <= RMG_PASS_HALF_WIDTH + 2; dy++ )
+		{
+			for( Int dx = -RMG_PASS_HALF_WIDTH - 2; dx <= RMG_PASS_HALF_WIDTH + 2; dx++ )
+			{
+				Int nx = x + dx;
+				Int ny = y + dy;
+				if( nx < 0 || ny < 0 || nx >= m_width || ny >= m_height )
+					continue;
+
+				Real distance = sqrtf( (Real)(dx * dx + dy * dy) );
+				Real t = (distance - (Real)RMG_PASS_HALF_WIDTH) / 2.0f;
+				if( t < 0.0f ) t = 0.0f;
+				if( t > 1.0f ) continue;
+
+				Real h = lerpReal( profile[i], (Real)m_heights[cellIndex( nx, ny )], fadeCurve( t ) );
+				if( h < 1.0f ) h = 1.0f;
+				if( h > 254.0f ) h = 254.0f;
+
+				m_heights[cellIndex( nx, ny )] = (UnsignedByte)(h + 0.5f);
+			}
+		}
+	}
+
+	return TRUE;
+}
+
+/** Every start has to be able to walk to every other one. The flood fill says
+	which cannot, and a pass is cut to each of those in turn until they can. */
+void RMGLayout::connectStarts( void )
+{
+	for( Int attempt = 0; attempt < RMG_PASS_ATTEMPTS; attempt++ )
+	{
+		buildPassability();
+
+		m_visited.assign( m_width * m_height, 0 );
+
+		Int startX = (Int)(m_starts[0].m_cellX + 0.5f) + RMG_BORDER_CELLS;
+		Int startY = (Int)(m_starts[0].m_cellY + 0.5f) + RMG_BORDER_CELLS;
+		Int startIndex = startY * m_width + startX;
+
+		std::vector<Int> stack;
+		m_visited[startIndex] = 1;
+		stack.push_back( startIndex );
+
+		while( !stack.empty() )
+		{
+			Int index = stack.back();
+			stack.pop_back();
+
+			Int x = index % m_width;
+			Int y = index / m_width;
+
+			static const Int offsetX[4] = { 1, -1, 0, 0 };
+			static const Int offsetY[4] = { 0, 0, 1, -1 };
+
+			for( Int i = 0; i < 4; i++ )
+			{
+				Int nx = x + offsetX[i];
+				Int ny = y + offsetY[i];
+				if( nx < 0 || ny < 0 || nx >= m_width - 1 || ny >= m_height - 1 )
+					continue;
+
+				Int next = ny * m_width + nx;
+				if( m_visited[next] || m_passable[next] == 0 )
+					continue;
+
+				m_visited[next] = 1;
+				stack.push_back( next );
+			}
+		}
+
+		Int unreachable = -1;
+		for( UnsignedInt i = 1; i < m_starts.size(); i++ )
+		{
+			Int x = (Int)(m_starts[i].m_cellX + 0.5f) + RMG_BORDER_CELLS;
+			Int y = (Int)(m_starts[i].m_cellY + 0.5f) + RMG_BORDER_CELLS;
+			if( !m_visited[y * m_width + x] )
+			{
+				unreachable = (Int)i;
+				break;
+			}
+		}
+
+		if( unreachable < 0 )
+			return;
+
+		if( !carvePassTo( unreachable ) )
+			return;
+
+		// The route runs into the base at either end of it, so the discs are laid flat again
+		// rather than left with a ramp cut across the ground somebody has to build on.
+		flattenBases();
+	}
+
+	buildPassability();
+}
+
+//-----------------------------------------------------------------------------
+// Texture classes and their blends
+//-----------------------------------------------------------------------------
+
+/** Height and slope decide the ground cover, with the thresholds pushed about
+	by a noise field of their own so the edges wander instead of following a
+	contour line. */
+void RMGLayout::buildTerrainClasses( const UnsignedByte perm[512] )
+{
+	m_terrain.resize( m_width * m_height );
+
+	Real scale = RMG_FEATURES_PER_MAP * 2.5f / (Real)m_settings.m_playableCells;
+
+	for( Int y = 0; y < m_height; y++ )
+	{
+		for( Int x = 0; x < m_width; x++ )
+		{
+			Real height = (Real)m_heights[cellIndex( x, y )];
+			Real span = cellSpanWorld( x, y );
+
+			Real wobble = fractalNoise( perm, (Real)x * scale + 31.0f, (Real)y * scale - 17.0f, 3 );
+
+			UnsignedByte terrainClass = RMG_TERRAIN_GRASS;
+
+			if( height < m_waterHeight + 3.0f + wobble * 2.0f )
+				terrainClass = RMG_TERRAIN_SAND;
+			else if( span > RMG_CLIFF_WORLD_SPAN * (0.45f + wobble * 0.12f) )
+				terrainClass = RMG_TERRAIN_ROCK;
+			// Dry high ground. The offset is in height bytes rather than a fraction of the
+			// amplitude: five octaves only reach a third of their nominal range, so a fraction of
+			// it puts the line above anything the noise ever climbs to.
+			else if( height > RMG_BASE_HEIGHT + 8.0f + wobble * 5.0f )
+				terrainClass = RMG_TERRAIN_DIRT;
+
+			m_terrain[cellIndex( x, y )] = terrainClass;
+		}
+	}
+}
+
+/** The tile index WorldBuilder computes for a cell: four quadrants packed into
+	each source tile, the source tile picked by tiling the class across the map. */
+static Short tileIndexForCell( Int x, Int y, Int firstTile, Int width )
+{
+	Int ndx = firstTile + ((x / 2) % width) + width * ((y / 2) % width);
+	ndx = (ndx << 2) + 2 * (y & 1) + (x & 1);
+	return (Short)ndx;
+}
+
+/** The corner alpha the renderer can actually express, and the flags that ask
+	for it. `inverted` is one field shared by every flag in an entry, so the
+	combinations are the ones on one side of it or the other - which is why a
+	mask is matched to the nearest of these rather than built from scratch.
+	Corners: bit 0 is (x,y), 1 is (x+1,y), 2 is (x+1,y+1), 3 is (x,y+1), in the
+	order getAlphaUVData fills alpha[]. */
+struct RMGBlendShape
+{
+	Int m_cornerMask;
+	UnsignedByte m_horizontal;
+	UnsignedByte m_vertical;
+	UnsignedByte m_rightDiagonal;
+	UnsignedByte m_leftDiagonal;
+	UnsignedByte m_inverted;
+	UnsignedByte m_longDiagonal;
+};
+
+static const RMGBlendShape theBlendShapes[] =
+{
+	// one corner
+	{ 0x1, 0, 0, 0, 1, 1, 0 },		// (x,y)
+	{ 0x2, 0, 0, 1, 0, 1, 0 },		// (x+1,y)
+	{ 0x4, 0, 0, 1, 0, 0, 0 },		// (x+1,y+1)
+	{ 0x8, 0, 0, 0, 1, 0, 0 },		// (x,y+1)
+	// one edge
+	{ 0x6, 1, 0, 0, 0, 0, 0 },		// the +x side
+	{ 0x9, 1, 0, 0, 0, 1, 0 },		// the -x side
+	{ 0xC, 0, 1, 0, 0, 0, 0 },		// the +y side
+	{ 0x3, 0, 1, 0, 0, 1, 0 },		// the -y side
+	// three corners
+	{ 0xE, 1, 1, 0, 0, 0, 0 },		// everything but (x,y)
+	{ 0xB, 0, 1, 0, 1, 1, 0 },		// everything but (x+1,y+1)
+	{ 0xD, 1, 0, 1, 0, 0, 0 },		// everything but (x+1,y)
+	{ 0x7, 0, 1, 1, 0, 1, 0 },		// everything but (x,y+1)
+};
+static const Int theNumBlendShapes = sizeof(theBlendShapes) / sizeof(theBlendShapes[0]);
+
+/// Find or add the blend table entry that paints this tile over these corners.
+Short RMGLayout::blendEntryFor( Int blendTileIndex, Int cornerMask )
+{
+	// Nearest shape by how many corners it gets wrong, preferring one that covers
+	// more rather than less: a corner blended a little early is invisible, a
+	// corner left unblended is the hard edge this whole pass exists to remove.
+	Int bestShape = -1;
+	Int bestPenalty = 100;
+
+	for( Int i = 0; i < theNumBlendShapes; i++ )
+	{
+		Int missing = cornerMask & ~theBlendShapes[i].m_cornerMask;
+		Int extra = theBlendShapes[i].m_cornerMask & ~cornerMask;
+
+		Int penalty = 0;
+		for( Int bit = 0; bit < 4; bit++ )
+		{
+			if( missing & (1 << bit) ) penalty += 3;
+			if( extra & (1 << bit) ) penalty += 1;
+		}
+
+		if( penalty < bestPenalty )
+		{
+			bestPenalty = penalty;
+			bestShape = i;
+		}
+	}
+
+	if( bestShape < 0 )
+		return 0;
+
+	const RMGBlendShape& shape = theBlendShapes[bestShape];
+
+	for( UnsignedInt i = 1; i < m_blends.size(); i++ )
+	{
+		if( m_blends[i].m_blendTileIndex == blendTileIndex &&
+				m_blends[i].m_horizontal == shape.m_horizontal &&
+				m_blends[i].m_vertical == shape.m_vertical &&
+				m_blends[i].m_rightDiagonal == shape.m_rightDiagonal &&
+				m_blends[i].m_leftDiagonal == shape.m_leftDiagonal &&
+				m_blends[i].m_inverted == shape.m_inverted &&
+				m_blends[i].m_longDiagonal == shape.m_longDiagonal )
+			return (Short)i;
+	}
+
+	RMGBlend blend;
+	blend.m_blendTileIndex = blendTileIndex;
+	blend.m_horizontal = shape.m_horizontal;
+	blend.m_vertical = shape.m_vertical;
+	blend.m_rightDiagonal = shape.m_rightDiagonal;
+	blend.m_leftDiagonal = shape.m_leftDiagonal;
+	blend.m_inverted = shape.m_inverted;
+	blend.m_longDiagonal = shape.m_longDiagonal;
+	m_blends.push_back( blend );
+
+	return (Short)(m_blends.size() - 1);
+}
+
+/** Every cell whose neighbour carries a higher-priority ground gets that ground
+	painted over the corners it touches, as an alpha ramp across the cell. One
+	side blends and the other does not, which is what stops two neighbours
+	fighting over the same edge and leaving a seam between them. */
+void RMGLayout::buildBlends( void )
+{
+	m_blends.clear();
+
+	RMGBlend nothing;
+	memset( &nothing, 0, sizeof(nothing) );
+	m_blends.push_back( nothing );		// entry 0 is "no blend"
+
+	m_blendIndex.assign( m_width * m_height, 0 );
+
+	for( Int y = 0; y < m_height; y++ )
+	{
+		for( Int x = 0; x < m_width; x++ )
+		{
+			Int mine = m_terrain[cellIndex( x, y )];
+
+			// The strongest ground among the eight neighbours, and which of this
+			// cell's corners touch it.
+			Int strongest = mine;
+			Int cornerMask = 0;
+
+			for( Int dy = -1; dy <= 1; dy++ )
+			{
+				for( Int dx = -1; dx <= 1; dx++ )
+				{
+					if( dx == 0 && dy == 0 )
+						continue;
+
+					Int nx = x + dx;
+					Int ny = y + dy;
+					if( nx < 0 || ny < 0 || nx >= m_width || ny >= m_height )
+						continue;
+
+					Int theirs = m_terrain[cellIndex( nx, ny )];
+					if( theirs <= mine )
+						continue;
+
+					if( theirs > strongest )
+					{
+						strongest = theirs;
+						cornerMask = 0;
+					}
+					if( theirs < strongest )
+						continue;
+
+					// A neighbour claims the corners it shares with this cell.
+					if( dx >= 0 && dy >= 0 ) cornerMask |= 0x4;		// (x+1,y+1)
+					if( dx >= 0 && dy <= 0 ) cornerMask |= 0x2;		// (x+1,y)
+					if( dx <= 0 && dy >= 0 ) cornerMask |= 0x8;		// (x,y+1)
+					if( dx <= 0 && dy <= 0 ) cornerMask |= 0x1;		// (x,y)
+				}
+			}
+
+			if( strongest == mine || cornerMask == 0 )
+				continue;
+
+			Int blendTile = tileIndexForCell( x, y, strongest * RMG_TILES_PER_CLASS,
+																				RMG_TILE_SHEET_WIDTH );
+			m_blendIndex[cellIndex( x, y )] = blendEntryFor( blendTile, cornerMask );
+		}
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Everything that stands on the map
+//-----------------------------------------------------------------------------
+
+Bool RMGLayout::siteIsClear( Real cellX, Real cellY, Real radius ) const
+{
+	for( UnsignedInt i = 0; i < m_sites.size(); i++ )
+	{
+		Real dx = cellX - m_sites[i].m_cellX;
+		Real dy = cellY - m_sites[i].m_cellY;
+		if( sqrtf( dx * dx + dy * dy ) < radius + m_sites[i].m_radius )
 			return FALSE;
 	}
 
 	return TRUE;
 }
 
-void RMGLayout::addRotatedCopies( const char *templateName, const char *idPrefix, Real cellX,
-																	Real cellY, Real angle, Int& runningID )
+void RMGLayout::reserveSite( Real cellX, Real cellY, Real radius )
 {
-	for( Int i = 0; i < m_settings.m_numPlayers; i++ )
+	RMGSite site;
+	site.m_cellX = cellX;
+	site.m_cellY = cellY;
+	site.m_radius = radius;
+	m_sites.push_back( site );
+}
+
+void RMGLayout::addObject( const char *templateName, const char *uniqueID, Real cellX, Real cellY,
+													 Real angle )
+{
+	RMGObject object;
+	object.m_templateName = templateName;
+	object.m_uniqueID = uniqueID;
+	object.m_worldX = cellX * MAP_XY_FACTOR;
+	object.m_worldY = cellY * MAP_XY_FACTOR;
+	object.m_angle = angle;
+	object.m_waypointID = 0;
+	m_objects.push_back( object );
+}
+
+/** The flattest buildable spot in a ring around a point, whatever else is on the map. This is how
+	anything a particular player is meant to reach gets placed: search from their ground rather
+	than over the whole map, or every flat acre in the middle takes all the money and the players
+	on the rough side of the map start with nothing. */
+Bool RMGLayout::findSiteNear( Real centreX, Real centreY, Real minRadius, Real maxRadius,
+															Real clearance, RMGPoint *out ) const
+{
+	const Int stepsRound = 96;
+	Real bestRoughness = 1.0e9f;
+	Bool found = FALSE;
+
+	for( Int step = 0; step < stepsRound; step++ )
 	{
-		Real rotatedX, rotatedY;
-		rotateAboutCentre( cellX, cellY, m_sectorAngle * (Real)i, &rotatedX, &rotatedY );
+		Real angle = 2.0f * PI * (Real)step / (Real)stepsRound;
+		Real dirX = Cos( angle );
+		Real dirY = Sin( angle );
 
-		RMGObject object;
-		object.m_templateName = templateName;
-		object.m_uniqueID.format( "%s %d", idPrefix, runningID++ );
-		object.m_worldX = rotatedX * MAP_XY_FACTOR;
-		object.m_worldY = rotatedY * MAP_XY_FACTOR;
-		object.m_angle = angle + m_sectorAngle * (Real)i;
-		object.m_waypointID = 0;
+		for( Real radius = minRadius; radius <= maxRadius; radius += 2.0f )
+		{
+			Real x = centreX + radius * dirX;
+			Real y = centreY + radius * dirY;
 
-		m_objects.push_back( object );
+			// Inside the playable area, not merely inside the height field: the border is ground
+			// the camera looks across, and a supply dock out there is a dock nobody can reach.
+			Real edge = 4.0f;
+			if( x < edge || y < edge || x > (Real)m_settings.m_playableCells - edge ||
+					y > (Real)m_settings.m_playableCells - edge )
+				continue;
+
+			Int mapX = (Int)(x + 0.5f) + RMG_BORDER_CELLS;
+			Int mapY = (Int)(y + 0.5f) + RMG_BORDER_CELLS;
+			if( !passableAtCell( mapX, mapY ) )
+				continue;
+
+			Real distanceToShore;
+			insideLake( x, y, &distanceToShore );
+			if( distanceToShore < 4.0f )
+				continue;
+
+			if( !siteIsClear( x, y, clearance ) )
+				continue;
+
+			Real roughness = roughnessAt( mapX, mapY, 5 );
+			if( roughness < bestRoughness )
+			{
+				bestRoughness = roughness;
+				out->m_cellX = x;
+				out->m_cellY = y;
+				found = TRUE;
+			}
+		}
+	}
+
+	return found;
+}
+
+/** A supply dock beside every base, one more out in the middle of the map for
+	each player to fight over, and two oil derricks a player scattered between
+	them. Nothing is placed relative to anything but the ground it stands on. */
+void RMGLayout::placeSupplyAndDerricks( void )
+{
+	Int supplyID = 1;
+	Int derrickID = 1;
+	Real playable = (Real)m_settings.m_playableCells;
+
+	// The dock each player opens on. Searched in an annulus round the start, so
+	// it is close enough to be theirs and far enough not to be in the way.
+	for( UnsignedInt i = 0; i < m_starts.size(); i++ )
+	{
+		/* Full elbow room in the ring the base wants it in first; a base hemmed in by water or by
+			the next base over gets its dock closer in, and then further out, rather than not at
+			all.  A player short a dock is a player who has already lost. */
+		RMGPoint best;
+		if( !findSiteNear( m_starts[i].m_cellX, m_starts[i].m_cellY, RMG_HOME_SUPPLY_MIN,
+											 RMG_HOME_SUPPLY_MAX, RMG_SITE_CLEARANCE, &best ) &&
+				!findSiteNear( m_starts[i].m_cellX, m_starts[i].m_cellY, RMG_HOME_SUPPLY_MIN,
+											 RMG_HOME_SUPPLY_MAX, RMG_SITE_CLEARANCE * 0.5f, &best ) &&
+				!findSiteNear( m_starts[i].m_cellX, m_starts[i].m_cellY, RMG_HOME_SUPPLY_MIN,
+											 RMG_HOME_SUPPLY_MAX * 2.0f, 1.0f, &best ) )
+			continue;
+
+		Real angle = ATan2( m_starts[i].m_cellY - best.m_cellY, m_starts[i].m_cellX - best.m_cellX );
+
+		AsciiString uniqueID;
+		uniqueID.format( "SupplyDock %d", supplyID++ );
+		addObject( "SupplyDock", uniqueID.str(), best.m_cellX, best.m_cellY, angle );
+		reserveSite( best.m_cellX, best.m_cellY, RMG_SITE_CLEARANCE );
+	}
+
+	/* The second dock is the one worth fighting over: it goes out towards whoever is nearest, so
+		it is a long walk from home and a short one from somebody who would rather you did not
+		have it.  One per player, placed round their own start, because a search over the whole
+		map hands every dock to whichever corner happens to be flattest. */
+	Real farSeparation = playable * RMG_FAR_SUPPLY_SEPARATION;
+	for( UnsignedInt i = 0; i < m_starts.size(); i++ )
+	{
+		Real nearest = 1.0e9f;
+		UnsignedInt nearestIndex = i;
+		for( UnsignedInt j = 0; j < m_starts.size(); j++ )
+		{
+			if( j == i )
+				continue;
+
+			Real dx = m_starts[i].m_cellX - m_starts[j].m_cellX;
+			Real dy = m_starts[i].m_cellY - m_starts[j].m_cellY;
+			Real distance = sqrtf( dx * dx + dy * dy );
+			if( distance < nearest )
+			{
+				nearest = distance;
+				nearestIndex = j;
+			}
+		}
+
+		Real towardsX = (m_starts[i].m_cellX + m_starts[nearestIndex].m_cellX) * 0.5f;
+		Real towardsY = (m_starts[i].m_cellY + m_starts[nearestIndex].m_cellY) * 0.5f;
+
+		RMGPoint site;
+		if( !findSiteNear( towardsX, towardsY, 0.0f, farSeparation, RMG_SITE_CLEARANCE, &site ) &&
+				!findSiteNear( towardsX, towardsY, 0.0f, farSeparation * 2.0f, 3.0f, &site ) &&
+				!findSiteNear( m_starts[i].m_cellX, m_starts[i].m_cellY, RMG_HOME_SUPPLY_MAX,
+											 (Real)playable * 0.5f, 3.0f, &site ) )
+			continue;
+
+		UnsignedInt hash = hashCell( m_settings.m_seed, (Int)site.m_cellX, (Int)site.m_cellY );
+		Real angle = (Real)(hash % 1024U) * (2.0f * PI / 1024.0f);
+
+		AsciiString uniqueID;
+		uniqueID.format( "SupplyDock %d", supplyID++ );
+		addObject( "SupplyDock", uniqueID.str(), site.m_cellX, site.m_cellY, angle );
+		reserveSite( site.m_cellX, site.m_cellY, RMG_SITE_CLEARANCE );
+	}
+
+	// Two derricks a player, out past the base but not as far as the fighting, and again one
+	// player at a time so they end up spread over the map rather than heaped in the middle.
+	// Close enough that the walk from the base is shorter than the walk from anybody else's.
+	Real derrickInner = RMG_BLEND_RADIUS + 6.0f;
+	Real derrickOuter = derrickInner + 18.0f;
+	for( Int round = 0; round < RMG_DERRICKS_PER_PLAYER; round++ )
+	{
+		for( UnsignedInt i = 0; i < m_starts.size(); i++ )
+		{
+			RMGPoint site;
+			if( !findSiteNear( m_starts[i].m_cellX, m_starts[i].m_cellY, derrickInner, derrickOuter,
+												 RMG_SITE_CLEARANCE, &site ) &&
+					!findSiteNear( m_starts[i].m_cellX, m_starts[i].m_cellY, derrickInner,
+												 derrickOuter * 1.6f, 3.0f, &site ) )
+				continue;
+
+			UnsignedInt hash = hashCell( m_settings.m_seed + 91, (Int)site.m_cellX, (Int)site.m_cellY );
+			Real angle = (Real)(hash % 1024U) * (2.0f * PI / 1024.0f);
+
+			AsciiString uniqueID;
+			uniqueID.format( "Derrick %d", derrickID++ );
+			addObject( "TechOilDerrick", uniqueID.str(), site.m_cellX, site.m_cellY, angle );
+			reserveSite( site.m_cellX, site.m_cellY, RMG_SITE_CLEARANCE );
+		}
 	}
 }
 
-void RMGLayout::addProps( const UnsignedByte perm[512] )
+/** Civilian buildings come in small clusters facing the same way, the way a
+	hamlet does, rather than one at a time wherever there is room. */
+void RMGLayout::placeCivilians( void )
 {
-	Real playable = (Real)m_settings.m_playableCells;
-	Real scale = RMG_FEATURES_PER_MAP * 2.0f / playable;
-	Real gapCentre = playable * RMG_GAP_RADIUS;
+	static const char *theCivilianNames[] = { "CivilianHighrise01", "CivilianHighrise02" };
+	const Int numCivilianNames = sizeof(theCivilianNames) / sizeof(theCivilianNames[0]);
 
-	// One name per slot of the hash, so a patch of forest is trees and a patch
-	// of scree is rocks rather than both being one repeated model.
+	Int buildingID = 1;
+	Real inner = RMG_BLEND_RADIUS + 12.0f;
+	Real outer = inner + (Real)m_settings.m_playableCells * 0.25f;
+
+	for( UnsignedInt cluster = 0; cluster < m_starts.size(); cluster++ )
+	{
+		RMGPoint site;
+		if( !findSiteNear( m_starts[cluster].m_cellX, m_starts[cluster].m_cellY, inner, outer,
+											 RMG_CIVILIAN_SPACING * 2.5f, &site ) )
+			continue;
+
+		UnsignedInt hash = hashCell( m_settings.m_seed + 613, (Int)site.m_cellX, (Int)site.m_cellY );
+		Real facing = (Real)(hash % 1024U) * (2.0f * PI / 1024.0f);
+
+		for( Int i = 0; i < RMG_CIVILIANS_PER_CLUSTER; i++ )
+		{
+			Real along = ((Real)i - (Real)(RMG_CIVILIANS_PER_CLUSTER - 1) * 0.5f) * RMG_CIVILIAN_SPACING;
+			Real x = site.m_cellX + along * Cos( facing + PI * 0.5f );
+			Real y = site.m_cellY + along * Sin( facing + PI * 0.5f );
+
+			Int mapX = (Int)(x + 0.5f) + RMG_BORDER_CELLS;
+			Int mapY = (Int)(y + 0.5f) + RMG_BORDER_CELLS;
+			if( mapX < 2 || mapY < 2 || mapX >= m_width - 2 || mapY >= m_height - 2 )
+				continue;
+			if( !passableAtCell( mapX, mapY ) )
+				continue;
+
+			AsciiString uniqueID;
+			uniqueID.format( "Civilian %d", buildingID++ );
+			addObject( theCivilianNames[i % numCivilianNames], uniqueID.str(), x, y, facing );
+		}
+
+		reserveSite( site.m_cellX, site.m_cellY, RMG_CIVILIAN_SPACING * 2.5f );
+	}
+}
+
+/** Trees stand in woods rather than in a sprinkle: a slow noise field decides
+	where a wood is, a per-cell hash decides which cells of it are used, and the
+	species is chosen per wood so one stand does not hold four kinds of tree.
+	Rocks go where the ground is already rock. */
+void RMGLayout::placeScenery( const UnsignedByte perm[512] )
+{
 	static const char *theTreeNames[] = { "TreeDogwood1", "TreeFir01B", "TreeCherryBlossom01",
 																				"TreeCherryBlossom02" };
 	static const char *theRockNames[] = { "Rocks1", "Rocks2", "Rocks3", "RockClusterMedium01",
@@ -921,148 +1667,91 @@ void RMGLayout::addProps( const UnsignedByte perm[512] )
 	const Int numTreeNames = sizeof(theTreeNames) / sizeof(theTreeNames[0]);
 	const Int numRockNames = sizeof(theRockNames) / sizeof(theRockNames[0]);
 
-	// Snapshot the supply positions before the scan, since the scan appends to
-	// the same list it would otherwise have to search.
-	std::vector<RMGLake> supplyClearances;
-	for( UnsignedInt i = 0; i < m_objects.size(); i++ )
+	Real playable = (Real)m_settings.m_playableCells;
+	Real forestScale = RMG_FOREST_FEATURES / playable;
+
+	Int treeBudget = RMG_TREES_PER_PLAYER * m_settings.m_numPlayers;
+	Int rockBudget = RMG_ROCKS_PER_PLAYER * m_settings.m_numPlayers;
+	Int propID = 1;
+
+	for( Int y = 2; y < m_settings.m_playableCells - 2; y += RMG_PROP_STRIDE )
 	{
-		if( m_objects[i].m_templateName.compare( "SupplyDock" ) != 0 )
-			continue;
-
-		RMGLake clearance;
-		clearance.m_cellX = m_objects[i].m_worldX / MAP_XY_FACTOR;
-		clearance.m_cellY = m_objects[i].m_worldY / MAP_XY_FACTOR;
-		clearance.m_radius = RMG_SUPPLY_CLEARANCE;
-		supplyClearances.push_back( clearance );
-	}
-
-	Int placed = 0;
-	Int runningID = 1;
-
-	for( Int cellY = 0; cellY < m_settings.m_playableCells && placed < RMG_PROPS_PER_SECTOR;
-			 cellY += RMG_PROP_STEP )
-	{
-		for( Int cellX = 0; cellX < m_settings.m_playableCells && placed < RMG_PROPS_PER_SECTOR;
-				 cellX += RMG_PROP_STEP )
+		for( Int x = 2; x < m_settings.m_playableCells - 2; x += RMG_PROP_STRIDE )
 		{
-			Real px = (Real)cellX;
-			Real py = (Real)cellY;
+			if( treeBudget <= 0 && rockBudget <= 0 )
+				return;
 
-			// Only sector zero is scanned; the copies are rotated out of it.
-			RMGPolar polar = toPolar( px, py );
-			if( polar.m_sector != 0 )
-				continue;
+			Int mapX = x + RMG_BORDER_CELLS;
+			Int mapY = y + RMG_BORDER_CELLS;
 
-			Int mapX = cellX + RMG_BORDER_CELLS;
-			Int mapY = cellY + RMG_BORDER_CELLS;
 			if( !passableAtCell( mapX, mapY ) )
 				continue;
 
-			// Keep the ground people build and fight over clear.
-			if( distanceToNearestStart( px, py ) < m_blendRadius + RMG_PROP_CLEARANCE )
-				continue;
-
-			if( fabsf( polar.m_radius - gapCentre ) < m_gapHalfCells + RMG_GAP_CLEARANCE )
-				continue;
-
 			Real distanceToShore;
-			insideLake( px, py, &distanceToShore );
-			if( distanceToShore < 2.0f )
+			insideLake( (Real)x, (Real)y, &distanceToShore );
+			if( distanceToShore < 3.0f )
 				continue;
 
-			Bool nearSupply = FALSE;
-			for( UnsignedInt i = 0; i < supplyClearances.size(); i++ )
-			{
-				Real sx = supplyClearances[i].m_cellX - px;
-				Real sy = supplyClearances[i].m_cellY - py;
-				if( sqrtf( sx * sx + sy * sy ) < supplyClearances[i].m_radius )
-				{
-					nearSupply = TRUE;
-					break;
-				}
-			}
-			if( nearSupply )
+			// Bases and everything already placed keep their elbow room.
+			if( distanceToNearestStart( (Real)x, (Real)y ) < RMG_BLEND_RADIUS )
+				continue;
+			if( !siteIsClear( (Real)x, (Real)y, 3.0f ) )
 				continue;
 
-			// Patchy rather than evenly sprinkled: the noise decides where a
-			// stand of trees is, the hash decides which cells of it are used.
-			Real density = fractalNoise( perm, px * scale + 100.0f, py * scale - 100.0f );
-			UnsignedInt hash = hashCell( m_settings.m_seed, cellX, cellY );
-			Real roll = (Real)(hash % 1000U) / 1000.0f;
-			if( roll > (density + 1.0f) * 0.25f )
-				continue;
+			UnsignedInt hash = hashCell( m_settings.m_seed + 7717, x, y );
+			Real jitterX = (Real)(hash % 100U) / 100.0f - 0.5f;
+			Real jitterY = (Real)((hash >> 7) % 100U) / 100.0f - 0.5f;
+			Real angle = (Real)((hash >> 14) % 1024U) * (2.0f * PI / 1024.0f);
 
 			Bool rocky = m_terrain[cellIndex( mapX, mapY )] == RMG_TERRAIN_ROCK;
-			const char *name = rocky
-				? theRockNames[(hash >> 10) % (UnsignedInt)numRockNames]
-				: theTreeNames[(hash >> 10) % (UnsignedInt)numTreeNames];
+			if( rocky )
+			{
+				if( rockBudget <= 0 )
+					continue;
+				if( (hash >> 24) % 100U > 25U )
+					continue;
 
-			Real angle = (Real)((hash >> 20) % 1024U) * (2.0f * PI / 1024.0f);
-			addRotatedCopies( name, "Prop", px, py, angle, runningID );
-			placed++;
+				AsciiString uniqueID;
+				uniqueID.format( "Prop %d", propID++ );
+				addObject( theRockNames[(hash >> 5) % (UnsignedInt)numRockNames], uniqueID.str(),
+									 (Real)x + jitterX, (Real)y + jitterY, angle );
+				rockBudget--;
+				continue;
+			}
+
+			if( treeBudget <= 0 )
+				continue;
+
+			Real density = fractalNoise( perm, (Real)x * forestScale + 100.0f,
+																	 (Real)y * forestScale - 100.0f, 3 );
+			if( density < 0.12f )
+				continue;
+
+			Real chance = (density - 0.12f) / 0.55f;
+			if( chance > 0.85f )
+				chance = 0.85f;
+			if( (Real)((hash >> 24) % 1000U) / 1000.0f > chance )
+				continue;
+
+			// The wood, not the tree, picks the species.
+			UnsignedInt woodHash = hashCell( m_settings.m_seed + 40009, x / 12, y / 12 );
+
+			AsciiString uniqueID;
+			uniqueID.format( "Prop %d", propID++ );
+			addObject( theTreeNames[woodHash % (UnsignedInt)numTreeNames], uniqueID.str(),
+								 (Real)x + jitterX, (Real)y + jitterY, angle );
+			treeBudget--;
 		}
-	}
-}
-
-/** The neutral economy: a derrick on every chokepoint, so the crossing is worth
-	holding, a pair of garrisonable buildings in each sector, and a hospital in
-	the middle of a map big enough for one. */
-void RMGLayout::addTechAndCivilians( void )
-{
-	Real playable = (Real)m_settings.m_playableCells;
-	Real centre = playable * 0.5f;
-	Int runningID = 1;
-
-	// The derrick sits in the gap, which is on the boundary between one sector
-	// and the next, so one copy per boundary is one copy per sector.
-	Real gapRadius = playable * RMG_GAP_RADIUS;
-	Real boundaryAngle = m_baseAngle + m_sectorAngle * 0.5f;
-	addRotatedCopies( "TechOilDerrick", "Derrick",
-										centre + gapRadius * Cos( boundaryAngle ),
-										centre + gapRadius * Sin( boundaryAngle ),
-										boundaryAngle + PI, runningID );
-
-	runningID = 1;
-	Real civilianRadius = playable * RMG_CIVILIAN_RING;
-	for( Int i = 0; i < RMG_CIVILIANS_PER_SECTOR; i++ )
-	{
-		Real offset = (i == 0) ? RMG_CIVILIAN_SPREAD : -RMG_CIVILIAN_SPREAD;
-		Real angle = m_baseAngle + offset / civilianRadius;
-		Real cellX = centre + civilianRadius * Cos( angle );
-		Real cellY = centre + civilianRadius * Sin( angle );
-
-		Int mapX = (Int)(cellX + 0.5f) + RMG_BORDER_CELLS;
-		Int mapY = (Int)(cellY + 0.5f) + RMG_BORDER_CELLS;
-		if( mapX < 0 || mapY < 0 || mapX >= m_width || mapY >= m_height )
-			continue;
-		if( !passableAtCell( mapX, mapY ) )
-			continue;
-
-		const char *name = (i == 0) ? "CivilianHighrise01" : "CivilianHighrise02";
-		addRotatedCopies( name, "Civilian", cellX, cellY, angle + PI, runningID );
-	}
-
-	if( m_settings.m_playableCells >= RMG_HOSPITAL_MIN_CELLS )
-	{
-		RMGObject hospital;
-		hospital.m_templateName = "TechHospital";
-		hospital.m_uniqueID = "Hospital 1";
-		hospital.m_worldX = centre * MAP_XY_FACTOR;
-		hospital.m_worldY = centre * MAP_XY_FACTOR;
-		hospital.m_angle = m_baseAngle;
-		hospital.m_waypointID = 0;
-		m_objects.push_back( hospital );
 	}
 }
 
 void RMGLayout::buildObjects( const UnsignedByte perm[512] )
 {
 	m_objects.clear();
+	m_sites.clear();
 
 	Int waypointID = 1;
-	Int supplyID = 1;
-
-	for( Int i = 0; i < m_settings.m_numPlayers; i++ )
+	for( UnsignedInt i = 0; i < m_starts.size(); i++ )
 	{
 		RMGObject waypoint;
 		waypoint.m_templateName = "*Waypoints/Waypoint";
@@ -1072,39 +1761,26 @@ void RMGLayout::buildObjects( const UnsignedByte perm[512] )
 		waypoint.m_angle = 0.0f;
 		waypoint.m_waypointID = waypointID++;
 		m_objects.push_back( waypoint );
+
+		reserveSite( m_starts[i].m_cellX, m_starts[i].m_cellY, RMG_FLAT_RADIUS );
 	}
 
-	// Supply docks: off to either side of the line from the middle to the start,
-	// written straight rather than through the rotation helper so the numbering
-	// stays player by player.
-	for( Int i = 0; i < m_settings.m_numPlayers; i++ )
-	{
-		for( Int k = 0; k < RMG_SUPPLY_PER_PLAYER; k++ )
-		{
-			Real side = (k == 0) ? (PI * 0.5f) : (-PI * 0.5f);
-			Real angle = m_starts[i].m_angle + side;
-
-			RMGObject dock;
-			dock.m_templateName = "SupplyDock";
-			dock.m_uniqueID.format( "SupplyDock %d", supplyID++ );
-			dock.m_worldX = (m_starts[i].m_cellX + RMG_SUPPLY_DISTANCE * Cos( angle )) * MAP_XY_FACTOR;
-			dock.m_worldY = (m_starts[i].m_cellY + RMG_SUPPLY_DISTANCE * Sin( angle )) * MAP_XY_FACTOR;
-			dock.m_angle = m_starts[i].m_angle + PI;
-			dock.m_waypointID = 0;
-			m_objects.push_back( dock );
-		}
-	}
-
-	addTechAndCivilians();
-	addProps( perm );
+	placeSupplyAndDerricks();
+	placeCivilians();
+	placeScenery( perm );
 }
+
+//-----------------------------------------------------------------------------
+// The whole layout
+//-----------------------------------------------------------------------------
 
 void RMGLayout::build( const RandomMapSettings& settings )
 {
-	/* The height field is x87 arithmetic, so it comes out differently at 53-bit precision than at
-		the 24 bits the simulation runs in - the same trap GameLogic::update re-asserts the control
-		word for at the top of every logic frame. A map generated in whatever mode the last DLL left
-		behind is a map the other machine does not have, so put the FPU where the simulation keeps
+	/* The height field is x87 arithmetic, so it comes out differently at 53-bit
+		precision than at the 24 bits the simulation runs in - the same trap
+		GameLogic::update re-asserts the control word for at the top of every logic
+		frame. A map generated in whatever mode the last DLL left behind is a map
+		the other machine does not have, so put the FPU where the simulation keeps
 		it and give the caller back what it had. */
 	UnsignedInt callersFPMode = getFPMode();
 	setFPMode();
@@ -1115,44 +1791,22 @@ void RMGLayout::build( const RandomMapSettings& settings )
 	m_width = m_settings.m_playableCells + 2 * RMG_BORDER_CELLS;
 	m_height = m_width;
 	m_waterHeight = RMG_BASE_HEIGHT - RMG_WATER_DROP;
+	m_startSearchStride = RMG_START_STRIDE;
 
 	UnsignedByte perm[512];
 	seedPermutation( m_settings.m_seed, perm );
 
-	computeStarts();
+	buildHeights( perm );
+	placeLakes( perm );
+	carveLakeBasins();
 
-	Real playable = (Real)m_settings.m_playableCells;
+	chooseStarts();
+	flattenBases();
 
-	m_gapHalfCells = playable * RMG_GAP_HALF;
+	connectStarts();
 
-	// Cap the base discs by how far apart neighbouring starts actually are.
-	Real spacing = 2.0f * PI * playable * RMG_START_RING / (Real)m_settings.m_numPlayers;
-	m_flatRadius = spacing * RMG_FLAT_OF_SPACING;
-	if( m_flatRadius > RMG_FLAT_RADIUS )
-		m_flatRadius = RMG_FLAT_RADIUS;
-
-	m_blendRadius = spacing * RMG_BLEND_OF_SPACING;
-	if( m_blendRadius > RMG_BLEND_RADIUS )
-		m_blendRadius = RMG_BLEND_RADIUS;
-	if( m_blendRadius < m_flatRadius + 4.0f )
-		m_blendRadius = m_flatRadius + 4.0f;
-
-	// After the base discs are sized, since a lake keeps clear of them.
-	placeLakes();
-
-	for( Int attempt = 0; attempt < RMG_LAYOUT_ATTEMPTS; attempt++ )
-	{
-		buildHeights( perm );
-		buildPassability();
-
-		if( everyStartReachable() )
-			break;
-
-		// Widening the gap is the one lever that opens a map the ridge closed.
-		m_gapHalfCells *= RMG_GAP_WIDEN_STEP;
-	}
-
-	buildTerrainClasses();
+	buildTerrainClasses( perm );
+	buildBlends();
 	buildObjects( perm );
 
 	_controlfp( callersFPMode, _MCW_PC | _MCW_RC );
@@ -1161,15 +1815,6 @@ void RMGLayout::build( const RandomMapSettings& settings )
 //-----------------------------------------------------------------------------
 // Map pieces
 //-----------------------------------------------------------------------------
-
-/** The tile index WorldBuilder computes for a cell: four quadrants packed into
-	each source tile, the source tile picked by tiling the class across the map. */
-static Short tileIndexForCell( Int x, Int y, Int firstTile, Int width )
-{
-	Int ndx = firstTile + ((x / 2) % width) + width * ((y / 2) % width);
-	ndx = (ndx << 2) + 2 * (y & 1) + (x & 1);
-	return (Short)ndx;
-}
 
 /// One waypoint object. The reader calls anything with a waypointID a waypoint.
 static void writeWaypoint( MapChunkWriter& w, const RMGObject& object )
@@ -1309,7 +1954,9 @@ static void writeSides( MapChunkWriter& w )
 	compares the ground against. */
 static void writeWaterAreas( MapChunkWriter& w, const RMGLayout& layout )
 {
-	const Int numSides = 8;
+	// Sixteen sides rather than eight: the water's edge is drawn as the polygon itself, and eight
+	// of them reads as a stop sign lying in the grass.
+	const Int numSides = 16;
 
 	w.openChunk( "PolygonTriggers", K_TRIGGERS_VERSION_4 );
 		w.writeInt( (Int)layout.m_lakes.size() );
@@ -1402,12 +2049,41 @@ static void writeGlobalLighting( MapChunkWriter& w )
 // RandomMapGenerator
 //-----------------------------------------------------------------------------
 
+Int RandomMapGenerator::cellsFor( RandomMapSize size, Int numPlayers )
+{
+	if( numPlayers < MIN_PLAYERS ) numPlayers = MIN_PLAYERS;
+	if( numPlayers > MAX_PLAYERS ) numPlayers = MAX_PLAYERS;
+
+	Int cells;
+	switch( size )
+	{
+		case RANDOM_MAP_SIZE_SMALL:
+			cells = RMG_SMALL_FLOOR + RMG_SMALL_PER_PLAYER * numPlayers;
+			break;
+		case RANDOM_MAP_SIZE_LARGE:
+			cells = RMG_LARGE_FLOOR + RMG_LARGE_PER_PLAYER * numPlayers;
+			break;
+		default:
+			cells = RMG_NORMAL_FLOOR + RMG_NORMAL_PER_PLAYER * numPlayers;
+			break;
+	}
+
+	if( cells < MIN_CELLS ) cells = MIN_CELLS;
+	if( cells > MAX_CELLS ) cells = MAX_CELLS;
+	return cells;
+}
+
 void RandomMapGenerator::clampSettings( RandomMapSettings& settings )
 {
-	if( settings.m_playableCells < MIN_CELLS ) settings.m_playableCells = MIN_CELLS;
-	if( settings.m_playableCells > MAX_CELLS ) settings.m_playableCells = MAX_CELLS;
 	if( settings.m_numPlayers < MIN_PLAYERS ) settings.m_numPlayers = MIN_PLAYERS;
 	if( settings.m_numPlayers > MAX_PLAYERS ) settings.m_numPlayers = MAX_PLAYERS;
+
+	// Nought means "whatever this many players need".
+	if( settings.m_playableCells <= 0 )
+		settings.m_playableCells = cellsFor( RANDOM_MAP_SIZE_NORMAL, settings.m_numPlayers );
+
+	if( settings.m_playableCells < MIN_CELLS ) settings.m_playableCells = MIN_CELLS;
+	if( settings.m_playableCells > MAX_CELLS ) settings.m_playableCells = MAX_CELLS;
 }
 
 void RandomMapGenerator::generate( const RandomMapSettings& settings, std::vector<char>& mapBytes )
@@ -1453,13 +2129,13 @@ void RandomMapGenerator::generate( const RandomMapSettings& settings, std::vecto
 		w.openChunk( "BlendTileData", K_BLEND_TILE_VERSION_6 );
 			w.writeInt( dataSize );
 			w.writeBytes( &tiles[0], dataSize * sizeof(Short) );
-			w.writeBytes( &zeroes[0], dataSize * sizeof(Short) );	// blend tiles
+			w.writeBytes( &layout.m_blendIndex[0], dataSize * sizeof(Short) );
 			w.writeBytes( &zeroes[0], dataSize * sizeof(Short) );	// extra blend tiles
 			w.writeBytes( &zeroes[0], dataSize * sizeof(Short) );	// cliff info
 
 			w.writeInt( RMG_TERRAIN_COUNT * RMG_TILES_PER_CLASS );	// bitmap tiles
-			w.writeInt( 1 );					// blended tiles: entry 0 is the default
-			w.writeInt( 1 );					// cliff infos:   entry 0 is the default
+			w.writeInt( (Int)layout.m_blends.size() );
+			w.writeInt( 1 );					// cliff infos: entry 0 is the default
 
 			w.writeInt( RMG_TERRAIN_COUNT );
 			for( Int terrainClass = 0; terrainClass < RMG_TERRAIN_COUNT; terrainClass++ )
@@ -1473,6 +2149,21 @@ void RandomMapGenerator::generate( const RandomMapSettings& settings, std::vecto
 
 			w.writeInt( 0 );					// no edge tiles
 			w.writeInt( 0 );					// no edge texture classes
+
+			// The blend table, entry 0 excepted: it is the "no blend" default and
+			// is never written.
+			for( UnsignedInt i = 1; i < layout.m_blends.size(); i++ )
+			{
+				w.writeInt( layout.m_blends[i].m_blendTileIndex );
+				w.writeByte( layout.m_blends[i].m_horizontal );
+				w.writeByte( layout.m_blends[i].m_vertical );
+				w.writeByte( layout.m_blends[i].m_rightDiagonal );
+				w.writeByte( layout.m_blends[i].m_leftDiagonal );
+				w.writeByte( layout.m_blends[i].m_inverted );
+				w.writeByte( layout.m_blends[i].m_longDiagonal );
+				w.writeInt( -1 );				// no custom blend edge class: use the alpha
+				w.writeInt( RMG_BLEND_FLAG_VALUE );
+			}
 		w.closeChunk();
 	}
 
@@ -1558,9 +2249,9 @@ void RandomMapGenerator::generatePreview( const RandomMapSettings& settings,
 	static const UnsignedByte theGroundColours[RMG_TERRAIN_COUNT][3] =
 	{
 		{  86, 122,  62 },		// grass
+		{ 190, 176, 130 },		// sand
 		{ 132, 112,  74 },		// dirt
-		{ 118, 118, 112 },		// rock
-		{ 190, 176, 130 }		// sand
+		{ 118, 118, 112 }		// rock
 	};
 	static const UnsignedByte theWaterColour[3] = { 48, 86, 130 };
 	static const UnsignedByte theStartColour[3] = { 240, 240, 240 };
@@ -1587,9 +2278,7 @@ void RandomMapGenerator::generatePreview( const RandomMapSettings& settings,
 
 			const UnsignedByte *colour = theGroundColours[terrainClass];
 
-			Real px = (Real)(cellX - RMG_BORDER_CELLS);
-			Real py = (Real)(cellY - RMG_BORDER_CELLS);
-			if( layout.insideLake( px, py, NULL ) && height < layout.m_waterHeight )
+			if( layout.underwaterAtCell( cellX, cellY ) )
 				colour = theWaterColour;
 			else if( !layout.passableAtCell( cellX, cellY ) )
 				colour = theCliffColour;
@@ -1604,7 +2293,9 @@ void RandomMapGenerator::generatePreview( const RandomMapSettings& settings,
 			Real red = (Real)colour[0] * shade;
 
 			// The start positions, so the list entry says how many players it is for.
-			for( Int i = 0; i < layout.m_settings.m_numPlayers; i++ )
+			Real px = (Real)(cellX - RMG_BORDER_CELLS);
+			Real py = (Real)(cellY - RMG_BORDER_CELLS);
+			for( UnsignedInt i = 0; i < layout.m_starts.size(); i++ )
 			{
 				Real dx = px - layout.m_starts[i].m_cellX;
 				Real dy = py - layout.m_starts[i].m_cellY;

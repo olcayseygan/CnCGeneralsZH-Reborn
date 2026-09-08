@@ -443,14 +443,17 @@ Int parseMapName(char *args[], int num)
 }
 
 // parseRandomMap =============================================================
-/** -randommap <seed> [players] [cells]: generate a skirmish map from the seed and write it into
-	the user map directory as "RMG_v<generator version>_<seed>_<players>p_<cells>c", then point
-	-map at it.  The version is in the name because it is in the bytes: a build that generates a
-	different map from the same seed writes a different file rather than a confusing one.
+/** -randommap <seed> [players] [cells|small|normal|large]: generate a skirmish map from the seed
+	and write it into the user map directory as
+	"RMG_v<generator version>_<seed>_<players>p_<cells>c", then point -map at it.  The version is in
+	the name because it is in the bytes: a build that generates a different map from the same seed
+	writes a different file rather than a confusing one.
 	Nothing downstream has to know
 	it was generated: the map cache walks that directory on startup, so it shows up in the skirmish
 	map list like any hand-made map, and -autoskirmish starts on it.  The same seed gives the same
-	map on every machine, so both sides of a network game can be handed the same command line. */
+	map on every machine, so both sides of a network game can be handed the same command line.
+	The last argument is either a cell count outright or one of the three sizes, which are counts
+	that grow with the number of players rather than fixed ones. */
 //=============================================================================
 Int parseRandomMap(char *args[], int num)
 {
@@ -463,12 +466,31 @@ Int parseRandomMap(char *args[], int num)
 	// fits regardless of which of the two options came first on the command line.
 	settings.m_numPlayers = RandomMapGenerator::MAX_PLAYERS;
 
-	// players and cells are optional and positional, so only eat what still looks like a number.
+	// players and size are optional and positional, so only eat what still looks like one.
 	Int eaten = 2;
 	if (num > eaten && isdigit((UnsignedByte)args[eaten][0]))
 		settings.m_numPlayers = atoi( args[eaten++] );
+
 	if (num > eaten && isdigit((UnsignedByte)args[eaten][0]))
+	{
 		settings.m_playableCells = atoi( args[eaten++] );
+	}
+	else if (num > eaten)
+	{
+		RandomMapSize size = RANDOM_MAP_SIZE_COUNT;
+		if (stricmp( args[eaten], "small" ) == 0)
+			size = RANDOM_MAP_SIZE_SMALL;
+		else if (stricmp( args[eaten], "normal" ) == 0)
+			size = RANDOM_MAP_SIZE_NORMAL;
+		else if (stricmp( args[eaten], "large" ) == 0)
+			size = RANDOM_MAP_SIZE_LARGE;
+
+		if (size != RANDOM_MAP_SIZE_COUNT)
+		{
+			settings.m_playableCells = RandomMapGenerator::cellsFor( size, settings.m_numPlayers );
+			eaten++;
+		}
+	}
 
 	AsciiString path;
 	if (!writeRandomMap( settings, path ))

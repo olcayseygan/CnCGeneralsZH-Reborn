@@ -6349,6 +6349,15 @@ TEST(a_plan_dies_without_an_explosion_but_a_building_does_not)
 // Random map generator
 //////////////////////////////////////////////////////////////////////////////
 
+/* One row of the generated map's blend table, in the file's own order. */
+struct RMGBlendEntry
+{
+	Int m_blendTileIndex;
+	UnsignedByte m_horizontal, m_vertical, m_rightDiagonal, m_leftDiagonal;
+	UnsignedByte m_inverted, m_longDiagonal;
+	Int m_customBlendEdgeClass, m_flag;
+};
+
 /* What the engine's own chunk reader made of a generated map. */
 struct RMGParse
 {
@@ -6356,7 +6365,7 @@ struct RMGParse
 	Int m_blendDataSize, m_numBitmapTiles, m_numBlendedTiles, m_numCliffInfo;
 	Int m_numTextureClasses, m_firstTile, m_numTiles, m_tileWidth;
 	Int m_numSides, m_numTeams, m_numObjects, m_numWaterAreas;
-	Int m_weather, m_compression, m_timeOfDay, m_lightingBytesLeftOver;
+	Int m_weather, m_compression, m_timeOfDay, m_lightingBytesLeftOver, m_blendBytesLeftOver;
 	Real m_terrainAmbient[3];
 	AsciiString m_textureName;
 	std::vector<AsciiString> m_textureNames;
@@ -6366,6 +6375,8 @@ struct RMGParse
 	std::vector<AsciiString> m_objectNames;
 	std::vector<UnsignedByte> m_heights;
 	std::vector<Short> m_tiles;
+	std::vector<Short> m_blendIndexes;			///< per cell, into m_blends; 0 is no blend
+	std::vector<RMGBlendEntry> m_blends;		///< the table itself, entry 0 excepted
 	std::vector<Coord3D> m_waterPoints;			///< first point of each water area
 
 	RMGParse() :
@@ -6373,7 +6384,8 @@ struct RMGParse
 		m_blendDataSize(0), m_numBitmapTiles(0), m_numBlendedTiles(0), m_numCliffInfo(0),
 		m_numTextureClasses(0), m_firstTile(0), m_numTiles(0), m_tileWidth(0),
 		m_numSides(0), m_numTeams(0), m_numObjects(0), m_numWaterAreas(0),
-		m_weather(-1), m_compression(-1), m_timeOfDay(-1), m_lightingBytesLeftOver(-1)
+		m_weather(-1), m_compression(-1), m_timeOfDay(-1), m_lightingBytesLeftOver(-1),
+		m_blendBytesLeftOver(-1)
 	{
 		m_terrainAmbient[0] = m_terrainAmbient[1] = m_terrainAmbient[2] = 0.0f;
 	}
@@ -6407,8 +6419,10 @@ static Bool RMGParseBlendTile( DataChunkInput &file, DataChunkInfo *info, void *
 	theRMGParse.m_tiles.resize( len );
 	file.readArrayOfBytes( (char *)&theRMGParse.m_tiles[0], len * sizeof(Short) );
 
+	theRMGParse.m_blendIndexes.resize( len );
+	file.readArrayOfBytes( (char *)&theRMGParse.m_blendIndexes[0], len * sizeof(Short) );
+
 	std::vector<Short> scratch( len );
-	file.readArrayOfBytes( (char *)&scratch[0], len * sizeof(Short) );	// blend tiles
 	file.readArrayOfBytes( (char *)&scratch[0], len * sizeof(Short) );	// extra blend tiles
 	file.readArrayOfBytes( (char *)&scratch[0], len * sizeof(Short) );	// cliff info
 
@@ -6434,6 +6448,28 @@ static Bool RMGParseBlendTile( DataChunkInput &file, DataChunkInfo *info, void *
 			theRMGParse.m_textureName = name;
 		}
 	}
+
+	file.readInt();										// edge tiles
+	file.readInt();										// edge texture classes
+
+	/* The blend table, in ParseBlendTileData's read order.  Entry 0 is the "no blend" default and
+		is not in the file, which is why the loop starts at one. */
+	for( Int blend = 1; blend < theRMGParse.m_numBlendedTiles; blend++ )
+	{
+		RMGBlendEntry entry;
+		entry.m_blendTileIndex = file.readInt();
+		entry.m_horizontal = file.readByte();
+		entry.m_vertical = file.readByte();
+		entry.m_rightDiagonal = file.readByte();
+		entry.m_leftDiagonal = file.readByte();
+		entry.m_inverted = file.readByte();
+		entry.m_longDiagonal = file.readByte();
+		entry.m_customBlendEdgeClass = file.readInt();
+		entry.m_flag = file.readInt();
+		theRMGParse.m_blends.push_back( entry );
+	}
+
+	theRMGParse.m_blendBytesLeftOver = file.atEndOfChunk() ? 0 : 1;
 	return TRUE;
 }
 
@@ -6625,12 +6661,13 @@ TEST(a_generated_map_reads_back_through_the_engines_own_chunk_reader)
 	CHECK_EQ( theRMGParse.m_numTiles, 4 );
 	CHECK_EQ( theRMGParse.m_tileWidth, 2 );
 	CHECK_EQ( theRMGParse.m_numBitmapTiles, 4 * 4 );	// four classes of four tiles
-	CHECK_EQ( theRMGParse.m_numBlendedTiles, 1 );		// entry 0 is the default, no blends
+	CHECK( theRMGParse.m_numBlendedTiles > 1 );			// entry 0 is the default; the rest are real
 	CHECK_EQ( theRMGParse.m_numCliffInfo, 1 );			// entry 0 is the default, no cliff faces
+	CHECK_EQ( theRMGParse.m_blendBytesLeftOver, 0 );	// the blend table ends where the chunk does
 	CHECK_STR( theRMGParse.m_textureName.str(), "GrassType1" );
-	CHECK_STR( theRMGParse.m_textureNames[1].str(), "DirtType1" );
-	CHECK_STR( theRMGParse.m_textureNames[2].str(), "RocksType1" );
-	CHECK_STR( theRMGParse.m_textureNames[3].str(), "SandLargeType1" );
+	CHECK_STR( theRMGParse.m_textureNames[1].str(), "SandLargeType1" );
+	CHECK_STR( theRMGParse.m_textureNames[2].str(), "DirtType1" );
+	CHECK_STR( theRMGParse.m_textureNames[3].str(), "RocksType1" );
 	CHECK_EQ( theRMGParse.m_firstTiles[3], 12 );
 
 	CHECK_EQ( theRMGParse.m_weather, 0 );
@@ -6658,17 +6695,16 @@ TEST(a_generated_map_reads_back_through_the_engines_own_chunk_reader)
 			numProps++;
 	}
 
-	CHECK_EQ( numSupplyDocks, 4 * 2 );
-	CHECK_EQ( numDerricks, 4 );			// one on each chokepoint
-	CHECK( numProps > 0 );
-	CHECK( numProps % 4 == 0 );			// the same scenery in every sector
+	CHECK_EQ( numSupplyDocks, 4 * 2 );	// one at home, one to fight over
+	CHECK_EQ( numDerricks, 4 * 2 );
+	CHECK( numProps > 20 );
 
-	// A 160-cell map leaves each player room for a lake in their own sector. A cramped one does
-	// not, and gets none rather than a lake standing on a supply dock.
-	CHECK_EQ( theRMGParse.m_numWaterAreas, 4 );
-	CHECK_EQ( (Int)theRMGParse.m_waterPoints.size(), 4 );
-	if( !theRMGParse.m_waterPoints.empty() )
-		CHECK( theRMGParse.m_waterPoints[0].z > 0.0f );
+	// Lakes go in the hollows the noise left, so how many fit is the map's business, but a map
+	// this size has to have found somewhere for at least one.
+	CHECK( theRMGParse.m_numWaterAreas >= 1 );
+	CHECK( theRMGParse.m_numWaterAreas <= 4 );
+	CHECK_EQ( (Int)theRMGParse.m_waterPoints.size(), theRMGParse.m_numWaterAreas );
+	CHECK( theRMGParse.m_waterPoints[0].z > 0.0f );
 
 	// Daylight, written into the map rather than left to whatever GameData.ini holds.
 	CHECK_EQ( theRMGParse.m_timeOfDay, (Int)TIME_OF_DAY_AFTERNOON );
@@ -6790,11 +6826,11 @@ TEST(the_cliffs_are_where_the_layout_put_them_and_never_between_two_players)
 	const Real cliffLimit = 9.8f;						// PATHFIND_CLIFF_SLOPE_LIMIT_F
 
 	RandomMapSettings settings;
-	settings.m_playableCells = 96;
 
 	for( Int players = 2; players <= 8; players += 2 )
 	{
 		settings.m_numPlayers = players;
+		settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, players );
 
 		for( Int seed = 1; seed <= 4; seed++ )
 		{
@@ -6833,9 +6869,10 @@ TEST(the_cliffs_are_where_the_layout_put_them_and_never_between_two_players)
 				Int cellY = (Int)(theRMGParse.m_waypointPositions[i].y / MAP_XY_FACTOR + 0.5f)
 					+ theRMGParse.m_border;
 
-				for( Int dy = -12; dy <= 12; dy++ )
+				// The flat disc is 13 cells, so the square that fits inside it is nine.
+				for( Int dy = -9; dy <= 9; dy++ )
 				{
-					for( Int dx = -12; dx <= 12; dx++ )
+					for( Int dx = -9; dx <= 9; dx++ )
 						CHECK( RMGCellSpan( cellX + dx, cellY + dy ) <= cliffLimit );
 				}
 			}
@@ -6867,11 +6904,11 @@ TEST(start_positions_land_inside_the_map_with_room_between_them)
 	CHECK( bootOnce() );
 
 	RandomMapSettings settings;
-	settings.m_playableCells = 128;
 
 	for( Int players = 2; players <= 8; players++ )
 	{
 		settings.m_numPlayers = players;
+		settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, players );
 		settings.m_seed = 1000 + players;
 
 		std::vector<char> bytes;
@@ -6888,7 +6925,7 @@ TEST(start_positions_land_inside_the_map_with_room_between_them)
 		}
 		CHECK_EQ( numSupplyDocks, players * 2 );
 
-		Real extent = 128.0f * MAP_XY_FACTOR;
+		Real extent = (Real)settings.m_playableCells * MAP_XY_FACTOR;
 		Real margin = 20.0f * MAP_XY_FACTOR;		// enough ground for a base
 
 		Int i, j;
@@ -6899,14 +6936,16 @@ TEST(start_positions_land_inside_the_map_with_room_between_them)
 			CHECK( p.y > margin && p.y < extent - margin );
 		}
 
-		// No two players may start on top of each other.
+		/* No two players may start on top of each other.  The starts are chosen out of the noise
+			rather than laid on a ring, so the guarantee is a floor and not a spacing: a base disc
+			is 26 cells across, and two of them have to leave room for something in between. */
 		for( i = 0; i < players; i++ )
 		{
 			for( j = i + 1; j < players; j++ )
 			{
 				Real dx = theRMGParse.m_waypointPositions[i].x - theRMGParse.m_waypointPositions[j].x;
 				Real dy = theRMGParse.m_waypointPositions[i].y - theRMGParse.m_waypointPositions[j].y;
-				CHECK( sqrtf( dx * dx + dy * dy ) > 30.0f * MAP_XY_FACTOR );
+				CHECK( sqrtf( dx * dx + dy * dy ) > 32.0f * MAP_XY_FACTOR );
 			}
 		}
 	}
@@ -6922,8 +6961,8 @@ TEST(each_start_position_gets_flat_ground_to_build_on)
 
 	RandomMapSettings settings;
 	settings.m_seed = 31337;
-	settings.m_playableCells = 96;
 	settings.m_numPlayers = 3;
+	settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, 3 );
 
 	std::vector<char> bytes;
 	RandomMapGenerator::generate( settings, bytes );
@@ -6938,9 +6977,9 @@ TEST(each_start_position_gets_flat_ground_to_build_on)
 		Int cy = (Int)(theRMGParse.m_waypointPositions[i].y / MAP_XY_FACTOR) + border;
 
 		Int at = theRMGParse.m_heights[cy * width + cx];
-		for( Int dy = -10; dy <= 10; dy++ )
+		for( Int dy = -9; dy <= 9; dy++ )
 		{
-			for( Int dx = -10; dx <= 10; dx++ )
+			for( Int dx = -9; dx <= 9; dx++ )
 			{
 				Int h = theRMGParse.m_heights[(cy + dy) * width + cx + dx];
 				CHECK_EQ( h, at );
@@ -6950,83 +6989,182 @@ TEST(each_start_position_gets_flat_ground_to_build_on)
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Every win rate this fork has measured was measured over generated maps, so terrain that is not
-	the same for both sides is noise in the measurement rather than a feature of the map.  Rotate a
-	point into the next player's sector and the ground under it has to be the same ground; the byte
-	is allowed to differ by one, which is where the rotation lands between two cells. */
+/** A texture class change from one cell to the next is a hard edge on screen unless the cell on
+	the low side of it carries a blend of the other texture over the corners they share.  Walk the
+	map, find every boundary, and check the cell that is supposed to carry the blend does. */
 //-------------------------------------------------------------------------------------------------
-TEST(every_player_gets_the_same_ground_turned_into_their_own_sector)
+TEST(every_texture_boundary_is_blended_rather_than_cut)
 {
 	CHECK( bootOnce() );
 
 	RandomMapSettings settings;
+	settings.m_seed = 31337;
 	settings.m_playableCells = 128;
+	settings.m_numPlayers = 4;
+
+	std::vector<char> bytes;
+	RandomMapGenerator::generate( settings, bytes );
+	parseGeneratedMap( bytes );
+
+	Int width = theRMGParse.m_width;
+	Int height = theRMGParse.m_height;
+
+	CHECK_EQ( (Int)theRMGParse.m_blendIndexes.size(), theRMGParse.m_dataSize );
+	CHECK_EQ( (Int)theRMGParse.m_blends.size(), theRMGParse.m_numBlendedTiles - 1 );
+	CHECK( theRMGParse.m_numBlendedTiles < 16193 );		// NUM_BLEND_TILES, the reader's ceiling
+
+	// Every entry has to be one the reader will take: a real tile, the alpha blend rather than a
+	// custom edge class this map never declares, and the sentinel it asserts on.
+	Int i;
+	for( i = 0; i < (Int)theRMGParse.m_blends.size(); i++ )
+	{
+		const RMGBlendEntry& entry = theRMGParse.m_blends[i];
+		Int source = entry.m_blendTileIndex >> 2;
+
+		CHECK( source >= 0 );
+		CHECK( source < theRMGParse.m_numBitmapTiles );
+		CHECK_EQ( entry.m_customBlendEdgeClass, -1 );
+		CHECK_EQ( entry.m_flag, 0x7ADA0000 );
+
+		// A blend that asks for nothing is a table row nothing can draw.
+		CHECK( entry.m_horizontal || entry.m_vertical || entry.m_rightDiagonal ||
+					 entry.m_leftDiagonal );
+	}
+
+	Int boundaries = 0;
+	Int blended = 0;
+
+	for( Int y = 1; y < height - 1; y++ )
+	{
+		for( Int x = 1; x < width - 1; x++ )
+		{
+			Int mine = (theRMGParse.m_tiles[y * width + x] >> 2) / 4;
+
+			/* The strongest of the eight neighbours is the one whose texture bleeds in, and the
+				low side of the boundary is the cell that has to carry it.  Diagonals count: a
+				corner touching a rock cell is a corner of rock. */
+			Int strongest = mine;
+			for( Int dy = -1; dy <= 1; dy++ )
+			{
+				for( Int dx = -1; dx <= 1; dx++ )
+				{
+					Int theirs = (theRMGParse.m_tiles[(y + dy) * width + x + dx] >> 2) / 4;
+					if( theirs > strongest )
+						strongest = theirs;
+				}
+			}
+
+			if( strongest == mine )
+				continue;
+
+			boundaries++;
+
+			Int blendIndex = theRMGParse.m_blendIndexes[y * width + x];
+			if( blendIndex <= 0 )
+				continue;
+
+			CHECK( blendIndex < theRMGParse.m_numBlendedTiles );
+
+			// and the texture painted over it is the neighbour's, not some third one
+			Int blendClass = (theRMGParse.m_blends[blendIndex - 1].m_blendTileIndex >> 2) / 4;
+			CHECK_EQ( blendClass, strongest );
+			blended++;
+		}
+	}
+
+	CHECK( boundaries > 100 );
+	CHECK_EQ( blended, boundaries );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Everybody opens on one supply dock and there is a second one out in the map for each of them,
+	plus two oil derricks a player.  That is the economy the map promises; a seed that quietly
+	drops one of them is a player who starts poorer than the rest. */
+//-------------------------------------------------------------------------------------------------
+TEST(every_player_gets_two_supply_docks_and_two_derricks_whatever_the_seed)
+{
+	CHECK( bootOnce() );
+
+	RandomMapSettings settings;
 
 	for( Int players = 2; players <= 8; players += 2 )
 	{
 		settings.m_numPlayers = players;
-		settings.m_seed = 31337 + players;
+		settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, players );
 
-		std::vector<char> bytes;
-		RandomMapGenerator::generate( settings, bytes );
-		parseGeneratedMap( bytes );
-
-		Int width = theRMGParse.m_width;
-		Real centre = (Real)settings.m_playableCells * 0.5f;
-		Real sector = 2.0f * PI / (Real)players;
-		Int worstDifference = 0;
-		Int comparisons = 0;
-
-		for( Int y = 8; y < settings.m_playableCells - 8; y += 3 )
+		for( Int seed = 1; seed <= 3; seed++ )
 		{
-			for( Int x = 8; x < settings.m_playableCells - 8; x += 3 )
+			settings.m_seed = seed * 104729 + players;
+
+			std::vector<char> bytes;
+			RandomMapGenerator::generate( settings, bytes );
+			parseGeneratedMap( bytes );
+
+			Int numSupplyDocks = 0, numDerricks = 0;
+			for( Int i = 0; i < (Int)theRMGParse.m_objectNames.size(); i++ )
 			{
-				Real dx = (Real)x - centre;
-				Real dy = (Real)y - centre;
-
-				// Skip the middle, where one cell covers every sector at once.
-				if( sqrtf( dx * dx + dy * dy ) < 8.0f )
-					continue;
-
-				Real rotatedX = centre + dx * Cos( sector ) - dy * Sin( sector );
-				Real rotatedY = centre + dx * Sin( sector ) + dy * Cos( sector );
-
-				// The rotated point lands between cells, so read the height field there
-				// the way the terrain does, by interpolating rather than rounding.
-				Real sampleX = rotatedX + (Real)theRMGParse.m_border;
-				Real sampleY = rotatedY + (Real)theRMGParse.m_border;
-				Int mapX = (Int)sampleX;
-				Int mapY = (Int)sampleY;
-				if( mapX < 1 || mapY < 1 || mapX >= width - 2 || mapY >= theRMGParse.m_height - 2 )
-					continue;
-
-				// A step in the terrain - the ridge is one - is not something an
-				// interpolated sample can follow, so compare away from the steps.
-				Int hereX = x + theRMGParse.m_border;
-				Int hereY = y + theRMGParse.m_border;
-				if( RMGCellSpan( hereX, hereY ) > 1.2f || RMGCellSpan( mapX, mapY ) > 1.2f )
-					continue;
-
-				Real fractionX = sampleX - (Real)mapX;
-				Real fractionY = sampleY - (Real)mapY;
-				Real top = (1.0f - fractionX) * (Real)theRMGParse.m_heights[mapY * width + mapX]
-					+ fractionX * (Real)theRMGParse.m_heights[mapY * width + mapX + 1];
-				Real bottom = (1.0f - fractionX) * (Real)theRMGParse.m_heights[(mapY + 1) * width + mapX]
-					+ fractionX * (Real)theRMGParse.m_heights[(mapY + 1) * width + mapX + 1];
-				Real there = (1.0f - fractionY) * top + fractionY * bottom;
-
-				Real here = (Real)theRMGParse.m_heights[hereY * width + hereX];
-				Int difference = (Int)(fabsf( here - there ) + 0.5f);
-				if( difference > worstDifference )
-					worstDifference = difference;
-
-				comparisons++;
+				if( theRMGParse.m_objectNames[i].compare( "SupplyDock" ) == 0 )
+					numSupplyDocks++;
+				else if( theRMGParse.m_objectNames[i].compare( "TechOilDerrick" ) == 0 )
+					numDerricks++;
 			}
-		}
 
-		CHECK( comparisons > 100 );
-		CHECK( worstDifference <= 1 );
+			CHECK_EQ( numSupplyDocks, players * 2 );
+			CHECK_EQ( numDerricks, players * 2 );
+		}
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A map has to hold the players it is generated for.  The three sizes are three different maps
+	for the same game, and every one of them grows with the number of players rather than packing
+	eight bases into a duel map. */
+//-------------------------------------------------------------------------------------------------
+TEST(map_size_is_chosen_and_then_grows_with_the_players)
+{
+	CHECK( bootOnce() );
+
+	Int size, players;
+
+	for( size = 0; size < RANDOM_MAP_SIZE_COUNT; size++ )
+	{
+		for( players = RandomMapGenerator::MIN_PLAYERS;
+				 players < RandomMapGenerator::MAX_PLAYERS; players++ )
+		{
+			CHECK( RandomMapGenerator::cellsFor( (RandomMapSize)size, players ) <
+						 RandomMapGenerator::cellsFor( (RandomMapSize)size, players + 1 ) );
+		}
+	}
+
+	for( players = RandomMapGenerator::MIN_PLAYERS;
+			 players <= RandomMapGenerator::MAX_PLAYERS; players++ )
+	{
+		// "small" and "large" are both taken: rpcndr.h defines them as char and int.
+		Int smallCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_SMALL, players );
+		Int normalCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, players );
+		Int largeCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, players );
+
+		CHECK( smallCells < normalCells );
+		CHECK( normalCells < largeCells );
+		CHECK( smallCells >= RandomMapGenerator::MIN_CELLS );
+		CHECK( largeCells <= RandomMapGenerator::MAX_CELLS );
+	}
+
+	// A count nobody asked for is the normal size for that many players, and the clamp says so
+	// rather than generating a map the caller cannot describe.
+	RandomMapSettings settings;
+	settings.m_numPlayers = 6;
+	settings.m_playableCells = 0;
+	RandomMapGenerator::clampSettings( settings );
+	CHECK_EQ( settings.m_playableCells,
+		RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, 6 ) );
+
+	// and the map that comes out is the size the settings say it is
+	settings.m_seed = 4;
+	std::vector<char> bytes;
+	RandomMapGenerator::generate( settings, bytes );
+	parseGeneratedMap( bytes );
+	CHECK_EQ( theRMGParse.m_boundaryX, settings.m_playableCells );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -7039,14 +7177,14 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 2 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 3 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0x11C0BC3D },
-		{ 12345, 4, 96, 0xF111AB91 },
-		{ 7, 8, 128, 0x5FB813E3 },
+		{ 0, 2, 64, 0x04E442EE },
+		{ 12345, 4, 96, 0x2F239E3D },
+		{ 7, 8, 128, 0x6EFDD719 },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 

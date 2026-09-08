@@ -13,11 +13,11 @@ What comes out is one row per map:
     supply  cells from a start to its nearest supply dock: worst / best
     path    walking distance between the two closest starts, and between the two furthest
     choke   how many separate crossings the flood fill has to squeeze through
-    symm    the largest height difference between a cell and its image in the next sector
+    money   docks and derricks nearest to a player, counted by walking distance: worst / best
 
-A map is fair when the worst and the best player differ by nothing. The generator rotates one
-sector into the others, so these columns should read the same on both sides; they are here to
-catch the day that stops being true.
+Nothing about the map is mirrored or turned round any more - the terrain is one noise field and the
+starts are found in it - so fairness is a spread rather than an identity. What these columns catch
+is the seed where one player opens with half the ground or twice the money of another.
 
     python mapscore.py <map file or directory> [...]
 """
@@ -283,44 +283,25 @@ class GeneratedMap:
 
         return count
 
-    def symmetry_error(self):
-        """The largest height difference between a cell and its image one sector round, read the
-        way the terrain reads a point between cells."""
-        players = len(self.starts)
-        if players < 2:
-            return 0.0
+    def money_per_player(self, walked):
+        """How many docks and derricks each player is the closest to, by walking distance. A
+        player who is nearest to nothing is a player mining his own supply pile all game."""
+        counts = [0] * len(self.starts)
 
-        centre = self.playable * 0.5
-        sector = 2.0 * math.pi / players
-        worst = 0.0
+        for position in list(self.supplies) + list(self.derricks):
+            cell = self.cell_of(position)
+            index = cell[1] * self.width + cell[0]
 
-        for y in range(8, self.playable - 8, 3):
-            for x in range(8, self.playable - 8, 3):
-                dx, dy = x - centre, y - centre
-                if math.hypot(dx, dy) < 8.0:
-                    continue
+            owner, best = None, None
+            for player, distances in enumerate(walked):
+                distance = distances[index]
+                if distance >= 0 and (best is None or distance < best):
+                    owner, best = player, distance
 
-                sample_x = centre + dx * math.cos(sector) - dy * math.sin(sector) + self.border
-                sample_y = centre + dx * math.sin(sector) + dy * math.cos(sector) + self.border
-                map_x, map_y = int(sample_x), int(sample_y)
-                if not (1 <= map_x < self.width - 2 and 1 <= map_y < self.height - 2):
-                    continue
+            if owner is not None:
+                counts[owner] += 1
 
-                here_x, here_y = x + self.border, y + self.border
-                if self.cell_span_world(here_x, here_y) > 2.0:
-                    continue
-                if self.cell_span_world(map_x, map_y) > 2.0:
-                    continue
-
-                fx, fy = sample_x - map_x, sample_y - map_y
-                top = (1 - fx) * self.height_at(map_x, map_y) + fx * self.height_at(map_x + 1, map_y)
-                bottom = ((1 - fx) * self.height_at(map_x, map_y + 1)
-                          + fx * self.height_at(map_x + 1, map_y + 1))
-                there = (1 - fy) * top + fy * bottom
-
-                worst = max(worst, abs(self.height_at(here_x, here_y) - there))
-
-        return worst
+        return counts
 
     def tightest_ring(self, grid):
         """Walk a circle around the middle of the map at a spread of radii and find the one that is
@@ -364,15 +345,17 @@ def score(path):
 
     supply_distance = []
     pair_distances = []
+    walked = []
     for index, start in enumerate(generated.starts):
         distances = generated.walk_distances(grid, start)
+        walked.append(distances)
 
         nearest_supply = None
         for supply in generated.supplies:
             cell = generated.cell_of(supply)
-            walked = distances[cell[1] * generated.width + cell[0]]
-            if walked >= 0 and (nearest_supply is None or walked < nearest_supply):
-                nearest_supply = walked
+            steps = distances[cell[1] * generated.width + cell[0]]
+            if steps >= 0 and (nearest_supply is None or steps < nearest_supply):
+                nearest_supply = steps
         supply_distance.append(nearest_supply if nearest_supply is not None else -1)
 
         for other in range(index + 1, len(generated.starts)):
@@ -381,6 +364,7 @@ def score(path):
 
     reachable = [d for d in pair_distances if d >= 0]
     open_fraction, crossings = generated.tightest_ring(grid)
+    money = generated.money_per_player(walked)
 
     return {
         "name": os.path.basename(path),
@@ -397,7 +381,8 @@ def score(path):
         "open": open_fraction,
         "water": len(generated.water_areas),
         "derricks": len(generated.derricks),
-        "symmetry": generated.symmetry_error(),
+        "money_worst": min(money) if money else 0,
+        "money_best": max(money) if money else 0,
     }
 
 
@@ -424,26 +409,27 @@ def main():
         return 1
 
     header = ("map", "cells", "plr", "build w/b", "supply w/b", "path near/far",
-              "cross", "open", "water", "symm")
-    print("%-34s %5s %4s %12s %12s %14s %6s %6s %6s %6s" % header)
+              "cross", "open", "water", "money w/b")
+    print("%-34s %5s %4s %12s %12s %14s %6s %6s %6s %10s" % header)
 
-    worst_symmetry = 0.0
+    widest_money_gap = 0
     for path in files:
         row = score(path)
-        worst_symmetry = max(worst_symmetry, row["symmetry"])
+        widest_money_gap = max(widest_money_gap, row["money_best"] - row["money_worst"])
 
-        print("%-34s %5d %4d %12s %12s %14s %6d %5d%% %6d %6.2f" % (
+        print("%-34s %5d %4d %12s %12s %14s %6d %5d%% %6d %10s" % (
             row["name"][:34], row["cells"], row["players"],
             "%d/%d" % (row["build_worst"], row["build_best"]),
             "%d/%d" % (row["supply_worst"], row["supply_best"]),
             "%d/%d" % (row["path_near"], row["path_far"]),
-            row["chokes"], int(row["open"] * 100 + 0.5), row["water"], row["symmetry"]))
+            row["chokes"], int(row["open"] * 100 + 0.5), row["water"],
+            "%d/%d" % (row["money_worst"], row["money_best"])))
 
         if row["unreachable"]:
             print("    %d start pairs cannot walk to each other" % row["unreachable"])
 
     print()
-    print("worst symmetry error over %d map(s): %.2f height bytes" % (len(files), worst_symmetry))
+    print("widest money gap over %d map(s): %d sites" % (len(files), widest_money_gap))
     return 0
 
 
