@@ -92,6 +92,10 @@ LANGameInfo::LANGameInfo()
 	//Initializtions missing and needed
 	m_lastHeard = 0;
 	m_next = NULL;
+	// A discovered game is addGame'd before the announcement's flag is copied into it
+	// (LANAPIhandlers.cpp:121-125), and the lobby list can be drawn in between, so this has to
+	// start somewhere.  A LAN game is the answer that costs nothing if it turns out wrong.
+	m_isDirectConnect = FALSE;
 	//
 	for (Int i = 0; i< MAX_SLOTS; ++i)
 		setSlotPointer(i, &m_LANSlot[i]);

@@ -330,6 +330,11 @@ Int ConnectionManager::getPingsRecieved()
 
 Bool ConnectionManager::isPlayerConnected( Int playerID )
 {
+	// Callers hand this a player id straight off the wire, and m_connections holds MAX_SLOTS of
+	// them.  A packet claiming to be from player 200 used to index that far past the end.
+	if ( playerID < 0 || playerID >= MAX_SLOTS )
+		return FALSE;
+
 	return ( playerID == m_localSlot || (m_connections[playerID] && !m_connections[playerID]->isQuitting()) );
 }
 
@@ -375,9 +380,6 @@ void ConnectionManager::destroyGameMessages() {
  * assumption that a command will only be relayed once.
  */
 void ConnectionManager::doRelay() {
-	static Int numPackets = 0;
-	static Int numCommands = 0;
-
 	NetPacket *packet = NULL;
 
 	for (Int i = 0; i < MAX_MESSAGES; ++i) {
@@ -413,10 +415,7 @@ void ConnectionManager::doRelay() {
 					sendRemoteCommand(cmd);
 				}
 				cmd = cmd->getNext();
-
-				++numCommands;
 			}
-			++numPackets;
 
 			// Delete this packet since we won't be needing it anymore.
 			packet->deleteInstance();
@@ -440,10 +439,7 @@ void ConnectionManager::doRelay() {
 			sendRemoteCommand(cmd);
 		}
 		cmd = cmd->getNext();
-
-		++numCommands;
 	}
-	++numPackets;
 
 	// Delete this packet since we won't be needing it anymore.
 	packet->deleteInstance();
@@ -680,6 +676,10 @@ void ConnectionManager::processChat(NetChatCommandMsg *msg)
 	UnicodeString unitext;
 	UnicodeString name;
 	UnsignedByte playerID = msg->getPlayerID();
+	// From the wire, and used below to index m_connections and to ask TheGameInfo for a slot.
+	if (playerID >= MAX_SLOTS) {
+		return;
+	}
 	//DEBUG_LOG(("processChat(): playerID = %d\n", playerID));
 	if (playerID == m_localSlot) {
 		name = m_localUser->GetName();
@@ -845,9 +845,17 @@ void ConnectionManager::processFileProgress(NetFileProgressCommandMsg *msg)
 {
 	DEBUG_LOG(("ConnectionManager::processFileProgress() - command %d is at %d%%\n",
 		msg->getFileID(), msg->getProgress()));
-	Int oldProgress = s_fileProgressMap[msg->getPlayerID()][msg->getFileID()];
 
-	s_fileProgressMap[msg->getPlayerID()][msg->getFileID()] = max(oldProgress, msg->getProgress());
+	// s_fileProgressMap is an array of MAX_SLOTS maps and this index arrives in the packet.
+	// (The file id inside it is a map key, so that one cannot run off anything.)
+	const UnsignedInt playerID = msg->getPlayerID();
+	if (playerID >= MAX_SLOTS) {
+		return;
+	}
+
+	Int oldProgress = s_fileProgressMap[playerID][msg->getFileID()];
+
+	s_fileProgressMap[playerID][msg->getFileID()] = max(oldProgress, msg->getProgress());
 }
 
 void ConnectionManager::processProgress( NetProgressCommandMsg *msg )
@@ -1173,10 +1181,13 @@ void ConnectionManager::sendRemoteCommand(NetCommandRef *msg) {
 		msg->getCommand()->getID(), GetAsciiNetCommandType(msg->getCommand()->getNetCommandType()).str(), msg->getCommand()->getPlayerID(), msg->getRelay()));
 
 	UnsignedByte relay = msg->getRelay();
-	if ((relay & (1 << m_localSlot)) && (m_frameData[msg->getCommand()->getPlayerID()] != NULL)) {
+	// The sender id is in the packet and m_frameData holds MAX_SLOTS entries.
+	const UnsignedInt senderID = msg->getCommand()->getPlayerID();
+	FrameDataManager *senderFrameData = (senderID < MAX_SLOTS) ? m_frameData[senderID] : NULL;
+	if ((relay & (1 << m_localSlot)) && (senderFrameData != NULL)) {
 		if (IsCommandSynchronized(msg->getCommand()->getNetCommandType())) {
 			DEBUG_LOG(("ConnectionManager::sendRemoteCommand - adding net command of type %s to player %d for frame %d\n", GetAsciiNetCommandType(msg->getCommand()->getNetCommandType()).str(), msg->getCommand()->getPlayerID(), msg->getCommand()->getExecutionFrame()));
-			m_frameData[msg->getCommand()->getPlayerID()]->addNetCommandMsg(msg->getCommand());
+			senderFrameData->addNetCommandMsg(msg->getCommand());
 		}
 	}
 
@@ -1880,6 +1891,9 @@ void ConnectionManager::quitGame() {
 	NetDisconnectPlayerCommandMsg *disconnectMsg = newInstance(NetDisconnectPlayerCommandMsg);
 	disconnectMsg->setDisconnectSlot(m_localSlot);
 	disconnectMsg->setPlayerID(m_localSlot);
+	// Every other machine reads this to know which frame we left on; quitting through the
+	// disconnection menu was the one route that never filled it in.
+	disconnectMsg->setDisconnectFrame(TheGameLogic->getFrame());
 	if (DoesCommandRequireACommandID(disconnectMsg->getNetCommandType())) {
 		disconnectMsg->setID(GenerateNextCommandID());
 	}

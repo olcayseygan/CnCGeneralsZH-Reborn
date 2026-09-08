@@ -51,6 +51,15 @@ static const Int m_lanMaxOptionsLength = MAX_LANAPI_PACKET_SIZE - ( 8 + (g_lanGa
 																														+ (g_lanLoginNameLength+1) + (g_lanHostNameLength+1) );
 static const Int g_maxSerialLength = 23; // including the trailing '\0'
 
+//
+// Whether to put this machine's Windows login and computer name on the wire.  EA cut the
+// LANMessage fields for them down to one character each (the two lengths above) to save packet
+// space, but the game options string still carried both in full, broadcast to every machine on
+// the network, for a tooltip.  Off: the two names stay empty and the tooltip shows the player
+// name the player chose, which is the part anybody wanted.
+//
+#define TELL_COMPUTER_IDENTITY_IN_LAN_LOBBY 0
+
 struct LANMessage;
 
 /**

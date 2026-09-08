@@ -118,6 +118,7 @@ void LANAPI::init( void )
 	
 	m_lastGameopt = "";
 
+#if TELL_COMPUTER_IDENTITY_IN_LAN_LOBBY
 	unsigned long bufSize = UNLEN + 1;
 	char userName[UNLEN + 1];
 	if (!GetUserName(userName, &bufSize))
@@ -133,6 +134,10 @@ void LANAPI::init( void )
 		strcpy(computerName, "unknown");
 	}
 	m_hostName = computerName;
+#else
+	m_userName.clear();
+	m_hostName.clear();
+#endif
 }
 
 void LANAPI::reset( void )
@@ -451,11 +456,13 @@ void LANAPI::update( void )
 			}
 			else
 			{
+#if TELL_COMPUTER_IDENTITY_IN_LAN_LOBBY
 				AsciiString text;
 				text.format("User=%s", m_userName.str());
 				RequestGameOptions( text, true );
 				text.format("Host=%s", m_hostName.str());
 				RequestGameOptions( text, true );
+#endif
 				RequestGameOptions( "HELLO", false );
 			}
 		}

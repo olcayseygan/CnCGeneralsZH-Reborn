@@ -642,10 +642,12 @@ void LANAPI::OnGameJoin( ReturnType ret, LANGameInfo *theGame )
 		RequestGameOptions(options, true);
 		options.format("Color=%d", pref.getPreferredColor());
 		RequestGameOptions(options, true);
+#if TELL_COMPUTER_IDENTITY_IN_LAN_LOBBY
 		options.format("User=%s", m_userName.str());
 		RequestGameOptions( options, true );
 		options.format("Host=%s", m_hostName.str());
 		RequestGameOptions( options, true );
+#endif
 		options.format("NAT=%d", FirewallHelperClass::FIREWALL_TYPE_SIMPLE); // BGC: This is a LAN game, so there is no firewall.
 		RequestGameOptions( options, true );
 	}

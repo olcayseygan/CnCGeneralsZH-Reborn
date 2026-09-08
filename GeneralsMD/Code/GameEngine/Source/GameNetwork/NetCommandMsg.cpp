@@ -609,6 +609,7 @@ NetDisconnectKeepAliveCommandMsg::~NetDisconnectKeepAliveCommandMsg() {
 NetDisconnectPlayerCommandMsg::NetDisconnectPlayerCommandMsg() : NetCommandMsg() {
 	m_commandType = NETCOMMANDTYPE_DISCONNECTPLAYER;
 	m_disconnectSlot = 0;
+	m_disconnectFrame = 0;
 }
 
 /**

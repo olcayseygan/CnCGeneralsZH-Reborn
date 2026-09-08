@@ -303,18 +303,19 @@ void Connection::clearCommandsExceptFrom( Int playerIndex )
 	NetCommandRef *tmp = m_netCommandList->getFirstMessage();
 	while (tmp)
 	{
+		// removeMessage nulls the node's own next pointer (NetCommandList::removeMessage), so the
+		// successor has to be taken before the node leaves the list.  Read after, and this loop
+		// stopped dead on the first command it cleared and left every later one in the queue.
+		NetCommandRef *next = tmp->getNext();
 		NetCommandMsg *msg = tmp->getCommand();
 		if (msg->getPlayerID() != playerIndex)
 		{
 			DEBUG_LOG(("Connection::clearCommandsExceptFrom(%d) - clearing a command from %d for frame %d\n",
 				playerIndex, tmp->getCommand()->getPlayerID(), tmp->getCommand()->getExecutionFrame()));
 			m_netCommandList->removeMessage(tmp);
-			NetCommandRef *toDelete = tmp;
-			tmp = tmp->getNext();
-			toDelete->deleteInstance();
-		} else {
-			tmp = tmp->getNext();
+			tmp->deleteInstance();
 		}
+		tmp = next;
 	}
 }
 

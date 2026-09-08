@@ -381,6 +381,11 @@ void DisconnectManager::processDisconnectVote(NetCommandMsg *msg, ConnectionMana
 void DisconnectManager::processDisconnectFrame(NetCommandMsg *msg, ConnectionManager *conMgr) {
 	NetDisconnectFrameCommandMsg *cmdMsg = (NetDisconnectFrameCommandMsg *)msg;
 	UnsignedInt playerID = cmdMsg->getPlayerID();
+	// Off the wire, and the index into m_disconnectFrames and m_disconnectFramesReceived, both
+	// MAX_SLOTS long.
+	if (playerID >= MAX_SLOTS) {
+		return;
+	}
 	if (m_disconnectFrames[playerID] >= cmdMsg->getDisconnectFrame()) {
 		// this message isn't valid, we have a disconnect frame that is later than this already.
 		return;
