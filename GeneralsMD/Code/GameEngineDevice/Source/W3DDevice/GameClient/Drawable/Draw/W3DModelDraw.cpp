@@ -767,12 +767,12 @@ void ModelConditionInfo::validateWeaponBarrelInfo() const
 
 				if (!recoilBoneName.isEmpty())
 				{
-					sprintf(buffer, "%s%02d", recoilBoneName.str(), i);
+					snprintf(buffer, ARRAY_SIZE(buffer), "%s%02d",recoilBoneName.str(), i);
 					findPristineBone(NAMEKEY(buffer), &info.m_recoilBone);
 				}
 				if (!mfName.isEmpty())
 				{
-					sprintf(buffer, "%s%02d", mfName.str(), i);
+					snprintf(buffer, ARRAY_SIZE(buffer), "%s%02d",mfName.str(), i);
 					findPristineBone(NAMEKEY(buffer), &info.m_muzzleFlashBone);
 #if defined(_DEBUG) || defined(_INTERNAL)
 					if (info.m_muzzleFlashBone)
@@ -781,7 +781,7 @@ void ModelConditionInfo::validateWeaponBarrelInfo() const
 				}
 				if (!fxBoneName.isEmpty())
 				{
-					sprintf(buffer, "%s%02d", fxBoneName.str(), i);
+					snprintf(buffer, ARRAY_SIZE(buffer), "%s%02d",fxBoneName.str(), i);
 					findPristineBone(NAMEKEY(buffer), &info.m_fxBone);
 					// special case: if we have multiple muzzleflashes, but only one fxbone, use that fxbone for everything.
 					if (info.m_fxBone == 0 && info.m_muzzleFlashBone != 0)
@@ -791,7 +791,7 @@ void ModelConditionInfo::validateWeaponBarrelInfo() const
 				Int plbBoneIndex = 0;
 				if (!plbName.isEmpty())
 				{
-					sprintf(buffer, "%s%02d", plbName.str(), i);
+					snprintf(buffer, ARRAY_SIZE(buffer), "%s%02d",plbName.str(), i);
 					const Matrix3D* mtx = findPristineBone(NAMEKEY(buffer), &plbBoneIndex);
 					if (mtx != NULL)
 						info.m_projectileOffsetMtx = *mtx;
@@ -3651,7 +3651,7 @@ Int W3DModelDraw::getPristineBonePositionsForConditionState(
 		if (i == 0)
 			strcpy(buffer, boneNamePrefix);
 		else
-			sprintf(buffer, "%s%02d", boneNamePrefix, i);
+			snprintf(buffer, ARRAY_SIZE(buffer), "%s%02d", boneNamePrefix, i);
 		
 		for (char *c = buffer; c && *c; ++c)
 		{
@@ -3808,7 +3808,7 @@ Int W3DModelDraw::getCurrentBonePositions(
 		if (i == 0)
 			strcpy(buffer, boneNamePrefix);
 		else
-			sprintf(buffer, "%s%02d", boneNamePrefix, i);
+			snprintf(buffer, ARRAY_SIZE(buffer), "%s%02d", boneNamePrefix, i);
 		
 		Int boneIndex = m_renderObject->Get_Bone_Index(buffer);
 		if (boneIndex == 0)

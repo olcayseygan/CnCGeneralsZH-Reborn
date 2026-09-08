@@ -425,9 +425,13 @@ static UnsignedInt s_framesAccumulated = 0;
 		const double ms = (double)bestTime / s_ticksPerUSec / 1000.0;
 		if (ms < 0.05)
 			break;						// nothing left worth naming
-		if (used > (Int)sizeof(line) - 64)
+		// The old guard reserved 64 bytes and hoped the name fitted in them.  snprintf says how
+		// much it wanted, so a name that does not fit stops the line instead of running past it.
+		const Int room = (Int)ARRAY_SIZE(line) - used;
+		const Int wrote = snprintf(line + used, room, " %s %.1f", best->m_identifier, ms);
+		if (wrote < 0 || wrote >= room)
 			break;
-		used += sprintf(line + used, " %s %.1f", best->m_identifier, ms);
+		used += wrote;
 	}
 	DEBUG_LOG(("%s\n", line));
 }

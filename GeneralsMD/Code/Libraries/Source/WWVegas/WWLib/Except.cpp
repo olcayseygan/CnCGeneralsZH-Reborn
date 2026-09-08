@@ -455,7 +455,7 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 	** For access violations, print out the violation address and if it was read or write.
 	*/
 	if (e_info->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
-		sprintf(scrap, "Access address:%08X ", access_address);
+		snprintf(scrap, ARRAY_SIZE(scrap), "Access address:%08X ", access_address);
 		Add_Txt(scrap);
 		if (access_read_write) {
 			Add_Txt("was written to.\r\n");
@@ -477,13 +477,13 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 
 	if (!IsBadCodePtr((FARPROC)context->Eip)) {
 		if (_SymGetSymFromAddr != NULL && _SymGetSymFromAddr (GetCurrentProcess(), context->Eip, &displacement, symptr)) {
-			sprintf (scrap, "Exception occurred at %08X - %s + %08X\r\n", context->Eip, symptr->Name, displacement);
+			snprintf (scrap, ARRAY_SIZE(scrap), "Exception occurred at %08X - %s + %08X\r\n", context->Eip, symptr->Name, displacement);
 		} else {
 			DebugString ("Exception Handler: Failed to get symbol for EIP\r\n");
 			if (_SymGetSymFromAddr != NULL) {
 				DebugString ("Exception Handler: SymGetSymFromAddr failed with code %d - %s\n", GetLastError(), Last_Error_Text());
 			}
-			sprintf (scrap, "Exception occurred at %08X\r\n", context->Eip);
+			snprintf (scrap, ARRAY_SIZE(scrap), "Exception occurred at %08X\r\n", context->Eip);
 		}
 	} else {
 		DebugString ("Exception Handler: context->Eip is bad code pointer\n");
@@ -517,12 +517,12 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 
 				if (_SymGetSymFromAddr != NULL && _SymGetSymFromAddr (GetCurrentProcess(), temp_addr, &displacement, symptr)) {
 					char symbuf[256];
-					sprintf(symbuf, "%s + %08X\r\n", symptr->Name, displacement);
+					snprintf(symbuf, ARRAY_SIZE(symbuf), "%s + %08X\r\n", symptr->Name, displacement);
 					Add_Txt(symbuf);
 				}
 			} else {
 				char symbuf[256];
-				sprintf(symbuf, "%08x\r\n", temp_addr);
+				snprintf(symbuf, ARRAY_SIZE(symbuf), "%08x\r\n", temp_addr);
 				Add_Txt(symbuf);
 			}
 		}
@@ -538,10 +538,10 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 	/*
 	** Add in the version info.
 	*/
-	sprintf(scrap, "\r\nVersion %s\r\n", Version_Name());
+	snprintf(scrap, ARRAY_SIZE(scrap), "\r\nVersion %s\r\n", Version_Name());
 	Add_Txt(scrap);
 
-	sprintf(scrap, "Internal Version %s\r\n", VerNum.Version_Name());
+	snprintf(scrap, ARRAY_SIZE(scrap), "Internal Version %s\r\n", VerNum.Version_Name());
 	Add_Txt(scrap);
 
 	char buildinfo[128];
@@ -554,7 +554,7 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 #endif	//(0)
 
 	if (AppVersionCallback) {
-		sprintf(scrap, "%s\r\n\r\n", AppVersionCallback());
+		snprintf(scrap, ARRAY_SIZE(scrap), "%s\r\n\r\n", AppVersionCallback());
 		Add_Txt(scrap);
 	}
 
@@ -567,7 +567,7 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 	** Get the thread info from ThreadClass.
 	*/
 	for (int thread = 0 ; thread < ThreadList.Count() ; thread++) {
-		sprintf(scrap, "  ID: %08X - %s", ThreadList[thread]->ThreadID, ThreadList[thread]->ThreadName);
+		snprintf(scrap, ARRAY_SIZE(scrap), "  ID: %08X - %s", ThreadList[thread]->ThreadID, ThreadList[thread]->ThreadName);
 		Add_Txt(scrap);
 		if (GetCurrentThreadId() == ThreadList[thread]->ThreadID) {
 			Add_Txt("   ***CURRENT THREAD***");
@@ -578,7 +578,7 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 	/*
 	** CPU type
 	*/
-	sprintf(scrap, "\r\nCPU %s, %d Mhz, Vendor: %s\r\n", (char*)CPUDetectClass::Get_Processor_String(), Get_RDTSC_CPU_Speed(), (char*)CPUDetectClass::Get_Processor_Manufacturer_Name());
+	snprintf(scrap, ARRAY_SIZE(scrap), "\r\nCPU %s, %d Mhz, Vendor: %s\r\n", (char*)CPUDetectClass::Get_Processor_String(), Get_RDTSC_CPU_Speed(), (char*)CPUDetectClass::Get_Processor_Manufacturer_Name());
 	Add_Txt(scrap);
 
 
@@ -589,15 +589,15 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 	/*
 	** Dump the registers.
 	*/
-	sprintf(scrap, "Eip:%08X\tEsp:%08X\tEbp:%08X\r\n", context->Eip, context->Esp, context->Ebp);
+	snprintf(scrap, ARRAY_SIZE(scrap), "Eip:%08X\tEsp:%08X\tEbp:%08X\r\n", context->Eip, context->Esp, context->Ebp);
 	Add_Txt(scrap);
-	sprintf(scrap, "Eax:%08X\tEbx:%08X\tEcx:%08X\r\n", context->Eax, context->Ebx, context->Ecx);
+	snprintf(scrap, ARRAY_SIZE(scrap), "Eax:%08X\tEbx:%08X\tEcx:%08X\r\n", context->Eax, context->Ebx, context->Ecx);
 	Add_Txt(scrap);
-	sprintf(scrap, "Edx:%08X\tEsi:%08X\tEdi:%08X\r\n", context->Edx, context->Esi, context->Edi);
+	snprintf(scrap, ARRAY_SIZE(scrap), "Edx:%08X\tEsi:%08X\tEdi:%08X\r\n", context->Edx, context->Esi, context->Edi);
 	Add_Txt(scrap);
-	sprintf(scrap, "EFlags:%08X \r\n", context->EFlags);
+	snprintf(scrap, ARRAY_SIZE(scrap), "EFlags:%08X \r\n", context->EFlags);
 	Add_Txt(scrap);
-	sprintf(scrap, "CS:%04x  SS:%04x  DS:%04x  ES:%04x  FS:%04x  GS:%04x\r\n", context->SegCs, context->SegSs, context->SegDs, context->SegEs, context->SegFs, context->SegGs);
+	snprintf(scrap, ARRAY_SIZE(scrap), "CS:%04x  SS:%04x  DS:%04x  ES:%04x  FS:%04x  GS:%04x\r\n", context->SegCs, context->SegSs, context->SegDs, context->SegEs, context->SegFs, context->SegGs);
 	Add_Txt(scrap);
 
 
@@ -605,28 +605,28 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 	** Now the FP registers.
 	*/
 	Add_Txt("\r\nFloating point status\r\n");
-	sprintf(scrap, "     Control word: %08x\r\n", context->FloatSave.ControlWord);
+	snprintf(scrap, ARRAY_SIZE(scrap), "     Control word: %08x\r\n", context->FloatSave.ControlWord);
 	Add_Txt(scrap);
-	sprintf(scrap, "      Status word: %08x\r\n", context->FloatSave.StatusWord);
+	snprintf(scrap, ARRAY_SIZE(scrap), "      Status word: %08x\r\n", context->FloatSave.StatusWord);
 	Add_Txt(scrap);
-	sprintf(scrap, "         Tag word: %08x\r\n", context->FloatSave.TagWord);
+	snprintf(scrap, ARRAY_SIZE(scrap), "         Tag word: %08x\r\n", context->FloatSave.TagWord);
 	Add_Txt(scrap);
-	sprintf(scrap, "     Error Offset: %08x\r\n", context->FloatSave.ErrorOffset);
+	snprintf(scrap, ARRAY_SIZE(scrap), "     Error Offset: %08x\r\n", context->FloatSave.ErrorOffset);
 	Add_Txt(scrap);
-	sprintf(scrap, "   Error Selector: %08x\r\n", context->FloatSave.ErrorSelector);
+	snprintf(scrap, ARRAY_SIZE(scrap), "   Error Selector: %08x\r\n", context->FloatSave.ErrorSelector);
 	Add_Txt(scrap);
-	sprintf(scrap, "      Data Offset: %08x\r\n", context->FloatSave.DataOffset);
+	snprintf(scrap, ARRAY_SIZE(scrap), "      Data Offset: %08x\r\n", context->FloatSave.DataOffset);
 	Add_Txt(scrap);
-	sprintf(scrap, "    Data Selector: %08x\r\n", context->FloatSave.DataSelector);
+	snprintf(scrap, ARRAY_SIZE(scrap), "    Data Selector: %08x\r\n", context->FloatSave.DataSelector);
 	Add_Txt(scrap);
-	sprintf(scrap, "      Cr0NpxState: %08x\r\n", context->FloatSave.Spare0);	// SDK renamed Cr0NpxState -> Spare0
+	snprintf(scrap, ARRAY_SIZE(scrap), "      Cr0NpxState: %08x\r\n", context->FloatSave.Spare0);	// SDK renamed Cr0NpxState -> Spare0
 	Add_Txt(scrap);
 
 	for (int fp=0 ; fp<SIZE_OF_80387_REGISTERS / 10 ; fp++) {
-		sprintf(scrap, "ST%d : ", fp);
+		snprintf(scrap, ARRAY_SIZE(scrap), "ST%d : ", fp);
 		Add_Txt(scrap);
 		for (int b=0 ; b<10 ; b++) {
-			sprintf(scrap, "%02X", context->FloatSave.RegisterArea[(fp*10) + b]);
+			snprintf(scrap, ARRAY_SIZE(scrap), "%02X", context->FloatSave.RegisterArea[(fp*10) + b]);
 			Add_Txt(scrap);
 		}
 
@@ -643,7 +643,7 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 			fstp	qword ptr [fp_value]
 			pop	eax
 		}
-		sprintf(scrap, "   %+#.17e\r\n", fp_value);
+		snprintf(scrap, ARRAY_SIZE(scrap), "   %+#.17e\r\n", fp_value);
 		Add_Txt(scrap);
 	}
 

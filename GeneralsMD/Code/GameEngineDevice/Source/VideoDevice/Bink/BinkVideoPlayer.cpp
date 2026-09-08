@@ -238,7 +238,7 @@ VideoStreamInterface*	BinkVideoPlayer::open( AsciiString movieTitle )
 		if (TheGlobalData->m_modDir.isNotEmpty())
 		{
 			char filePath[ _MAX_PATH ];
-			sprintf( filePath, "%s%s\\%s.%s", TheGlobalData->m_modDir.str(), VIDEO_PATH, pVideo->m_filename.str(), VIDEO_EXT );
+			snprintf( filePath, ARRAY_SIZE(filePath), "%s%s\\%s.%s", TheGlobalData->m_modDir.str(), VIDEO_PATH, pVideo->m_filename.str(), VIDEO_EXT );
 			HBINK handle = BinkOpen(filePath , BINKPRELOADALL );
 			DEBUG_ASSERTLOG(!handle, ("opened bink file %s\n", filePath));
 			if (handle)
@@ -254,7 +254,7 @@ VideoStreamInterface*	BinkVideoPlayer::open( AsciiString movieTitle )
 		if (!handle)
 		{
 			char filePath[ _MAX_PATH ];
-			sprintf( filePath, "%s\\%s.%s", VIDEO_PATH, pVideo->m_filename.str(), VIDEO_EXT );
+			snprintf( filePath, ARRAY_SIZE(filePath), "%s\\%s.%s", VIDEO_PATH, pVideo->m_filename.str(), VIDEO_EXT );
 			handle = BinkOpen(filePath , BINKPRELOADALL );
 			DEBUG_ASSERTLOG(!handle, ("opened bink file %s\n", localizedFilePath));
 		}

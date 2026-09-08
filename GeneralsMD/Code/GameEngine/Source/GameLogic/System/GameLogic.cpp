@@ -2392,7 +2392,7 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 		req.buddyRequestType = BuddyRequest::BUDDYREQUEST_SETSTATUS;
 		req.arg.status.status = GP_PLAYING;
 		strcpy(req.arg.status.statusString, "Playing");
-		sprintf(req.arg.status.locationString, "%s", WideCharStringToMultiByte(TheGameSpyGame->getGameName().str()).c_str());
+		strlcpy(req.arg.status.locationString, WideCharStringToMultiByte(TheGameSpyGame->getGameName().str()).c_str(), ARRAY_SIZE(req.arg.status.locationString));
 		TheGameSpyBuddyMessageQueue->addRequest(req);
 	}	
 	
@@ -3835,15 +3835,19 @@ static const char *getModuleProfileReport( void )
 
 	if( theWorstModuleKey == NAMEKEY_INVALID )
 	{
-		sprintf( report, "%d updates", theModuleUpdateCount );
+		snprintf( report, ARRAY_SIZE(report), "%d updates", theModuleUpdateCount );
 		return report;
 	}
 
+	// The names in this line are a module class and a thing template, both of them out of INI, so
+	// four of them could be longer than the line.  Nothing bounded this before.
 	const Real worstMS = freq ? (Real)( (double)theWorstModuleTicks * 1000.0 / (double)freq ) : 0.0f;
-	Int used = sprintf( report, "%d updates, worst %s on %s %.1fms", theModuleUpdateCount,
+	Int used = snprintf( report, ARRAY_SIZE(report), "%d updates, worst %s on %s %.1fms", theModuleUpdateCount,
 										 TheNameKeyGenerator->keyToName( theWorstModuleKey ).str(),
 										 theWorstModuleThing ? theWorstModuleThing->getName().str() : "<none>",
 										 worstMS );
+	if( used < 0 || used >= (Int)ARRAY_SIZE(report) )
+		return report;
 
 	// and the three kinds of module the sweep spent the most time in, whatever the worst one was
 	for( Int rank = 0; rank < 3; rank++ )
@@ -3857,9 +3861,13 @@ static const char *getModuleProfileReport( void )
 			break;
 
 		const Real ms = freq ? (Real)( (double)theModuleKindTicks[ best ] * 1000.0 / (double)freq ) : 0.0f;
-		used += sprintf( report + used, " | %s %dx/%.1f",
+		const Int room = (Int)ARRAY_SIZE(report) - used;
+		const Int wrote = snprintf( report + used, room, " | %s %dx/%.1f",
 										 TheNameKeyGenerator->keyToName( theModuleKindKey[ best ] ).str(),
 										 theModuleKindCount[ best ], ms );
+		if( wrote < 0 || wrote >= room )
+			break;
+		used += wrote;
 
 		theModuleKindTicks[ best ] = -1;			// taken; the next pass finds the next one down
 	}

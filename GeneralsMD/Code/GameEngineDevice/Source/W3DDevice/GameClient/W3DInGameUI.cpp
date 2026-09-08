@@ -918,7 +918,7 @@ static const Image *loadOrderCursorImage( Mouse::MouseCursor cursor, ICoord2D *h
 		return NULL;
 
 	char path[ 256 ];
-	sprintf( path, "data\\cursors\\%s.ANI", name.str() );
+	snprintf( path, ARRAY_SIZE(path), "data\\cursors\\%s.ANI", name.str() );
 
 	HCURSOR hcursor = LoadCursorFromFile( path );
 	if( hcursor == NULL )

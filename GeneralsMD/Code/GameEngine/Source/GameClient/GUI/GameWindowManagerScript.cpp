@@ -2743,7 +2743,7 @@ GameWindow *GameWindowManager::winCreateFromScript( AsciiString filenameString,
 	// place for the window files subdirectory
 	//
 	if( strchr( filename, '\\' ) == NULL )
-		sprintf( filepath, "Window\\%s", filename );
+		snprintf( filepath, ARRAY_SIZE(filepath), "Window\\%s", filename );
 	else
 		strcpy( filepath, filename );
 
