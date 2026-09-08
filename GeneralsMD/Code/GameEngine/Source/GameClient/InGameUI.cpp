@@ -91,6 +91,7 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/PartitionManager.h"
+#include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/ScriptEngine.h"
 #include "GameLogic/Module/ContainModule.h"
@@ -3038,6 +3039,42 @@ Bool InGameUI::getHeldAircraftOrder( const Object *obj, OrderHintKind& kind, Coo
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The spot a guarding unit is holding.  A guard order clears the state machine before it starts,
+	* so the machine's goal position is the origin and reading it drew every guard marker in the
+	* bottom left corner of the map.  What the unit is guarding is kept on the AI itself. */
+//-------------------------------------------------------------------------------------------------
+static Bool getGuardedSpot( const AIUpdateInterface *ai, Coord3D& spot )
+{
+	switch( ai->getGuardTargetType() )
+	{
+		case GUARDTARGET_LOCATION:
+			spot = *ai->getGuardLocation();
+			return TRUE;
+
+		case GUARDTARGET_OBJECT:
+		{
+			const Object *guarded = TheGameLogic->findObjectByID( ai->getGuardObject() );
+			if( guarded == NULL )
+				return FALSE;
+			spot = *guarded->getPosition();
+			return TRUE;
+		}
+
+		case GUARDTARGET_AREA:
+		{
+			const PolygonTrigger *area = ai->getAreaToGuard();
+			if( area == NULL )
+				return FALSE;
+			area->getCenterPoint( &spot );
+			return TRUE;
+		}
+
+		default:
+			return FALSE;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Where each selected unit is going, asked of the unit rather than remembered from the order.  A
 	* line therefore lives exactly as long as the order behind it: it appears the frame the unit
 	* accepts the command and goes when the unit arrives, changes its mind or leaves the selection. */
@@ -3068,8 +3105,8 @@ void InGameUI::updateOrderHints( void )
 
 		OrderHint hint;
 		hint.owner = obj->getID();
-		Coord3D heldOrderGoal;
-		Bool isHoldingOrder = FALSE;
+		Coord3D resolvedGoal;
+		Bool goalResolved = FALSE;
 		switch( ai->getCurrentStateID() )
 		{
 			case AI_MOVE_TO:
@@ -3133,25 +3170,33 @@ void InGameUI::updateOrderHints( void )
 			case AI_GUARD:
 			case AI_GUARD_RETALIATE:
 			case AI_GUARD_TUNNEL_NETWORK:
+			{
+				// A guard order clears the state machine on its way in, so the goal position it leaves
+				// behind is the origin - and the marker landed in the bottom left corner of the map
+				// every time.  The spot being guarded lives on the AI itself, so ask it there.
 				hint.kind = ORDER_HINT_GUARD;
+				if( !getGuardedSpot( ai, resolvedGoal ) )
+					continue;
+				goalResolved = TRUE;
 				break;
+			}
 
 			default:
 				// a parked aircraft is running its own takeoff state machine, not the order the player
 				// gave it, and that order is held out of reach of the goal until the wheels are up.
 				// Ask for it, or an air strike shows nothing at all during the seconds the plane spends
 				// taxiing, which is exactly when the player wants to see where it is going
-				if( !getHeldAircraftOrder( obj, hint.kind, heldOrderGoal ) )
+				if( !getHeldAircraftOrder( obj, hint.kind, resolvedGoal ) )
 					continue;
-				isHoldingOrder = TRUE;
+				goalResolved = TRUE;
 				break;
 		}
 
 		hint.from = *obj->getPosition();
 
-		if( isHoldingOrder )
+		if( goalResolved )
 		{
-			hint.to = heldOrderGoal;
+			hint.to = resolvedGoal;
 		}
 		else
 		{
