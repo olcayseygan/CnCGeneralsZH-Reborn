@@ -2994,58 +2994,187 @@ void RandomMapGenerator::generatePreview( const RandomMapSettings& settings,
 }
 
 //-----------------------------------------------------------------------------
-// Writing a generated map where the map cache will find it
+// Generated maps, kept in memory where the map cache will find them
 //-----------------------------------------------------------------------------
 
-static Bool writeWholeFile( const AsciiString& path, const std::vector<char>& bytes )
+/** A generated map lives here and nowhere else. The seed, the player count and the size are in the
+	path, so anything that names the map - a replay, a save, a lobby telling the other machines what
+	is being played - names everything the generator needs to build the same bytes again. That is
+	what lets the map stay out of the file system entirely: a machine that has never seen this seed
+	rebuilds it from the name the moment something opens it.
+
+	Three maps are kept. Rerolling in the menu walks through them, and a map that falls off the end
+	is not lost, only forgotten: the next open of that path builds it again. */
+enum { RMG_MAPS_KEPT = 3 };
+
+struct RMGStagedMap
 {
-	FILE *fp = fopen( path.str(), "wb" );
-	if( fp == NULL )
-	{
-		DEBUG_LOG(("random map: could not write '%s'\n", path.str()));
-		return FALSE;
-	}
+	RandomMapSettings m_settings;		///< what it was built from, which is what a slot is looked up by
+	AsciiString m_mapPath;					///< lowercase, the path the rest of the game names it by
+	std::vector<char> m_mapBytes;
+	std::vector<char> m_previewBytes;
+	UnsignedInt m_stagedAt;					///< which staging this was, so the oldest can go first
+};
 
-	fwrite( &bytes[0], 1, bytes.size(), fp );
-	fclose( fp );
-	return TRUE;
-}
+static RMGStagedMap theStagedMaps[ RMG_MAPS_KEPT ];
+static UnsignedInt theStagingCount = 0;
 
-Bool writeRandomMap( const RandomMapSettings& settings, AsciiString& mapPathOut )
+/** Where a generated map's bytes would live, given its settings. The map cache expects
+	"<user maps>\<name>\<name>.map" - the directory carries the name - and getMapPreviewImage wants
+	"<name>.tga" beside it. */
+static void generatedMapPathsFor( const RandomMapSettings& clamped, AsciiString& mapPath,
+																	AsciiString& previewPath )
 {
-	RandomMapSettings clamped = settings;
-	RandomMapGenerator::clampSettings( clamped );
-
-	std::vector<char> mapBytes;
-	std::vector<char> previewBytes;
-	RandomMapGenerator::generate( clamped, mapBytes );
-	RandomMapGenerator::generatePreview( clamped, previewBytes );
-
-	// The map cache expects "<user maps>\<name>\<name>.map" - the directory
-	// carries the name - and getMapPreviewImage wants "<name>.tga" beside it.
 	AsciiString name;
 	name.format( "RMG_v%d_%d_%dp_%dc", RANDOM_MAP_GENERATOR_VERSION, clamped.m_seed,
 							 clamped.m_numPlayers, clamped.m_playableCells );
 
-	AsciiString mapsDir, dir, previewPath;
-	mapsDir.format( "%sMaps", TheGlobalData->getPath_UserData().str() );
-	dir.format( "%s\\%s", mapsDir.str(), name.str() );
-	mapPathOut.format( "%s\\%s.map", dir.str(), name.str() );
+	AsciiString dir;
+	dir.format( "%sMaps\\%s", TheGlobalData->getPath_UserData().str(), name.str() );
+	mapPath.format( "%s\\%s.map", dir.str(), name.str() );
 	previewPath.format( "%s\\%s.tga", dir.str(), name.str() );
 
-	TheFileSystem->createDirectory( mapsDir );		// createDirectory is one level at a time
-	TheFileSystem->createDirectory( dir );
+	mapPath.toLower();
+	previewPath.toLower();
+}
 
-	if( !writeWholeFile( mapPathOut, mapBytes ) )
+/** Read the settings back out of a generated map's file name. FALSE for anything else, including a
+	name written by another generator version - those bytes cannot be rebuilt here. */
+static Bool settingsFromGeneratedPath( const AsciiString& path, RandomMapSettings& settingsOut )
+{
+	const char *leafStart = path.reverseFind( '\\' );
+	AsciiString leaf = leafStart ? leafStart + 1 : path.str();
+
+	// every path the game hands around has been through toLower somewhere, and a name is a name
+	// whichever case it arrives in
+	leaf.toLower();
+
+	Int version = 0, seed = 0, players = 0, cells = 0;
+	if( sscanf( leaf.str(), "rmg_v%d_%d_%dp_%dc", &version, &seed, &players, &cells ) != 4 )
 		return FALSE;
 
-	writeWholeFile( previewPath, previewBytes );
+	if( version != RANDOM_MAP_GENERATOR_VERSION )
+		return FALSE;
 
-	DEBUG_LOG(("random map: wrote '%s' - %d players, %d cells, %d bytes, fingerprint %X\n",
-		mapPathOut.str(), clamped.m_numPlayers, clamped.m_playableCells, mapBytes.size(),
+	settingsOut.m_seed = seed;
+	settingsOut.m_numPlayers = players;
+	settingsOut.m_playableCells = cells;
+
+	// a name carrying settings the generator would clamp names bytes it never produced
+	RandomMapSettings clamped = settingsOut;
+	RandomMapGenerator::clampSettings( clamped );
+	return clamped.m_seed == settingsOut.m_seed
+			&& clamped.m_numPlayers == settingsOut.m_numPlayers
+			&& clamped.m_playableCells == settingsOut.m_playableCells;
+}
+
+Bool isGeneratedMapPath( const AsciiString& path )
+{
+	RandomMapSettings settings;
+	return settingsFromGeneratedPath( path, settings );
+}
+
+/** The slot holding this map, or NULL.  Slots are looked up by what they were built from rather
+	than by the path that asked for them: the same map is named several ways over a run - the switch
+	that made it, the lobby, the loader, the preview - and two spellings of one map would otherwise
+	each build their own copy. */
+static RMGStagedMap *findStagedMap( const RandomMapSettings& settings )
+{
+	for( Int i = 0; i < RMG_MAPS_KEPT; i++ )
+	{
+		if( theStagedMaps[i].m_mapBytes.empty() )
+			continue;
+
+		if( theStagedMaps[i].m_settings.m_seed == settings.m_seed
+				&& theStagedMaps[i].m_settings.m_numPlayers == settings.m_numPlayers
+				&& theStagedMaps[i].m_settings.m_playableCells == settings.m_playableCells )
+			return &theStagedMaps[i];
+	}
+
+	return NULL;
+}
+
+/// Build a map into the slot that has been unused longest.
+static RMGStagedMap *stageMap( const RandomMapSettings& clamped )
+{
+	RMGStagedMap *slot = &theStagedMaps[0];
+	for( Int i = 1; i < RMG_MAPS_KEPT; i++ )
+	{
+		if( theStagedMaps[i].m_stagedAt < slot->m_stagedAt )
+			slot = &theStagedMaps[i];
+	}
+
+	AsciiString previewPath;
+	generatedMapPathsFor( clamped, slot->m_mapPath, previewPath );
+	slot->m_settings = clamped;
+	slot->m_mapBytes.clear();
+	slot->m_previewBytes.clear();
+	RandomMapGenerator::generate( clamped, slot->m_mapBytes );
+	RandomMapGenerator::generatePreview( clamped, slot->m_previewBytes );
+	slot->m_stagedAt = ++theStagingCount;
+
+	DEBUG_LOG(("random map: built '%s' - %d players, %d cells, %d bytes, fingerprint %X\n",
+		slot->m_mapPath.str(), clamped.m_numPlayers, clamped.m_playableCells, slot->m_mapBytes.size(),
 		RandomMapGenerator::fingerprint( clamped )));
 
+	return slot;
+}
+
+Bool stageRandomMap( const RandomMapSettings& settings, AsciiString& mapPathOut )
+{
+	RandomMapSettings clamped = settings;
+	RandomMapGenerator::clampSettings( clamped );
+
+	AsciiString mapPath, previewPath;
+	generatedMapPathsFor( clamped, mapPath, previewPath );
+
+	if( findStagedMap( clamped ) == NULL )
+		stageMap( clamped );
+
+	mapPathOut = mapPath;
 	return TRUE;
+}
+
+Bool generatedMapBytes( const AsciiString& path, const char **bytesOut, Int *sizeOut )
+{
+	RandomMapSettings settings;
+	if( !settingsFromGeneratedPath( path, settings ) )
+		return FALSE;
+
+	RandomMapSettings clamped = settings;
+	RandomMapGenerator::clampSettings( clamped );
+
+	RMGStagedMap *slot = findStagedMap( clamped );
+	if( slot == NULL )
+	{
+		// nothing has this seed in hand - a replay, a save or a joined game naming a map this
+		// machine has never built.  The name says how to build it, so build it
+		slot = stageMap( clamped );
+	}
+
+	AsciiString lower = path;
+	lower.toLower();
+
+	const std::vector<char>& bytes = lower.endsWith( ".tga" ) ? slot->m_previewBytes
+																														: slot->m_mapBytes;
+	if( bytes.empty() )
+		return FALSE;
+
+	if( bytesOut )
+		*bytesOut = &bytes[0];
+	if( sizeOut )
+		*sizeOut = (Int)bytes.size();
+
+	return TRUE;
+}
+
+void generatedMapPaths( std::vector<AsciiString>& pathsOut )
+{
+	for( Int i = 0; i < RMG_MAPS_KEPT; i++ )
+	{
+		if( !theStagedMaps[i].m_mapBytes.empty() )
+			pathsOut.push_back( theStagedMaps[i].m_mapPath );
+	}
 }
 
 //-----------------------------------------------------------------------------

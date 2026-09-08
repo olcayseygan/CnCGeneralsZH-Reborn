@@ -54,6 +54,8 @@
 #include "Common/GameAudio.h"
 #include "Common/LocalFileSystem.h"
 #include "Common/PerfTimer.h"
+#include "Common/RAMFile.h"
+#include "Common/RandomMapGenerator.h"
 
 
 DECLARE_PERF_TIMER(FileSystem)
@@ -180,10 +182,29 @@ void		FileSystem::reset( void )
 // FileSystem::open
 //============================================================================
 
-File*		FileSystem::openFile( const Char *filename, Int access ) 
+File*		FileSystem::openFile( const Char *filename, Int access )
 {
 	USE_PERF_TIMER(FileSystem)
 	File *file = NULL;
+
+	//
+	// A generated map is not on any disk and never will be: its seed, player count and size are in
+	// its name, so the bytes are built from the name on the first read and served out of memory
+	// after that.  It goes in front of both file systems because the map cache, the loader, the
+	// CRC and the preview all reach a map through here and none of them has to know the difference.
+	//
+	const Char *generated = NULL;
+	Int generatedSize = 0;
+	if ( generatedMapBytes( AsciiString( filename ), &generated, &generatedSize ) )
+	{
+		RAMFile *ramFile = newInstance( RAMFile );
+		if ( ramFile->openFromMemory( generated, generatedSize, AsciiString( filename ) ) )
+			return ramFile;
+
+		ramFile->close();
+		ramFile->deleteInstance();
+		return NULL;
+	}
 
 	if ( TheLocalFileSystem != NULL )
 	{
@@ -205,6 +226,10 @@ File*		FileSystem::openFile( const Char *filename, Int access )
 Bool FileSystem::doesFileExist(const Char *filename) const
 {
 	USE_PERF_TIMER(FileSystem)
+
+	// a generated map exists wherever its name can be read, which is everywhere - see openFile
+	if (isGeneratedMapPath( AsciiString( filename ) ))
+		return TRUE;
 
   unsigned key=TheNameKeyGenerator->nameToLowercaseKey(filename);
   std::map<unsigned,bool>::iterator i=m_fileExist.find(key);
@@ -246,7 +271,16 @@ Bool FileSystem::getFileInfo(const AsciiString& filename, FileInfo *fileInfo) co
 		return FALSE;
 	}
 	memset(fileInfo, 0, sizeof(fileInfo));
-	
+
+	// a generated map has a size and no timestamp: the bytes follow from the name, so there is no
+	// moment at which they were made and nothing that could make them go stale
+	const Char *generated = NULL;
+	Int generatedSize = 0;
+	if (generatedMapBytes(filename, &generated, &generatedSize)) {
+		fileInfo->sizeLow = generatedSize;
+		return TRUE;
+	}
+
 	if (TheLocalFileSystem->getFileInfo(filename, fileInfo)) {
 		return TRUE;
 	}

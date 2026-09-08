@@ -1055,6 +1055,11 @@ found and fixed â€” EA's own, not port damage.**
 - The number that made the map is in its name, so the same number always makes the same map, on
   every machine. Two people who type it get the same ground, and a map worth keeping can be found
   again.
+- A generated map is never written to your disk. It is built when the match starts and lives in
+  memory, and nothing is left behind afterwards - no map folder per roll, no preview files, no
+  entry in the map cache. The name still says which map it is, so the replay of a generated match
+  plays back on any machine: it rebuilds the same ground from the same name, and so does anybody
+  who joins.
 
 ---
 

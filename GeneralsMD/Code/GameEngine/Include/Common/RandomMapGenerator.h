@@ -84,11 +84,29 @@ public:
 	static void clampSettings( RandomMapSettings& settings );
 };
 
-/** Generate the map and its preview and write both into the user map directory,
-	under a name that carries the generator version and the settings, so two
-	different maps never land on one file. Returns false when the file could not
-	be written; on success mapPathOut is what -map wants. */
-extern Bool writeRandomMap( const RandomMapSettings& settings, AsciiString& mapPathOut );
+/** Generate the map and its preview and keep both in memory under a path in the
+	user map directory, named for the generator version and the settings. Nothing
+	is written to disk: TheFileSystem serves that path out of the store below, so
+	the map cache, the loader and the CRC all read it the way they read any other
+	map. On success mapPathOut is what -map wants. */
+extern Bool stageRandomMap( const RandomMapSettings& settings, AsciiString& mapPathOut );
+
+/** Is this the path of a generated map or its preview? The settings are in the
+	name, which is what lets a replay, a save or a joining machine rebuild the
+	same bytes from the name alone. A name carrying another generator version is
+	not one this build can rebuild, so it is not one of ours. */
+extern Bool isGeneratedMapPath( const AsciiString& path );
+
+/** The bytes of a generated map or preview, generated on the spot if this path
+	has not been staged in this run - which is how a replay of a generated map
+	plays back without the map having been kept anywhere. FALSE when the path is
+	not a generated one. The bytes belong to the store and stay valid until it
+	drops that map, so a caller that keeps them across a load is wrong. */
+extern Bool generatedMapBytes( const AsciiString& path, const char **bytesOut, Int *sizeOut );
+
+/** Every generated map the store is holding, so the map cache can carry an
+	entry for each without a directory to scan. */
+extern void generatedMapPaths( std::vector<AsciiString>& pathsOut );
 
 /** A ChunkInputStream over a block of memory, so a generated map can be handed
 	to the same readers that parse maps off disk. */

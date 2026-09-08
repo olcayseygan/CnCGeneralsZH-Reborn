@@ -7421,6 +7421,83 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A generated map is never written anywhere.  It is staged in memory and TheFileSystem serves it,
+	so the map cache, the loader, the CRC and the preview all reach it the way they reach a map on
+	a disk - and the local file system, which is the only thing here that can touch a disk at all,
+	has never heard of it. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_generated_map_is_served_out_of_memory_and_written_nowhere)
+{
+	CHECK( bootOnce() );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	RandomMapSettings settings;
+	settings.m_seed = 4242;
+	settings.m_numPlayers = 2;
+	settings.m_playableCells = 96;
+
+	AsciiString path;
+	CHECK( stageRandomMap( settings, path ) );
+	CHECK( isGeneratedMapPath( path ) );
+
+	// the settings are in the name, which is what lets any machine rebuild the same bytes
+	CHECK( path.endsWithNoCase( "_4242_2p_96c.map" ) );
+
+	// it exists, and it exists nowhere on a disk
+	CHECK( TheFileSystem->doesFileExist( path.str() ) );
+	CHECK( !TheLocalFileSystem->doesFileExist( path.str() ) );
+
+	std::vector<char> expected;
+	RandomMapGenerator::generate( settings, expected );
+
+	FileInfo info;
+	CHECK( TheFileSystem->getFileInfo( path, &info ) );
+	CHECK_EQ( (Int)info.sizeLow, (Int)expected.size() );
+
+	// and reading it back gives the generator's own bytes
+	File *file = TheFileSystem->openFile( path.str(), File::READ | File::BINARY );
+	CHECK( file != NULL );
+	if( file )
+	{
+		std::vector<char> read( expected.size() );
+		CHECK_EQ( file->read( &read[0], (Int)read.size() ), (Int)expected.size() );
+		CHECK( memcmp( &read[0], &expected[0], expected.size() ) == 0 );
+		file->close();
+	}
+
+	// a map the store has forgotten is rebuilt from its name: this is what plays a replay of a
+	// generated map back on a machine that never staged it
+	for( Int other = 0; other < 4; other++ )
+	{
+		RandomMapSettings evict;
+		evict.m_seed = 5000 + other;
+		evict.m_numPlayers = 2;
+		evict.m_playableCells = 96;
+		AsciiString evicted;
+		CHECK( stageRandomMap( evict, evicted ) );
+	}
+
+	File *rebuilt = TheFileSystem->openFile( path.str(), File::READ | File::BINARY );
+	CHECK( rebuilt != NULL );
+	if( rebuilt )
+	{
+		std::vector<char> read( expected.size() );
+		CHECK_EQ( rebuilt->read( &read[0], (Int)read.size() ), (Int)expected.size() );
+		CHECK( memcmp( &read[0], &expected[0], expected.size() ) == 0 );
+		rebuilt->close();
+	}
+
+	// nothing else is one of ours, and neither is a name from another generator version
+	CHECK( !isGeneratedMapPath( AsciiString( "Maps\\Tournament Desert\\Tournament Desert.map" ) ) );
+	CHECK( !isGeneratedMapPath( AsciiString( "Maps\\RMG_v1_7_2p_96c\\RMG_v1_7_2p_96c.map" ) ) );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** getMapPreviewImage looks for a 128x128 tga beside the map and shows nothing at all when it is
 	not there, which is what the map list did for every generated map.  The bytes have to be a tga
 	an image loader will take: uncompressed true colour, three bytes a pixel, right way up. */

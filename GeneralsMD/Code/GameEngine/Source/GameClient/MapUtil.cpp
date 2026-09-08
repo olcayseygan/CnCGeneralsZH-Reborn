@@ -44,6 +44,7 @@
 #include "Common/WellKnownKeys.h"
 #include "Common/INI.h"
 #include "Common/QuotedPrintable.h"
+#include "Common/RandomMapGenerator.h"
 #include "Common/SkirmishBattleHonors.h"
 #include "Common/ThingFactory.h"
 #include "Common/ThingTemplate.h"
@@ -405,7 +406,10 @@ void MapCache::writeCacheINI( Bool userDir )
 	MapMetaData md;
 	while (it != end())
 	{
-		if (it->first.startsWithNoCase(mapDir.str()))
+		// a generated map is rebuilt from its name whenever it is asked for, so an entry for one is
+		// a line about a file that is not there - and this file is the one place a random map could
+		// still leave something behind on disk
+		if (it->first.startsWithNoCase(mapDir.str()) && !isGeneratedMapPath(it->first))
 		{
 			md = it->second;
 			fprintf(fp, "\nMapCache %s\n", AsciiStringToQuotedPrintable(it->first.str()).str());
@@ -652,6 +656,24 @@ Bool MapCache::loadUserMaps()
 			}
 		}
 		iter++;
+	}
+
+	//
+	// The generated maps are in memory rather than in that directory, so the scan above cannot find
+	// them.  They are added here instead, off the list the generator is holding, which is what puts
+	// a random map in the list with its players, its start positions and its preview without any of
+	// it having been written anywhere.
+	//
+	std::vector<AsciiString> generated;
+	generatedMapPaths(generated);
+	for (std::vector<AsciiString>::const_iterator gen = generated.begin(); gen != generated.end(); ++gen)
+	{
+		FileInfo generatedInfo;
+		if (!TheFileSystem->getFileInfo(*gen, &generatedInfo))
+			continue;
+
+		m_seen[*gen] = TRUE;
+		parsedAMap |= addMap(mapDir, *gen, &generatedInfo, FALSE);
 	}
 
 	// clean out unseen maps
@@ -1109,9 +1131,28 @@ const MapMetaData *MapCache::findMap(AsciiString mapName)
 {
 	mapName.toLower();
 	MapCache::iterator it = find(mapName);
-	if (it == end())
+	if (it != end())
+		return &(it->second);
+
+	//
+	// A generated map is in the cache only if something staged it this run, and a replay, a save or
+	// a game somebody else is hosting names one that nothing here has built.  The name carries the
+	// settings, so the map is built now and cached like any other rather than reported missing -
+	// which is what the map is asked for at, among other places, the point where the start
+	// positions are dealt out, and that caller does not survive a no.
+	//
+	if (!isGeneratedMapPath(mapName))
 		return NULL;
-	return &(it->second);
+
+	FileInfo generatedInfo;
+	if (!TheFileSystem->getFileInfo(mapName, &generatedInfo))
+		return NULL;
+
+	m_seen[mapName] = TRUE;
+	addMap(getUserMapDir(), mapName, &generatedInfo, FALSE);
+
+	it = find(mapName);
+	return (it == end()) ? NULL : &(it->second);
 }
 
 // ------------------------------------------------------------------------------------------------

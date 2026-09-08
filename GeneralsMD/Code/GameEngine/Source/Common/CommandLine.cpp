@@ -443,14 +443,13 @@ Int parseMapName(char *args[], int num)
 }
 
 // parseRandomMap =============================================================
-/** -randommap <seed> [players] [cells|small|normal|large]: generate a skirmish map from the seed
-	and write it into the user map directory as
+/** -randommap <seed> [players] [cells|small|normal|large]: generate a skirmish map from the seed,
+	keep it in memory under the name
 	"RMG_v<generator version>_<seed>_<players>p_<cells>c", then point -map at it.  The version is in
 	the name because it is in the bytes: a build that generates a different map from the same seed
-	writes a different file rather than a confusing one.
-	Nothing downstream has to know
-	it was generated: the map cache walks that directory on startup, so it shows up in the skirmish
-	map list like any hand-made map, and -autoskirmish starts on it.  The same seed gives the same
+	names a different map rather than a confusing one.  Nothing is written to disk and nothing
+	downstream has to know: the file system serves that name out of the generator, so the map cache
+	lists it like any hand-made map and -autoskirmish starts on it.  The same seed gives the same
 	map on every machine, so both sides of a network game can be handed the same command line.
 	The last argument is either a cell count outright or one of the three sizes, which are counts
 	that grow with the number of players rather than fixed ones. */
@@ -493,7 +492,7 @@ Int parseRandomMap(char *args[], int num)
 	}
 
 	AsciiString path;
-	if (!writeRandomMap( settings, path ))
+	if (!stageRandomMap( settings, path ))
 		return eaten;
 
 	TheWritableGlobalData->m_mapName = path;

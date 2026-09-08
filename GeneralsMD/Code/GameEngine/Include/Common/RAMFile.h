@@ -100,6 +100,7 @@ class RAMFile : public File
 
 		virtual Bool	open( File *file );																	///< Open file for fast RAM access
 		virtual Bool	openFromArchive(File *archiveFile, const AsciiString& filename, Int offset, Int size); ///< copy file data from the given file at the given offset for the given size.
+		virtual Bool	openFromMemory(const Char *data, Int size, const AsciiString& filename); ///< read a block somebody else is holding, for a file that was never on a disk
 		virtual Bool	copyDataToFile(File *localFile);										///< write the contents of the RAM file to the given local file.  This could be REALLY slow.
 
 		/**

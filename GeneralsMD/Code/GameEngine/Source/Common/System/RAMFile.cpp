@@ -236,8 +236,40 @@ Bool RAMFile::openFromArchive(File *archiveFile, const AsciiString& filename, In
 	return TRUE;
 }
 
+//============================================================================
+// RAMFile::openFromMemory
+//============================================================================
+/**
+	* Take a copy of a block somebody else is holding and read from that, so a file that was never
+	* on a disk - a map built from a seed, say - opens the way every other file opens.
+	*/
+//============================================================================
+Bool RAMFile::openFromMemory( const Char *data, Int size, const AsciiString& filename )
+{
+	if (data == NULL || size <= 0) {
+		return FALSE;
+	}
+
+	if (File::open(filename.str(), File::READ | File::BINARY) == FALSE) {
+		return FALSE;
+	}
+
+	if (m_data != NULL) {
+		delete[] m_data;
+		m_data = NULL;
+	}
+
+	m_data = MSGNEW("RAMFILE") Char [size];	// pool[]ify
+	m_size = size;
+	m_pos = 0;
+	memcpy(m_data, data, size);
+	m_nameStr = filename;
+
+	return TRUE;
+}
+
 //=================================================================
-// RAMFile::close 	
+// RAMFile::close
 //=================================================================
 /**
 	* Closes the current file if it is open.

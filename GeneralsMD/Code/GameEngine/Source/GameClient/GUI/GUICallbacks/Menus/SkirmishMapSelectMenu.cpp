@@ -113,9 +113,9 @@ static void addRandomMapRows( GameWindow *listbox )
 	}
 }
 
-/** Generate a map, write it where the map cache looks, and hand back its path.  The seed comes off
-	the clock: this is the client picking a map, not the simulation, so it may be as random as the
-	player expects a reroll to be. */
+/** Generate a map, keep it where the map cache will find it, and hand back its path.  The seed
+	comes off the clock: this is the client picking a map, not the simulation, so it may be as
+	random as the player expects a reroll to be. */
 static Bool generateRandomMapForSkirmish( RandomMapSize size, AsciiString& mapPathOut )
 {
 	RandomMapSettings settings;
@@ -123,7 +123,7 @@ static Bool generateRandomMapForSkirmish( RandomMapSize size, AsciiString& mapPa
 	settings.m_numPlayers = RandomMapGenerator::MAX_PLAYERS;
 	settings.m_playableCells = RandomMapGenerator::cellsFor( size, settings.m_numPlayers );
 
-	if( !writeRandomMap( settings, mapPathOut ) )
+	if( !stageRandomMap( settings, mapPathOut ) )
 		return FALSE;
 
 	mapPathOut.toLower();
@@ -642,8 +642,8 @@ WindowMsgHandledType SkirmishMapSelectMenuSystem( GameWindow *window, UnsignedIn
 					const char *mapFname = (const char *)GadgetListBoxGetItemData( mapWindow, selected );
 					DEBUG_ASSERTCRASH(mapFname, ("No map item data"));
 
-					// Choosing a random map row is the reroll: a fresh seed, a fresh map on
-					// disk at the size the row asks for, and the map cache reloaded so the rest
+					// Choosing a random map row is the reroll: a fresh seed, a fresh map built in
+					// memory at the size the row asks for, and the map cache reloaded so the rest
 					// of this runs unchanged.
 					RandomMapSize randomSize = randomMapSizeOfRow( mapFname );
 					if( randomSize != RANDOM_MAP_SIZE_COUNT )
