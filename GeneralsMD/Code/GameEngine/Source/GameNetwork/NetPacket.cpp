@@ -144,6 +144,8 @@ NetCommandRef * NetPacket::ConstructNetCommandMsgFromRawData(UnsignedByte *data,
 				msg = readDisconnectScreenOffMessage(data, offset);
 			} else if (commandType == NETCOMMANDTYPE_FRAMERESENDREQUEST) {
 				msg = readFrameResendRequestMessage(data, offset);
+			} else if (commandType == NETCOMMANDTYPE_ALLYCURSOR) {
+				msg = readAllyCursorMessage(data, offset);
 			}
 
 			msg->setExecutionFrame(frame);
@@ -308,6 +310,8 @@ UnsignedInt NetPacket::GetBufferSizeNeededForCommand(NetCommandMsg *msg) {
 			return GetDisconnectScreenOffCommandSize(msg);
 		case NETCOMMANDTYPE_FRAMERESENDREQUEST:
 			return GetFrameResendRequestCommandSize(msg);
+		case NETCOMMANDTYPE_ALLYCURSOR:
+			return GetAllyCursorCommandSize(msg);
 		default:
 			DEBUG_CRASH(("Unknown NETCOMMANDTYPE %d", msg->getNetCommandType()));
 			break;
@@ -758,6 +762,19 @@ UnsignedInt NetPacket::GetFrameResendRequestCommandSize(NetCommandMsg *msg) {
 	return msglen;
 }
 
+UnsignedInt NetPacket::GetAllyCursorCommandSize(NetCommandMsg *msg) {
+	UnsignedInt msglen = 0;
+	msglen += sizeof(UnsignedByte) + sizeof(UnsignedByte);	// 'T' and command type
+	msglen += sizeof(UnsignedByte) + sizeof(UnsignedByte);	// 'P' and player ID
+	msglen += sizeof(UnsignedByte) + sizeof(UnsignedShort); // 'C' and command ID
+	msglen += sizeof(UnsignedByte) + sizeof(UnsignedByte);	// 'R' and relay
+
+	++msglen; // 'D'
+	msglen += sizeof(Real) + sizeof(Real); // where on the map the cursor is
+
+	return msglen;
+}
+
 // this function assumes that buffer is already the correct size.
 void NetPacket::FillBufferWithCommand(UnsignedByte *buffer, NetCommandRef *ref) {
 	NetCommandMsg *msg = ref->getCommand();
@@ -837,6 +854,9 @@ void NetPacket::FillBufferWithCommand(UnsignedByte *buffer, NetCommandRef *ref) 
 			break;
 		case NETCOMMANDTYPE_FRAMERESENDREQUEST:
 			FillBufferWithFrameResendRequestMessage(buffer, ref);
+			break;
+		case NETCOMMANDTYPE_ALLYCURSOR:
+			FillBufferWithAllyCursorMessage(buffer, ref);
 			break;
 		default:
 			DEBUG_CRASH(("Unknown NETCOMMANDTYPE %d", msg->getNetCommandType()));
@@ -1919,6 +1939,48 @@ void NetPacket::FillBufferWithFrameResendRequestMessage(UnsignedByte *buffer, Ne
 	offset += sizeof(frameToResend);
 }
 
+void NetPacket::FillBufferWithAllyCursorMessage(UnsignedByte *buffer, NetCommandRef *msg) {
+	NetAllyCursorCommandMsg *cmdMsg = (NetAllyCursorCommandMsg *)(msg->getCommand());
+	UnsignedInt offset = 0;
+
+	// command type
+	buffer[offset] = 'T';
+	++offset;
+	buffer[offset] = cmdMsg->getNetCommandType();
+	offset += sizeof(UnsignedByte);
+
+	// relay
+	buffer[offset] = 'R';
+	++offset;
+	buffer[offset] = msg->getRelay();
+	offset += sizeof(UnsignedByte);
+
+	// player ID
+	buffer[offset] = 'P';
+	++offset;
+	buffer[offset] = cmdMsg->getPlayerID();
+	offset += sizeof(UnsignedByte);
+
+	// command ID
+	buffer[offset] = 'C';
+	++offset;
+	UnsignedShort newID = cmdMsg->getID();
+	memcpy(buffer + offset, &newID, sizeof(newID));
+	offset += sizeof(newID);
+
+	// data
+	buffer[offset] = 'D';
+	++offset;
+
+	Real x = cmdMsg->getX();
+	memcpy(buffer + offset, &x, sizeof(x));
+	offset += sizeof(x);
+
+	Real y = cmdMsg->getY();
+	memcpy(buffer + offset, &y, sizeof(y));
+	offset += sizeof(y);
+}
+
 
 /**
  * Constructor
@@ -2055,6 +2117,8 @@ Bool NetPacket::addCommand(NetCommandRef *msg) {
 			return addDisconnectScreenOffCommand(msg);
 		case NETCOMMANDTYPE_FRAMERESENDREQUEST:
 			return addFrameResendRequestCommand(msg);
+		case NETCOMMANDTYPE_ALLYCURSOR:
+			return addAllyCursorCommand(msg);
 		default:
 			DEBUG_CRASH(("Unknown NETCOMMANDTYPE %d", cmdMsg->getNetCommandType()));
 			break;
@@ -2177,6 +2241,109 @@ Bool NetPacket::isRoomForFrameResendRequestMessage(NetCommandRef *msg) {
 
 	++len; // for 'D'
 	len += sizeof(UnsignedInt); // for the frame to be resent
+	if ((len + m_packetLen) > MAX_PACKET_SIZE) {
+		return FALSE;
+	}
+	return TRUE;
+}
+
+/**
+ * Add an ally cursor position to the packet.  No execution frame goes with it: nothing waits for
+ * this command, it is drawn the moment it lands and replaced by the next one.
+ */
+Bool NetPacket::addAllyCursorCommand(NetCommandRef *msg) {
+	Bool needNewCommandID = FALSE;
+	if (isRoomForAllyCursorMessage(msg)) {
+		NetAllyCursorCommandMsg *cmdMsg = (NetAllyCursorCommandMsg *)(msg->getCommand());
+
+		// If necessary, put the NetCommandType into the packet.
+		if (m_lastCommandType != cmdMsg->getNetCommandType()) {
+			m_packet[m_packetLen] = 'T';
+			++m_packetLen;
+			m_packet[m_packetLen] = cmdMsg->getNetCommandType();
+			m_packetLen += sizeof(UnsignedByte);
+
+			m_lastCommandType = cmdMsg->getNetCommandType();
+		}
+
+		// If necessary, put the relay into the packet.
+		if (m_lastRelay != msg->getRelay()) {
+			m_packet[m_packetLen] = 'R';
+			++m_packetLen;
+			UnsignedByte newRelay = msg->getRelay();
+			memcpy(m_packet + m_packetLen, &newRelay, sizeof(UnsignedByte));
+			m_packetLen += sizeof(UnsignedByte);
+
+			m_lastRelay = newRelay;
+		}
+
+		// If necessary put the player ID into the packet.
+		if (m_lastPlayerID != cmdMsg->getPlayerID()) {
+			m_packet[m_packetLen] = 'P';
+			++m_packetLen;
+			m_packet[m_packetLen] = cmdMsg->getPlayerID();
+			m_packetLen += sizeof(UnsignedByte);
+
+			m_lastPlayerID = cmdMsg->getPlayerID();
+			needNewCommandID = TRUE;
+		}
+
+		// If necessary, specify the command ID of this command.
+		if (((m_lastCommandID + 1) != (UnsignedShort)(cmdMsg->getID())) || (needNewCommandID == TRUE)) {
+			m_packet[m_packetLen] = 'C';
+			++m_packetLen;
+			UnsignedShort newID = cmdMsg->getID();
+			memcpy(m_packet + m_packetLen, &newID, sizeof(UnsignedShort));
+			m_packetLen += sizeof(UnsignedShort);
+		}
+		m_lastCommandID = cmdMsg->getID();
+
+		m_packet[m_packetLen] = 'D';
+		++m_packetLen;
+
+		Real x = cmdMsg->getX();
+		memcpy(m_packet + m_packetLen, &x, sizeof(x));
+		m_packetLen += sizeof(x);
+
+		Real y = cmdMsg->getY();
+		memcpy(m_packet + m_packetLen, &y, sizeof(y));
+		m_packetLen += sizeof(y);
+
+		++m_numCommands;
+		if (m_lastCommand != NULL) {
+			m_lastCommand->deleteInstance();
+			m_lastCommand = NULL;
+		}
+		m_lastCommand = NEW_NETCOMMANDREF(msg->getCommand());
+		m_lastCommand->setRelay(msg->getRelay());
+
+		return TRUE;
+	}
+	return FALSE;
+}
+
+Bool NetPacket::isRoomForAllyCursorMessage(NetCommandRef *msg) {
+	Int len = 0;
+	Bool needNewCommandID = FALSE;
+	NetAllyCursorCommandMsg *cmdMsg = (NetAllyCursorCommandMsg *)(msg->getCommand());
+	if (m_lastCommandType != cmdMsg->getNetCommandType()) {
+		++len;
+		len += sizeof(UnsignedByte);
+	}
+	if (m_lastRelay != msg->getRelay()) {
+		len += sizeof(UnsignedByte) + sizeof(UnsignedByte);
+	}
+	if (m_lastPlayerID != cmdMsg->getPlayerID()) {
+		++len;
+		len += sizeof(UnsignedByte);
+		needNewCommandID = TRUE;
+	}
+	if (((m_lastCommandID + 1) != (UnsignedShort)(cmdMsg->getID())) || (needNewCommandID == TRUE)) {
+		len += sizeof(UnsignedShort) + sizeof(UnsignedByte);
+	}
+
+	++len; // for 'D'
+	len += sizeof(Real) + sizeof(Real); // for the position
 	if ((len + m_packetLen) > MAX_PACKET_SIZE) {
 		return FALSE;
 	}
@@ -5108,6 +5275,9 @@ NetCommandList * NetPacket::getCommandList() {
 				DEBUG_LOG(("read frame resend request message from player %d\n", playerID));
 				msg = readFrameResendRequestMessage(m_packet, i);
 				break;
+			case NETCOMMANDTYPE_ALLYCURSOR:
+				msg = readAllyCursorMessage(m_packet, i);
+				break;
 			}
 
 			if (msg == NULL) {
@@ -5830,6 +6000,25 @@ NetCommandMsg * NetPacket::readFrameResendRequestMessage(UnsignedByte *data, Int
 	memcpy(&frameToResend, data + i, sizeof(frameToResend));
 	i += sizeof(frameToResend);
 	msg->setFrameToResend(frameToResend);
+
+	return msg;
+}
+
+/**
+ * Reads the ally cursor message at this position in the packet.
+ */
+NetCommandMsg * NetPacket::readAllyCursorMessage(UnsignedByte *data, Int &i) {
+	NetAllyCursorCommandMsg *msg = newInstance(NetAllyCursorCommandMsg);
+
+	Real x = 0.0f;
+	memcpy(&x, data + i, sizeof(x));
+	i += sizeof(x);
+
+	Real y = 0.0f;
+	memcpy(&y, data + i, sizeof(y));
+	i += sizeof(y);
+
+	msg->setPosition(x, y);
 
 	return msg;
 }

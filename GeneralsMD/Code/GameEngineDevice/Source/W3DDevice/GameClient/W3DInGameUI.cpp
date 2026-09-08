@@ -30,6 +30,8 @@
 #include <stdlib.h>
 
 #include "Common/GlobalData.h"
+#include "Common/Player.h"
+#include "Common/PlayerList.h"
 #include "Common/ThingTemplate.h"
 #include "Common/ThingFactory.h"
 #include "GameLogic/AI.h"
@@ -37,8 +39,11 @@
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
+#include "GameClient/DisplayStringManager.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/GadgetListBox.h"
+#include "GameClient/GlobalLanguage.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/GameClient.h"
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/GadgetSlider.h"
@@ -283,6 +288,9 @@ W3DInGameUI::W3DInGameUI()
 	m_buildingPlacementAnchor = NULL;
 	m_buildingPlacementArrow = NULL;
 
+	for( Int i = 0; i < MAX_PLAYER_COUNT; ++i )
+		m_allyCursorNames[ i ] = NULL;
+
 }  // end W3DInGameUI
 
 //-------------------------------------------------------------------------------------------------
@@ -291,6 +299,13 @@ W3DInGameUI::~W3DInGameUI()
 {
 	REF_PTR_RELEASE( m_buildingPlacementAnchor );
 	REF_PTR_RELEASE( m_buildingPlacementArrow );
+
+	for( Int i = 0; i < MAX_PLAYER_COUNT; ++i )
+		if( m_allyCursorNames[ i ] )
+		{
+			TheDisplayStringManager->freeDisplayString( m_allyCursorNames[ i ] );
+			m_allyCursorNames[ i ] = NULL;
+		}
 
 }  // end ~W3DInGameUI
 
@@ -393,6 +408,9 @@ void W3DInGameUI::draw( void )
 
 	// and where everything selected is headed, drag or no drag
 	drawOrderHints();
+
+	// where the allies are pointing, which is the one thing on this screen somebody else is doing
+	drawAllyCursors();
 
 	// the attack circle, while the left button is still sweeping it out
 	if( isAttackCircling() )
@@ -1141,6 +1159,152 @@ void W3DInGameUI::drawOrderHints( void )
 	}
 
 }  // end drawOrderHints
+
+//-------------------------------------------------------------------------------------------------
+/** A patch of the ally's own colour on the ground under their cursor.  It is a fan of rings whose
+	* alpha falls to nothing at the rim, drawn in the terrain pass like the attack circle's wash, so
+	* units and buildings stand on top of it and it reads as light on the map rather than as a disc
+	* hanging over it.
+	*
+	* Faint on purpose: seven of these at full strength would be seven holes in the map. */
+//-------------------------------------------------------------------------------------------------
+void W3DInGameUI::drawAllyCursorLights( void )
+{
+	if( !TheGlobalData->m_showAllyCursors )
+		return;
+
+	enum { LIGHT_SEGMENTS = 20, LIGHT_RINGS = 5 };
+	const Real LIGHT_RADIUS = 55.0f;		// about three tanks across, so it reads at the zoom people play at
+	const Real LIGHT_LIFT = 0.35f;			// the same hair off the dirt the attack circle's wash takes
+	const Real LIGHT_CENTRE_ALPHA = 0x78;
+
+	Bool stateSet = FALSE;
+
+	for( Int playerIndex = 0; playerIndex < MAX_PLAYER_COUNT; ++playerIndex )
+	{
+		const Real fade = getAllyCursorFade( playerIndex );
+		if( fade <= 0.0f )
+			continue;
+
+		// a cursor is only ever known for a player who was found and vouched for on the way in
+		Player *player = ThePlayerList->getNthPlayer( playerIndex );
+
+		const Coord3D& centre = getAllyCursor( playerIndex ).shown;
+		const UnsignedInt rgb = (UnsignedInt)clientPlayerColor( player ) & 0x00FFFFFF;
+
+		Vector3 ring[ LIGHT_RINGS + 1 ][ LIGHT_SEGMENTS + 1 ];
+		Int r, s;
+		for( r = 0; r <= LIGHT_RINGS; ++r )
+		{
+			const Real ringRadius = LIGHT_RADIUS * (Real)r / (Real)LIGHT_RINGS;
+			for( s = 0; s <= LIGHT_SEGMENTS; ++s )
+			{
+				const Real angle = 2.0f * PI * (Real)s / (Real)LIGHT_SEGMENTS;
+				const Real x = centre.x + ringRadius * (Real)cos( angle );
+				const Real y = centre.y + ringRadius * (Real)sin( angle );
+				ring[ r ][ s ].Set( x, y, TheTerrainLogic->getGroundHeight( x, y ) + LIGHT_LIFT );
+			}
+		}
+
+		// the alpha of ring r, so the patch is brightest under the pointer and gone at the rim.  The
+		// falloff holds its strength through the middle and then drops, which is what a pool of light
+		// looks like; a straight ramp reads as a flat disc with a hard edge
+		UnsignedInt ringColor[ LIGHT_RINGS + 1 ];
+		for( r = 0; r <= LIGHT_RINGS; ++r )
+		{
+			const Real across = (Real)r / (Real)LIGHT_RINGS;
+			const Real remaining = 1.0f - across;
+			ringColor[ r ] = overlayColor( rgb, LIGHT_CENTRE_ALPHA * fade * remaining * remaining * ( 3.0f - 2.0f * remaining ) );
+		}
+
+		// one render state for all of them, and only if there turned out to be something to draw
+		if( stateSet == FALSE )
+		{
+			setGroundOverlayState();
+			stateSet = TRUE;
+		}
+
+		GroundOverlayQuads &quads = theGroundOverlayQuads;
+
+		// the innermost band is a fan around the centre point, two segments to a quad - running it
+		// through the ring loop below would give every second triangle no area at all
+		for( s = 0; s < LIGHT_SEGMENTS; s += 2 )
+		{
+			quads.add( ring[ 0 ][ 0 ], ring[ 1 ][ s ], ring[ 1 ][ s + 1 ], ring[ 1 ][ s + 2 ],
+								 ringColor[ 0 ], ringColor[ 1 ], ringColor[ 1 ], ringColor[ 1 ] );
+		}
+
+		for( r = 1; r < LIGHT_RINGS; ++r )
+		{
+			for( s = 0; s < LIGHT_SEGMENTS; ++s )
+			{
+				quads.add( ring[ r ][ s ], ring[ r + 1 ][ s ], ring[ r + 1 ][ s + 1 ], ring[ r ][ s + 1 ],
+									 ringColor[ r ], ringColor[ r + 1 ], ringColor[ r + 1 ], ringColor[ r ] );
+			}
+		}
+	}
+
+	if( stateSet )
+		theGroundOverlayQuads.flush();
+
+}  // end drawAllyCursorLights
+
+//-------------------------------------------------------------------------------------------------
+/** Each ally's mouse, drawn as their name in their own colour sitting in the middle of the pool of
+	* light on the ground under it.  No pointer: a second arrow on screen is read as your own for the
+	* half second it takes to notice it is not, and the name is the part that says whose it is.
+	*
+	* An ally who stops sending - alt-tabbed, or dropped - fades out rather than vanishing, which is
+	* the difference between "they went away" and "the network hiccuped". */
+//-------------------------------------------------------------------------------------------------
+void W3DInGameUI::drawAllyCursors( void )
+{
+	if( !TheGlobalData->m_showAllyCursors )
+		return;
+
+	const Int NAME_POINT_SIZE = 10;
+
+	for( Int playerIndex = 0; playerIndex < MAX_PLAYER_COUNT; ++playerIndex )
+	{
+		const Real fade = getAllyCursorFade( playerIndex );
+		if( fade <= 0.0f )
+			continue;
+
+		// a cursor is only ever known for a player who was found and vouched for on the way in
+		Player *player = ThePlayerList->getNthPlayer( playerIndex );
+
+		// a cursor off the side of the screen still has a usable pixel; only one behind the camera
+		// has not, which is the one case worldToScreenTriReturn calls invalid
+		ICoord2D screen;
+		if( TheTacticalView->worldToScreenTriReturn( &getAllyCursor( playerIndex ).shown, &screen ) == View::WTS_INVALID )
+			continue;
+
+		const UnsignedInt alpha = (UnsignedInt)REAL_TO_INT( 255.0f * fade );
+		const UnsignedInt rgb = (UnsignedInt)clientPlayerColor( player ) & 0x00FFFFFF;
+		const Color tint = (Color)( rgb | ( alpha << 24 ) );
+		const Color dropColor = GameMakeColor( 0, 0, 0, (UnsignedByte)alpha );
+
+		if( m_allyCursorNames[ playerIndex ] == NULL )
+		{
+			m_allyCursorNames[ playerIndex ] = TheDisplayStringManager->newDisplayString();
+			m_allyCursorNames[ playerIndex ]->setFont( TheWindowManager->winFindFont(
+																AsciiString( "Arial" ),
+																TheGlobalLanguageData->adjustFontSize( NAME_POINT_SIZE ), TRUE ) );
+		}
+
+		// set every frame: a player who is destroyed or renamed mid-match should not keep a stale plate
+		m_allyCursorNames[ playerIndex ]->setText( player->getPlayerDisplayName() );
+
+		// centred on the reported spot in both directions, so the name sits in the middle of its own
+		// pool of light and the two together are the marker
+		Int nameWidth = 0, nameHeight = 0;
+		m_allyCursorNames[ playerIndex ]->getSize( &nameWidth, &nameHeight );
+		m_allyCursorNames[ playerIndex ]->draw( screen.x - nameWidth / 2,
+																						screen.y - nameHeight / 2,
+																						tint, dropColor );
+	}
+
+}  // end drawAllyCursors
 
 //-------------------------------------------------------------------------------------------------
 /** Draw visual back for clicking to attack a unit in the world */

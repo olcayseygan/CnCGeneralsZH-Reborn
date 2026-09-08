@@ -128,6 +128,7 @@ public:
 
 	void sendChat(UnicodeString text, Int playerMask);
 	void sendDisconnectChat(UnicodeString text);
+	void sendAllyCursor(Real x, Real y, Int playerMask);
 
 	void sendFile(AsciiString path, UnsignedByte playerMask, UnsignedShort commandID);
 	UnsignedShort sendFileAnnounce(AsciiString path, UnsignedByte playerMask);
@@ -911,6 +912,13 @@ void Network::sendChat(UnicodeString text, Int playerMask) {
  */
 void Network::sendDisconnectChat(UnicodeString text) {
 	m_conMgr->sendDisconnectChat(text);
+}
+
+/**
+ * Tells the players in the mask where the local mouse is pointing.
+ */
+void Network::sendAllyCursor(Real x, Real y, Int playerMask) {
+	m_conMgr->sendAllyCursor(x, y, playerMask);
 }
 
 // send a file.  woohoo.

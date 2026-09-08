@@ -340,7 +340,28 @@ protected:
 };
 
 //-----------------------------------------------------------------------------
-class NetDisconnectVoteCommandMsg : public NetCommandMsg 
+/**
+ * Where one player's mouse is pointing on the ground, so the players allied with them can see it.
+ * Two coordinates and nothing else: the height comes off the receiver's own terrain, which both
+ * machines already agree about, and the name and colour come from the player the slot belongs to.
+ */
+class NetAllyCursorCommandMsg : public NetCommandMsg
+{
+	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(NetAllyCursorCommandMsg, "NetAllyCursorCommandMsg")
+public:
+	NetAllyCursorCommandMsg();
+
+	Real getX();
+	Real getY();
+	void setPosition( Real x, Real y );
+
+protected:
+	Real m_x;
+	Real m_y;
+};
+
+//-----------------------------------------------------------------------------
+class NetDisconnectVoteCommandMsg : public NetCommandMsg
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(NetDisconnectVoteCommandMsg, "NetDisconnectVoteCommandMsg")		
 public:

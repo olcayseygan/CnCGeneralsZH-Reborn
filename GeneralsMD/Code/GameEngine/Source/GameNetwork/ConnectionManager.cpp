@@ -547,10 +547,15 @@ Bool ConnectionManager::processNetCommand(NetCommandRef *ref) {
 		return FALSE;
 	}
 
+	if (msg->getNetCommandType() == NETCOMMANDTYPE_ALLYCURSOR) {
+		processAllyCursor((NetAllyCursorCommandMsg *)msg);
+		return FALSE;
+	}
+
 	if (msg->getNetCommandType() == NETCOMMANDTYPE_CHAT) {
 		processChat((NetChatCommandMsg *)msg);
 		return FALSE;
-	} 
+	}
 
 	if (msg->getNetCommandType() == NETCOMMANDTYPE_FILE) {
 		processFile((NetFileCommandMsg *)msg);
@@ -2215,6 +2220,45 @@ void ConnectionManager::sendChat(UnicodeString text, Int playerMask, UnsignedInt
 	processChat(msg);
 
 	msg->detach();
+}
+
+/**
+ * Tell the players in the mask where the local mouse is pointing.  Nothing acks this and nothing
+ * resends it: a lost one is replaced by the next, a tenth of a second later.  The mask is built by
+ * the caller from the local player's own alliances, so an enemy is never sent one at all.
+ */
+void ConnectionManager::sendAllyCursor(Real x, Real y, Int playerMask)
+{
+	NetAllyCursorCommandMsg *msg = newInstance(NetAllyCursorCommandMsg);
+	msg->setPosition(x, y);
+	msg->setPlayerID(m_localSlot);
+	msg->setID(0);
+	msg->setExecutionFrame(0);
+
+	sendLocalCommand(msg, (UnsignedByte)(playerMask & (0xff ^ (1 << m_localSlot))));
+
+	msg->detach();
+}
+
+/**
+ * Remember where an ally says their cursor is.  The height is not on the wire - the terrain both
+ * machines loaded answers that - and the name and colour come from the player the slot belongs to.
+ */
+void ConnectionManager::processAllyCursor(NetAllyCursorCommandMsg *msg)
+{
+	const UnsignedByte playerID = msg->getPlayerID();
+	if (playerID >= MAX_SLOTS) {
+		return;
+	}
+
+	AsciiString playerName;
+	playerName.format("player%d", playerID);
+	const Player *player = ThePlayerList->findPlayerWithNameKey( TheNameKeyGenerator->nameToKey( playerName ) );
+	if (player == NULL) {
+		return;
+	}
+
+	TheInGameUI->noteAllyCursor( player->getPlayerIndex(), msg->getX(), msg->getY() );
 }
 
 void ConnectionManager::sendDisconnectChat(UnicodeString text) {

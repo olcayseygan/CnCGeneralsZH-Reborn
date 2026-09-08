@@ -66,6 +66,7 @@ public:
 	void parseUserList(const GameInfo *game);
 	void sendChat(UnicodeString text, Int playerMask, UnsignedInt executionFrame);
 	void sendDisconnectChat(UnicodeString text);
+	void sendAllyCursor(Real x, Real y, Int playerMask);		///< Tell the players in the mask where the local mouse is pointing.
 	void sendLocalCommand(NetCommandMsg *msg, UnsignedByte relay = 0xff);		///< Send command to the players specified in the relay, goes through packet router.
 	void sendLocalCommandDirect(NetCommandMsg *msg, UnsignedByte relay);		///< Send command directly to the players specified, doesn't go through packet router.
 	void sendLocalGameMessage(GameMessage *msg, UnsignedInt frame);
@@ -168,6 +169,7 @@ private:
 	void processFrameInfo(NetFrameCommandMsg *msg);
 	void processRunAheadMetrics(NetRunAheadMetricsCommandMsg *msg);
 	void processDisconnectChat(NetDisconnectChatCommandMsg *msg);
+	void processAllyCursor(NetAllyCursorCommandMsg *msg);
 	void processProgress( NetProgressCommandMsg *msg );
 	void processLoadComplete( NetCommandMsg *msg );
 	void processTimeOutGameStart( NetCommandMsg *msg );

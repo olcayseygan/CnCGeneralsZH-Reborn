@@ -612,6 +612,7 @@ static PoolSizeRec sizes[] =
 	{ "NetPacketRouterAckCommandMsg", 32, 32 },
 	{ "NetDisconnectChatCommandMsg", 32, 32 },
 	{ "NetChatCommandMsg", 32, 32 },
+	{ "NetAllyCursorCommandMsg", 32, 32 },
 	{ "NetDisconnectVoteCommandMsg", 32, 32 },
 	{ "NetProgressCommandMsg", 32, 32 },
 	{ "NetWrapperCommandMsg", 32, 32 },

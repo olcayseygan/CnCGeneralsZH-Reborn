@@ -447,6 +447,20 @@ public:  // ********************************************************************
 	};
 	const std::vector<OrderHint>& getOrderHints( void ) const { return m_orderHints; }
 
+	// Where each ally's mouse is pointing.  A network game only: the position arrives about ten
+	// times a second on a side channel of its own, carries nothing the simulation reads, and is
+	// never acked or resent, so a lost one costs a tenth of a second of staleness and nothing else.
+	struct AllyCursor
+	{
+		Coord3D			position;			///< the last spot that ally reported
+		Coord3D			shown;				///< eased towards it, so ten updates a second do not read as ten steps
+		UnsignedInt	heardMs;			///< wall clock of that report, for the fade when an ally stops sending
+		Bool				known;				///< FALSE until the first report of the match arrives
+	};
+	void noteAllyCursor( Int playerIndex, Real x, Real y );		///< an ally said where their mouse is
+	const AllyCursor& getAllyCursor( Int playerIndex ) const { return m_allyCursors[ playerIndex ]; }
+	Real getAllyCursorFade( Int playerIndex ) const;					///< 0 when there is nothing to draw, 1 for a live cursor
+
 	// A circle dragged out with the left button while the attack key is armed.  Everything hostile
 	// and visible inside it joins the shift queue below, and the selection works down that list one
 	// target at a time: the next one is ordered the moment the current one stops existing.
@@ -999,6 +1013,10 @@ public:
 	/** The wash inside the attack circle, on the ground for the same reason: the units being swept
 		* up stand on top of it instead of being painted over. */
 	virtual void drawAttackCircleFill( void ) { }
+
+	/** The patch of an ally's own colour lying under their cursor.  On the ground so that it reads
+		* as light falling on the map rather than as a disc floating over it. */
+	virtual void drawAllyCursorLights( void ) { }
 protected:
 
 	void clearWorldAnimations( void );					///< delete all world animations
@@ -1027,6 +1045,17 @@ protected:
 	std::vector<ICoord2D>				m_formationDragPoints;												///< the traced curve, in pixels, first point is where it started
 	Int													m_formationDragSpacing;												///< pixels a new point has to earn, doubled each time the curve fills up
 	std::vector<OrderHint>			m_orderHints;																	///< who is going where, for drawing
+
+	AllyCursor									m_allyCursors[ MAX_PLAYER_COUNT ];						///< where every ally's mouse was last seen (fork)
+	UnsignedInt									m_allyCursorSentMs;														///< wall clock of the last position this machine sent
+	Coord3D											m_allyCursorSentPosition;											///< and what it said, so a still mouse sends nothing
+	UnsignedInt									m_allyCursorEasedMs;													///< wall clock of the last easing pass, which sets its step
+
+	void clearAllyCursors( void );															///< forget every ally's marker, for the start of a match
+	void updateAllyCursors( void );															///< ease every ally's marker towards where they said it was
+	void sendLocalAllyCursor( void );														///< tell the allies where this machine's mouse is, at most ten times a second
+	Int allyPlayerMask( void ) const;														///< the slots this machine is allied with
+	Bool isAllyOfLocalPlayer( Int playerIndex ) const;					///< is this player mutually allied with the one at this machine
 
 	Bool												m_isAttackCircling;														///< TRUE while an attack circle is being dragged (fork)
 	ICoord2D										m_attackCircleAnchor;													///< where the circle was started, in pixels

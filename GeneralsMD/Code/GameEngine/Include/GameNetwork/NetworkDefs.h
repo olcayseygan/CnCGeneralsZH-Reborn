@@ -162,6 +162,8 @@ enum NetCommandType {
 	NETCOMMANDTYPE_FILEANNOUNCE,
 	NETCOMMANDTYPE_FILEPROGRESS,
 	NETCOMMANDTYPE_FRAMERESENDREQUEST,
+	NETCOMMANDTYPE_ALLYCURSOR,			// Where an ally's mouse is pointing.  Carries no game state and
+																	// is never acked or resent - a lost one is replaced 100ms later.
 
 	// Disconnect menu command section.
 	NETCOMMANDTYPE_DISCONNECTSTART,

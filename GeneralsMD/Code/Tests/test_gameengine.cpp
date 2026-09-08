@@ -4962,6 +4962,61 @@ TEST(an_overlong_chat_line_keeps_its_length_instead_of_wrapping_to_a_short_one)
 	ref->deleteInstance();
 }
 
+/* An ally cursor is two floats on a command of its own, and the packet writer and the packet
+	 reader are two separate hand-written walks over the same bytes - a field added to one and not
+	 the other reads the next command's header as position data.  So the round trip is pinned: what
+	 goes in comes out, on the right slot, as the right command type. */
+TEST(an_ally_cursor_survives_the_round_trip_through_a_packet)
+{
+	const Real sentX = 1234.5f;
+	const Real sentY = -678.25f;
+
+	NetAllyCursorCommandMsg *cursor = newInstance( NetAllyCursorCommandMsg );
+	cursor->setPosition( sentX, sentY );
+	cursor->setPlayerID( 3 );
+	cursor->setID( 0 );
+	cursor->setExecutionFrame( 0 );
+
+	NetCommandRef *ref = newInstance( NetCommandRef )( cursor );
+	ref->setRelay( 0x0F );
+	cursor->detach();								// the ref holds it now
+
+	NetPacket *packet = newInstance( NetPacket );
+	packet->init();
+	CHECK( packet->addCommand( ref ) );
+	CHECK_EQ( packet->getNumCommands(), 1 );
+
+	NetCommandList *list = packet->getCommandList();
+	NetCommandRef *read = list->getFirstMessage();
+	CHECK( read != NULL );
+	if( read )
+	{
+		NetCommandMsg *msg = read->getCommand();
+		CHECK_EQ( (Int)msg->getNetCommandType(), (Int)NETCOMMANDTYPE_ALLYCURSOR );
+		CHECK_EQ( (Int)msg->getPlayerID(), 3 );
+		CHECK_EQ( ((NetAllyCursorCommandMsg *)msg)->getX(), sentX );
+		CHECK_EQ( ((NetAllyCursorCommandMsg *)msg)->getY(), sentY );
+	}
+
+	list->deleteInstance();
+	packet->deleteInstance();
+	ref->deleteInstance();
+}
+
+/* Nothing about an ally cursor may reach the simulation: it is not acked, not resent, not held for
+	 a frame and not written to a replay.  The three predicates the network layer sorts commands by
+	 are where that is decided, so they are the thing to pin. */
+TEST(an_ally_cursor_is_never_acked_resent_or_frame_synchronised)
+{
+	NetAllyCursorCommandMsg *cursor = newInstance( NetAllyCursorCommandMsg );
+
+	CHECK( !DoesCommandRequireACommandID( NETCOMMANDTYPE_ALLYCURSOR ) );
+	CHECK( !IsCommandSynchronized( NETCOMMANDTYPE_ALLYCURSOR ) );
+	CHECK( !CommandRequiresAck( cursor ) );
+
+	cursor->detach();								// the constructor's own reference is the only one
+}
+
 /* addCommand's own guard against a null reference sat below the line that followed it, so the one
 	 call it exists to survive was the one call that crashed. */
 TEST(adding_a_null_command_to_a_packet_is_refused_not_followed)

@@ -45,6 +45,7 @@ OPTION_BOOL_ACCESSORS( m_edgeScrollInWindowedMode )
 OPTION_BOOL_ACCESSORS( m_snapCameraRotateTo45 )
 OPTION_BOOL_ACCESSORS( m_zoomToCursor )
 OPTION_BOOL_ACCESSORS( m_formationDrag )
+OPTION_BOOL_ACCESSORS( m_showAllyCursors )
 OPTION_INT_ACCESSORS( m_bloomIntensity )
 OPTION_INT_ACCESSORS( m_bloomThreshold )
 OPTION_INT_ACCESSORS( m_menuTransitionSpeed )
@@ -180,6 +181,13 @@ const OptionDef TheOptionCatalog[] =
 	{ "FormationDrag",						"", "",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_formationDrag, set_m_formationDrag },
+
+	// In a network game, each ally's mouse is drawn on the map with their name over it and a patch
+	// of their colour under it.  Off and neither end of it happens: nothing is sent and nothing is
+	// drawn, so a player who does not want to be watched turns it off on their own machine.
+	{ "ShowAllyCursors",					"", "",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_showAllyCursors, set_m_showAllyCursors },
 
 	// Percent of the speed the menu slides and fades were authored at. 100 is what the artists
 	// drew; higher gets you through the shell faster, and nothing about a menu animation is worth

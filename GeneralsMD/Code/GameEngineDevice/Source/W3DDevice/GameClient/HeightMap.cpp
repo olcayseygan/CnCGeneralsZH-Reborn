@@ -2163,6 +2163,9 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 		// and the wash inside an attack circle, for the same reason: the units it is sweeping up
 		// have to stand on top of it
 		TheInGameUI->drawAttackCircleFill();
+
+		// and the patch of colour under each ally's cursor, which is light falling on the map
+		TheInGameUI->drawAllyCursorLights();
 	}
 
 	// We do some custom blending, so tell the shader class to reset everything.

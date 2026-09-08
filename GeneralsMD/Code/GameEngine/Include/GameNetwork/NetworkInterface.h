@@ -79,6 +79,10 @@ public:
 	virtual void sendChat(UnicodeString text, Int playerMask) = 0;		///< Send a chat line using the normal system.
 	virtual void sendDisconnectChat(UnicodeString text) = 0;					///< Send a chat line using the disconnect manager.
 
+	/// Tell the players in the mask where the local mouse is pointing.  Unacked and unresent - a
+	/// lost one is replaced by the next.
+	virtual void sendAllyCursor(Real x, Real y, Int playerMask) = 0;
+
 	virtual void sendFile(AsciiString path, UnsignedByte playerMask, UnsignedShort commandID) = 0;
 	virtual UnsignedShort sendFileAnnounce(AsciiString path, UnsignedByte playerMask) = 0;
 	virtual Int getFileTransferProgress(Int playerID, AsciiString path) = 0;

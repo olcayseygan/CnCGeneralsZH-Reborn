@@ -478,6 +478,15 @@ found and fixed â€” EA's own, not port damage.**
 - Your screen only. Nobody else in the match sees your choice, nothing about the game itself changes, and two people in the same game can run different settings. Original is the default and nothing changes until you pick something else.
 - Switch it mid-match and the map repaints itself. So does the picture when an alliance is made or broken by a map script.
 
+## You can see where your ally is pointing
+
+- Your ally's mouse is on your map: a soft pool of their own player colour on the ground where it rests, with their name across the middle of it. No second arrow on your screen - one is confusing enough, and the name is the part that says whose it is.
+- Two people playing together spend half the match describing places to each other. "Behind the oil derrick, no, the other one" is a sentence nobody has to type when you can watch where they are pointing while they say it.
+- It moves the way a hand moves. Ten positions a second go over the wire and the marker glides between them, so what you see is somebody working rather than a marker teleporting around the map.
+- Allies only, and only mutual ones. Your position is sent to the players you are actually allied with and to nobody else; an enemy is never sent it at all, and a machine that has been made to send it anyway is ignored by everyone who is not your ally.
+- An ally who alt-tabs away fades out over a couple of seconds instead of freezing on the map, so a marker that is still there is a marker somebody is still behind.
+- Off in one place. `ShowAllyCursors = no` in `Options.ini` stops both halves: nothing is sent from your machine and nothing is drawn on it.
+
 ## The options screen has pages
 
 - Display, audio, controls, gameplay and network, behind five buttons across the top. The original screen was one panel with everything on it at once, and it was already full the day it shipped: the language filter, the keyboard button and four camera checkboxes are all still in there, parked off the right edge where nobody can reach them, because there was nowhere left to put them.

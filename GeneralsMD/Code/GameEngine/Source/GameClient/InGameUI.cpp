@@ -80,6 +80,8 @@
 #include "GameClient/Shadow.h"
 #include "GameClient/GlobalLanguage.h"
 
+#include "GameNetwork/NetworkInterface.h"
+
 #include "GameLogic/AIGuard.h"
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
@@ -1221,6 +1223,7 @@ InGameUI::InGameUI()
 	m_shiftAttackQueueEngagedFrame = 0;
 	m_shiftAttackQueueWaitingForRearm = FALSE;
 	m_shiftAttackQueueWaitingForSelection = FALSE;
+	clearAllyCursors();
 
 	m_curRcType = RADIUSCURSOR_NONE;
 	
@@ -2330,6 +2333,15 @@ void InGameUI::update( void )
 		TheTacticalView->zoomOut( cameraSteps );
 	}
 
+	//
+	// Where this machine's mouse is, for the allies, and where theirs were, for this screen.  Here
+	// rather than in preDraw because an ally's cursor is drawn twice: the patch of light goes down
+	// in the terrain pass and the pointer over the top of it afterwards, and preDraw runs between
+	// the two - so easing there moved the pointer a frame ahead of its own light, which on a fast
+	// drag is a smear trailing the marker by an inch.
+	//
+	sendLocalAllyCursor();
+	updateAllyCursors();
 
 }  // end update
 
@@ -2431,6 +2443,7 @@ void InGameUI::reset( void )
 	m_shiftAttackQueueEngagedFrame = 0;
 	m_shiftAttackQueueWaitingForRearm = FALSE;
 	m_shiftAttackQueueWaitingForSelection = FALSE;
+	clearAllyCursors();
 	m_clientQuiet    = false;
 
 	// TheSuperHackers @bugfix A key or button still held when the game ended left its camera
@@ -2686,6 +2699,211 @@ void InGameUI::addFormationDragPoint( const ICoord2D& pt )
 	}
 
 	updateFormationHints();
+}
+
+//-------------------------------------------------------------------------------------------------
+// Ally cursors.  Ten reports a second, on a network command of their own that carries two floats
+// and is never acked, resent or written to a replay - the simulation cannot see any of this, so
+// none of it can change what a match does.
+//
+// A cursor that has not been heard from for ALLY_CURSOR_HOLD_MS starts fading and is gone by
+// ALLY_CURSOR_GONE_MS, which is what an ally alt-tabbing away or dropping out looks like.
+//-------------------------------------------------------------------------------------------------
+static const UnsignedInt ALLY_CURSOR_SEND_INTERVAL_MS = 100;		///< ten a second, which reads as continuous once eased
+static const UnsignedInt ALLY_CURSOR_IDLE_RESEND_MS = 1000;		///< a still mouse still says so, or it would fade out
+static const UnsignedInt ALLY_CURSOR_HOLD_MS = 2500;					///< heard from this recently, drawn at full strength
+static const UnsignedInt ALLY_CURSOR_GONE_MS = 3500;					///< and faded out entirely by here
+static const Real ALLY_CURSOR_MOVED_DIST = 1.0f;							///< world units a cursor has to have moved to be worth a packet
+static const Real ALLY_CURSOR_EASE_MS = 110.0f;								///< how long the marker takes to catch up with a new report
+static const Real ALLY_CURSOR_JUMP_DIST = 400.0f;							///< further than this and it snaps instead: a camera jump is not a mouse move
+
+//-------------------------------------------------------------------------------------------------
+void InGameUI::clearAllyCursors( void )
+{
+	for( Int i = 0; i < MAX_PLAYER_COUNT; ++i )
+	{
+		m_allyCursors[ i ].position.zero();
+		m_allyCursors[ i ].shown.zero();
+		m_allyCursors[ i ].heardMs = 0;
+		m_allyCursors[ i ].known = FALSE;
+	}
+	m_allyCursorSentMs = 0;
+	m_allyCursorSentPosition.zero();
+	m_allyCursorEasedMs = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** One ally's mouse, as they last reported it.  The height is not on the wire: the terrain both
+	* machines loaded answers that, and reading it here means a cursor over a hill sits on the hill
+	* rather than at whatever height the sender's own camera happened to make of it. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::noteAllyCursor( Int playerIndex, Real x, Real y )
+{
+	if( !isValidPlayerIndex( playerIndex ) )
+		return;
+
+	//
+	// The sender addresses these to its allies, but the relay mask is not what decides who reads
+	// one: the packet router processes every command that passes through it on its way to somebody
+	// else, so without this the player holding that seat would watch the enemy's mouse.  The check
+	// belongs here anyway - a machine that has been made to send its cursor to everyone gets the
+	// same answer, because whether two players are allied is not the sender's to assert.
+	//
+	if( !isAllyOfLocalPlayer( playerIndex ) )
+		return;
+
+	AllyCursor& cursor = m_allyCursors[ playerIndex ];
+
+	cursor.position.x = x;
+	cursor.position.y = y;
+	cursor.position.z = TheTerrainLogic->getGroundHeight( x, y );
+	cursor.heardMs = timeGetTime();
+
+	// the first report of a match arrives wherever that ally is looking, which is nowhere near the
+	// origin the marker starts at - easing in from there would draw a line across the whole map
+	if( cursor.known == FALSE )
+	{
+		cursor.shown = cursor.position;
+		cursor.known = TRUE;
+		DEBUG_LOG(("ALLYCURSOR: first report from player %d at %.1f,%.1f\n", playerIndex, x, y));
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Is this player mutually allied with the one sitting at this machine.  One-sided alliances are
+	* not a partnership: a player who has declared for somebody who has not declared back does not get
+	* to watch them work. */
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::isAllyOfLocalPlayer( Int playerIndex ) const
+{
+	const Player *localPlayer = ThePlayerList->getLocalPlayer();
+	const Player *player = ThePlayerList->getNthPlayer( playerIndex );
+	if( localPlayer == NULL || player == NULL || player == localPlayer )
+		return FALSE;
+
+	if( !localPlayer->isPlayerActive() || !player->isPlayerActive() )
+		return FALSE;
+
+	return player->getRelationship( localPlayer->getDefaultTeam() ) == ALLIES &&
+				 localPlayer->getRelationship( player->getDefaultTeam() ) == ALLIES;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** How strongly an ally's cursor should be drawn, 0 for one that should not be drawn at all. */
+//-------------------------------------------------------------------------------------------------
+Real InGameUI::getAllyCursorFade( Int playerIndex ) const
+{
+	if( !isValidPlayerIndex( playerIndex ) )
+		return 0.0f;
+
+	const AllyCursor& cursor = m_allyCursors[ playerIndex ];
+	if( cursor.known == FALSE )
+		return 0.0f;
+
+	const UnsignedInt ageMs = timeGetTime() - cursor.heardMs;
+	if( ageMs >= ALLY_CURSOR_GONE_MS )
+		return 0.0f;
+	if( ageMs <= ALLY_CURSOR_HOLD_MS )
+		return 1.0f;
+
+	return 1.0f - (Real)( ageMs - ALLY_CURSOR_HOLD_MS ) / (Real)( ALLY_CURSOR_GONE_MS - ALLY_CURSOR_HOLD_MS );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Walk every marker towards the spot its owner last reported.  Ten reports a second drawn raw
+	* would step; eased over about a tenth of a second they read as one hand moving.  Wall clock
+	* rather than frames, because the picture is uncapped. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::updateAllyCursors( void )
+{
+	const UnsignedInt nowMs = timeGetTime();
+	const UnsignedInt elapsedMs = ( m_allyCursorEasedMs == 0 ) ? 0 : ( nowMs - m_allyCursorEasedMs );
+	m_allyCursorEasedMs = nowMs;
+
+	Real step = (Real)elapsedMs / ALLY_CURSOR_EASE_MS;
+	if( step > 1.0f )
+		step = 1.0f;
+
+	for( Int i = 0; i < MAX_PLAYER_COUNT; ++i )
+	{
+		AllyCursor& cursor = m_allyCursors[ i ];
+		if( cursor.known == FALSE )
+			continue;
+
+		Coord3D delta = cursor.position;
+		delta.sub( &cursor.shown );
+
+		if( delta.length() > ALLY_CURSOR_JUMP_DIST )
+		{
+			cursor.shown = cursor.position;
+			continue;
+		}
+
+		delta.scale( step );
+		cursor.shown.add( &delta );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The slots this machine is mutually allied with, its own left out.  An observer is allied with
+	* nobody, so the mask comes back empty and nothing is sent. */
+//-------------------------------------------------------------------------------------------------
+Int InGameUI::allyPlayerMask( void ) const
+{
+	Int mask = 0;
+	for( Int slot = 0; slot < MAX_SLOTS; ++slot )
+	{
+		// the network's slot numbers and the player list's indices are two different numberings, and
+		// "player<slot>" is the name that joins them - the same lookup in-game chat uses
+		AsciiString playerName;
+		playerName.format( "player%d", slot );
+		const Player *player = ThePlayerList->findPlayerWithNameKey( TheNameKeyGenerator->nameToKey( playerName ) );
+		if( player != NULL && isAllyOfLocalPlayer( player->getPlayerIndex() ) )
+			mask |= ( 1 << slot );
+	}
+
+	return mask;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Tell the allies where this machine's mouse is pointing, at most ten times a second, and only
+	* while it is over the map.  A mouse that has not moved still reports once a second, or the
+	* marker on the other screens would fade out while its owner sat thinking. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::sendLocalAllyCursor( void )
+{
+	if( !TheGlobalData->m_showAllyCursors )
+		return;
+
+	// TheNetwork is the whole test for "is this a game with other people in it"
+	if( TheNetwork == NULL || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
+		return;
+
+	const UnsignedInt nowMs = timeGetTime();
+	if( m_allyCursorSentMs != 0 && ( nowMs - m_allyCursorSentMs ) < ALLY_CURSOR_SEND_INTERVAL_MS )
+		return;
+
+	// a pointer over the command bar or off the top of the map has no map position, and a marker
+	// parked on the last piece of ground it crossed on the way there would be a lie
+	const MouseIO *mouse = TheMouse->getMouseStatus();
+	Coord3D world;
+	if( !TheTacticalView->screenToTerrain( &mouse->pos, &world ) )
+		return;
+
+	Coord3D moved = world;
+	moved.sub( &m_allyCursorSentPosition );
+	if( m_allyCursorSentMs != 0 && moved.length() < ALLY_CURSOR_MOVED_DIST &&
+			( nowMs - m_allyCursorSentMs ) < ALLY_CURSOR_IDLE_RESEND_MS )
+		return;
+
+	const Int mask = allyPlayerMask();
+	if( mask == 0 )
+		return;
+
+	TheNetwork->sendAllyCursor( world.x, world.y, mask );
+
+	m_allyCursorSentMs = nowMs;
+	m_allyCursorSentPosition = world;
 }
 
 //-------------------------------------------------------------------------------------------------
