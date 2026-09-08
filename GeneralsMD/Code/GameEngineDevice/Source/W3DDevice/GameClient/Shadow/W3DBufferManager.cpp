@@ -55,6 +55,26 @@ Int W3DBufferManager::getDX8Format(VBM_FVF_TYPES format)
 	return FVFTypeIndexList[format];
 }
 
+// Names the pool that ran out, once per run per pool.  Once, because the caller is a per-shadow
+// allocation and a full pool stays full for the rest of the match.
+static void logShadowBudgetOnce(const char *poolName, const Int poolLimit)
+{
+	const Int MAX_REPORTED_POOLS = 4;
+	static const char *reportedPools[MAX_REPORTED_POOLS] = { NULL, NULL, NULL, NULL };
+	for (Int i = 0; i < MAX_REPORTED_POOLS; ++i)
+	{
+		if (reportedPools[i] == poolName)
+			return;
+		if (reportedPools[i] == NULL)
+		{
+			reportedPools[i] = poolName;
+			DEBUG_LOG(("SHADOWBUDGET: out of %s at %d - shadows past this point are not drawn\n",
+				poolName, poolLimit));
+			return;
+		}
+	}
+}
+
 W3DBufferManager::W3DBufferManager(void)
 {
 	m_numEmptySlotsAllocated=0;
@@ -294,7 +314,12 @@ W3DBufferManager::W3DVertexBufferSlot * W3DBufferManager::allocateSlotStorage(VB
 	//Didn't find any vertex buffers with room, create a new one
 	DEBUG_ASSERTCRASH(m_numEmptyVertexBuffersAllocated < MAX_VERTEX_BUFFERS_CREATED, ("Reached Max Static VB Shadow Geometry"));
 
-	if (m_numEmptyVertexBuffersAllocated < MAX_VERTEX_BUFFERS_CREATED)
+	// The slot array is written a few lines down without being tested here, and the only thing that
+	// ever tested it is the DEBUG_ASSERTCRASH at the top of this function, which a Release build does
+	// not compile.  Run the slots out while buffers are still free and that write lands past the end
+	// of m_W3DVertexBufferEmptySlots, in the middle of this object's other members.
+	if (m_numEmptyVertexBuffersAllocated < MAX_VERTEX_BUFFERS_CREATED &&
+			m_numEmptySlotsAllocated < MAX_NUMBER_SLOTS)
 	{
 		m_W3DVertexBuffers[fvfType] = &m_W3DEmptyVertexBuffers[m_numEmptyVertexBuffersAllocated];
 		m_W3DVertexBuffers[fvfType]->m_nextVB=pVB;	//link to list
@@ -319,6 +344,11 @@ W3DBufferManager::W3DVertexBufferSlot * W3DBufferManager::allocateSlotStorage(VB
 		return vbSlot;
 	}
 
+	// Every cap in this file is guarded by a DEBUG_ASSERTCRASH, which is nothing in a Release build:
+	// the allocation returns NULL and the shadow that asked for it is simply not drawn, with nothing
+	// said.  That is how the tree batch used to lose whole stands of trees.  Say it once per run so
+	// a "shadows go missing in big battles" report has a line to grep for.
+	logShadowBudgetOnce("static vertex buffers", MAX_VERTEX_BUFFERS_CREATED);
 	return NULL;
 }
 
@@ -408,7 +438,9 @@ W3DBufferManager::W3DIndexBufferSlot * W3DBufferManager::allocateSlotStorage(Int
 	//Didn't find any index buffers with room, create a new one
 	DEBUG_ASSERTCRASH(m_numEmptyIndexBuffersAllocated < MAX_INDEX_BUFFERS_CREATED, ("Reached Max Static IB Shadow Geometry"));
 
-	if (m_numEmptyIndexBuffersAllocated < MAX_INDEX_BUFFERS_CREATED)
+	// Same unchecked slot write as the vertex buffer path above.
+	if (m_numEmptyIndexBuffersAllocated < MAX_INDEX_BUFFERS_CREATED &&
+			m_numEmptyIndexSlotsAllocated < MAX_NUMBER_SLOTS)
 	{
 		m_W3DIndexBuffers = &m_W3DEmptyIndexBuffers[m_numEmptyIndexBuffersAllocated];
 		m_W3DIndexBuffers->m_nextIB=pIB;	//link to list
@@ -432,5 +464,6 @@ W3DBufferManager::W3DIndexBufferSlot * W3DBufferManager::allocateSlotStorage(Int
 		return ibSlot;
 	}
 
+	logShadowBudgetOnce("static index buffers", MAX_INDEX_BUFFERS_CREATED);
 	return NULL;
 }
