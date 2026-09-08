@@ -7182,9 +7182,9 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0x04E442EE },
-		{ 12345, 4, 96, 0x2F239E3D },
-		{ 7, 8, 128, 0x6EFDD719 },
+		{ 0, 2, 64, 0x478CA657 },
+		{ 12345, 4, 96, 0xE94E9D6B },
+		{ 7, 8, 128, 0x1BBC3622 },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 

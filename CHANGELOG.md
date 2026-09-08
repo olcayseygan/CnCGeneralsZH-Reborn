@@ -1013,11 +1013,16 @@ found and fixed â€” EA's own, not port damage.**
   map is one field of noise, and the bases are found in it: the flattest ground first, then
   whichever good ground is furthest from everything already taken. Some seeds give you four corners
   and some give you a long diagonal, and where the fighting happens is different every time.
-- It is a map, not a field. Hills step up into mesas you cannot drive over, and where that walls
-  somebody off a pass is cut through to reach them. Lakes sit in the hollows with sand along the
-  shore, dirt covers the high ground, rock breaks through where it turns steep, and woods stand in
-  proper stands rather than scattered singly. The ground changes texture the way ground does, with
-  one blending into the next instead of meeting it at a straight line.
+- It is a map, not a field. The ground comes in layers: a flat shelf to build and fight on, a cliff
+  down to the next one, and ramps cut where the route between two players has to change level, so
+  taking the high ground means holding a ramp. Lakes sit in the hollows with a shoreline that
+  wanders rather than a circle drawn on the grass, dirt covers the high ground, rock breaks through
+  where it turns steep, and woods stand thick in the middle and thin at the edges. The ground
+  changes texture the way ground does, with one blending into the next instead of meeting it at a
+  straight line.
+- The maps are twice the size they were. A two-player map is a quarter of a million square feet of
+  ground, an eight-player one nearly three times that, which is room to manoeuvre round a flank
+  instead of running into the enemy on the way out of your own base.
 - Everybody opens with the same money. One supply dock beside each base, a second one out between
   you and your nearest neighbour to fight over, and two oil derricks apiece within reach of home.
 - The number that made the map is in its name, so the same number always makes the same map, on

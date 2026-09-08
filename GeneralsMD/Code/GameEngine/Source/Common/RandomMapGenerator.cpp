@@ -30,6 +30,8 @@
 
 #include <math.h>
 #include <float.h>
+#include <algorithm>
+#include <map>
 
 #include "Common/RandomMapGenerator.h"
 #include "Lib/Trig.h"
@@ -65,37 +67,44 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 #define RMG_TILES_PER_CLASS		4
 #define RMG_TILE_SHEET_WIDTH	2
 
-// How big a map is: a floor everybody gets, plus a share for each player.
-#define RMG_SMALL_FLOOR			72
-#define RMG_SMALL_PER_PLAYER	10
-#define RMG_NORMAL_FLOOR		96
-#define RMG_NORMAL_PER_PLAYER	14
-#define RMG_LARGE_FLOOR			120
-#define RMG_LARGE_PER_PLAYER	18
+// How big a map is: a floor everybody gets, plus a share for each player. A normal two-player map
+// is 248 cells across, which is 2480 world units - about what a shipped duel map measures - and an
+// eight-player one is 416.
+#define RMG_SMALL_FLOOR			144
+#define RMG_SMALL_PER_PLAYER	20
+#define RMG_NORMAL_FLOOR		192
+#define RMG_NORMAL_PER_PLAYER	28
+#define RMG_LARGE_FLOOR			240
+#define RMG_LARGE_PER_PLAYER	36
 
 // Height field, in height map bytes (a byte is MAP_HEIGHT_SCALE world units).
-#define RMG_BASE_HEIGHT			40.0f
+#define RMG_BASE_HEIGHT			60.0f
 // Five octaves of Perlin average out to about a third of their nominal range, so this is roughly
-// three times the relief it looks like: a map runs about 30 height bytes from valley to hilltop.
-#define RMG_AMPLITUDE			60.0f
+// three times the relief it looks like: about 80 height bytes from valley to hilltop, which is
+// three or four terraces of the step below.
+#define RMG_AMPLITUDE			120.0f
 #define RMG_OCTAVES				5
 #define RMG_FEATURES_PER_MAP	3.0f
 #define RMG_WARP_STRENGTH		0.45f	///< how far the noise drags its own coordinates
 
-// The high ground. A mesa is a hard-edged step in the height field, which is
-// what makes a cliff: the pathfinder calls a cell impassable when its corners
-// span more than PATHFIND_CLIFF_SLOPE_LIMIT_F world units.
-#define RMG_MESA_RISE			27.0f	///< height bytes; a cliff needs more than 15.7
-#define RMG_MESA_THRESHOLD		0.24f	///< of the mesa noise field
-#define RMG_MESA_FEATURES		2.2f
+/* The high ground, in layers. The height field is quantised to terraces: the plateau is dead flat
+	and the step between two of them is one cell wide, which puts its corner span at the whole
+	terrace height and so past PATHFIND_CLIFF_SLOPE_LIMIT_F, where the pathfinder calls it a cliff.
+	Everything a player drives over is either a terrace or a ramp cut between two of them. */
+#define RMG_TERRACE_STEP		24.0f	///< height bytes per layer; a cliff needs more than 15.7
+#define RMG_TERRACE_DETAIL		1.5f	///< bytes of roll left on a plateau so it is not a table
+#define RMG_DETAIL_FEATURES		14.0f
 
 // Water. Lakes are carved into the lowest ground the map has, then written out
 // as water areas the engine reads as impassable to anything that cannot swim.
-#define RMG_WATER_DROP			11.0f	///< height bytes: water surface below the base height
+// Below the terrace the base height sits on, so the water is in the bottom layer of the map.
+#define RMG_WATER_DROP			26.0f	///< height bytes: water surface below the base height
 #define RMG_LAKE_DEPTH			13.0f	///< and how far the bed sits below that surface
 #define RMG_LAKE_SHORE			5.0f	///< cells the basin eases out over
-#define RMG_LAKE_RADIUS			0.05f	///< fraction of the playable size
+#define RMG_LAKE_RADIUS			0.055f	///< fraction of the playable size
 #define RMG_LAKE_MIN_CELLS		96
+#define RMG_LAKE_WOBBLE			0.45f	///< how far the outline wanders from a circle
+#define RMG_LAKE_POINTS			32		///< sides of the polygon the water area is written as
 
 // A start position gets a flat disc to build on, easing back into the terrain.
 #define RMG_FLAT_RADIUS			13.0f
@@ -112,11 +121,13 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 #define RMG_DERRICKS_PER_PLAYER	2
 #define RMG_SITE_CLEARANCE		7.0f	///< cells kept clear around anything placed
 
-// Scenery.
-#define RMG_TREES_PER_PLAYER	46
-#define RMG_ROCKS_PER_PLAYER	9
+// Scenery. Counted against the ground rather than the players: a map twice the size wants four
+// times the trees, or a wood is a hedge with a field around it.
+#define RMG_CELLS_PER_TREE		150.0f
+#define RMG_CELLS_PER_ROCK		2600.0f
 #define RMG_PROP_STRIDE			2
-#define RMG_FOREST_FEATURES		5.0f
+#define RMG_FOREST_FEATURES		7.0f
+#define RMG_FOREST_THRESHOLD	0.10f	///< of the forest field; under it, open ground
 #define RMG_CIVILIANS_PER_CLUSTER	3
 #define RMG_CIVILIAN_SPACING	7.0f
 
@@ -426,12 +437,33 @@ struct RMGObject
 	Int m_waypointID;		///< 0 for anything that is not a waypoint
 };
 
+/** A lake is a circle whose radius is a noise field of its own, sampled once per outline point and
+	interpolated in between, so the shore wanders the way a shore does and the polygon the engine
+	gets is the same shape as the basin that was carved. */
 struct RMGLake
 {
 	Real m_cellX;
 	Real m_cellY;
 	Real m_radius;
+	Real m_outline[RMG_LAKE_POINTS];	///< radius at each of the outline's angles
 };
+
+/// The lake's radius in the direction of a point, interpolated between the two nearest outline points.
+static Real lakeRadiusTowards( const RMGLake& lake, Real dx, Real dy )
+{
+	Real angle = ATan2( dy, dx );
+	if( angle < 0.0f )
+		angle += 2.0f * PI;
+
+	Real position = angle * (Real)RMG_LAKE_POINTS / (2.0f * PI);
+	Int first = (Int)position;
+	Real fraction = position - (Real)first;
+
+	first = first % RMG_LAKE_POINTS;
+	Int second = (first + 1) % RMG_LAKE_POINTS;
+
+	return lerpReal( lake.m_outline[first], lake.m_outline[second], fraction );
+}
 
 /// A place something has been put, and how much room it wants around it.
 struct RMGSite
@@ -487,7 +519,7 @@ private:
 	void flattenBases( void );
 	void buildPassability( void );
 	void connectStarts( void );
-	Bool carvePassTo( Int startIndex );
+	Bool carvePass( Int fromStart, Int toStart );
 	void buildTerrainClasses( const UnsignedByte perm[512] );
 	void buildBlends( void );
 	void buildObjects( const UnsignedByte perm[512] );
@@ -507,6 +539,7 @@ private:
 									Real angle );
 	Short blendEntryFor( Int blendTileIndex, Int cornerMask );
 
+	std::map<Int, Short> m_blendLookup;	///< tile and shape to the table entry that holds them
 	std::vector<RMGSite> m_sites;		///< everything placed so far, with its elbow room
 	std::vector<char> m_visited;		///< scratch for the flood fill
 	Int m_startSearchStride;
@@ -516,15 +549,16 @@ private:
 // Height field
 //-----------------------------------------------------------------------------
 
-/** Warped fractal noise with mesas cut into it. The warp is what stops the
-	terrain reading as a bowl of dents: it drags the noise's own coordinates
-	around with a second field, so ridges bend and valleys wander. The mesa is a
-	hard step, and a hard step is what the pathfinder reads as a cliff. */
+/** Warped fractal noise, cut into terraces. The warp is what stops the terrain reading as a bowl
+	of dents: it drags the noise's own coordinates around with a second field, so ridges bend and
+	valleys wander. The terracing is what turns a smooth field into a map with layers - a plateau a
+	player can build on, and a one-cell step down to the next one, which is steep enough that the
+	pathfinder calls it a cliff. Ramps between the layers are cut later, where they are needed. */
 void RMGLayout::buildHeights( const UnsignedByte perm[512] )
 {
 	Real playable = (Real)m_settings.m_playableCells;
 	Real scale = RMG_FEATURES_PER_MAP / playable;
-	Real mesaScale = RMG_MESA_FEATURES / playable;
+	Real detailScale = RMG_DETAIL_FEATURES / playable;
 
 	m_heights.resize( m_width * m_height );
 
@@ -538,13 +572,16 @@ void RMGLayout::buildHeights( const UnsignedByte perm[512] )
 			Real warpX = px + RMG_WARP_STRENGTH * fractalNoise( perm, px + 5.2f, py + 1.3f, 3 );
 			Real warpY = py + RMG_WARP_STRENGTH * fractalNoise( perm, px - 3.7f, py + 8.1f, 3 );
 
-			Real h = RMG_BASE_HEIGHT + RMG_AMPLITUDE * fractalNoise( perm, warpX, warpY, RMG_OCTAVES );
+			Real raw = RMG_BASE_HEIGHT
+				+ RMG_AMPLITUDE * fractalNoise( perm, warpX, warpY, RMG_OCTAVES );
 
-			Real mx = (Real)(x - RMG_BORDER_CELLS) * mesaScale;
-			Real my = (Real)(y - RMG_BORDER_CELLS) * mesaScale;
-			Real mesa = fractalNoise( perm, mx + 17.0f, my - 11.0f, 3 );
-			if( mesa > RMG_MESA_THRESHOLD )
-				h += RMG_MESA_RISE;
+			// The layer this cell sits on, and then a little roll across the top of it so the
+			// plateau is ground rather than a table.
+			Real layer = floorf( raw / RMG_TERRACE_STEP );
+			Real h = layer * RMG_TERRACE_STEP;
+
+			h += RMG_TERRACE_DETAIL * fractalNoise( perm, (Real)x * detailScale + 61.0f,
+																						 (Real)y * detailScale - 29.0f, 2 );
 
 			if( h < 1.0f ) h = 1.0f;
 			if( h > 254.0f ) h = 254.0f;
@@ -617,7 +654,7 @@ Bool RMGLayout::insideLake( Real cellX, Real cellY, Real *distanceOut ) const
 	{
 		Real dx = cellX - m_lakes[i].m_cellX;
 		Real dy = cellY - m_lakes[i].m_cellY;
-		Real dist = sqrtf( dx * dx + dy * dy ) - m_lakes[i].m_radius;
+		Real dist = sqrtf( dx * dx + dy * dy ) - lakeRadiusTowards( m_lakes[i], dx, dy );
 		if( dist < nearest )
 			nearest = dist;
 		if( dist < 0.0f )
@@ -713,6 +750,20 @@ void RMGLayout::placeLakes( const UnsignedByte perm[512] )
 		// A little variety in size, from the seed rather than from a constant.
 		UnsignedInt hash = hashCell( m_settings.m_seed, (Int)lake.m_cellX, (Int)lake.m_cellY );
 		lake.m_radius = radius * (0.75f + 0.5f * (Real)(hash % 1000U) / 1000.0f);
+
+		/* The outline is the same noise field the ground is made of, walked round a circle in it,
+			so one lake is a long inlet and the next is nearly round and neither was chosen. */
+		Real ringRadius = 2.0f + (Real)(hash % 97U) * 0.05f;
+		for( Int point = 0; point < RMG_LAKE_POINTS; point++ )
+		{
+			Real angle = 2.0f * PI * (Real)point / (Real)RMG_LAKE_POINTS;
+			Real sampleX = lake.m_cellX * 0.05f + ringRadius * Cos( angle );
+			Real sampleY = lake.m_cellY * 0.05f + ringRadius * Sin( angle );
+
+			Real wobble = fractalNoise( perm, sampleX, sampleY, 3 );
+			lake.m_outline[point] = lake.m_radius * (1.0f + RMG_LAKE_WOBBLE * wobble);
+		}
+
 		m_lakes.push_back( lake );
 	}
 }
@@ -982,45 +1033,58 @@ void RMGLayout::buildPassability( void )
 	}
 }
 
-/** A route from the first start to a start it cannot reach, priced so that flat
-	ground is nearly free and a cliff is expensive but not forbidden, then the
-	ground along that route is cut into a ramp no steeper than the pathfinder
-	will walk. What comes out is a pass through the high ground rather than a
-	trench across the map, because the search went round whatever it could. */
-Bool RMGLayout::carvePassTo( Int startIndex )
+/** A route between two starts, priced so that a terrace is nearly free and the step off one is
+	expensive but not forbidden, then the ground along that route is cut into a ramp no steeper than
+	the pathfinder will walk. What comes out is a ramp between two layers rather than a trench
+	across the map, because the search stayed on the flat wherever it could. */
+Bool RMGLayout::carvePass( Int fromStart, Int toStart )
 {
-	Int fromX = (Int)(m_starts[0].m_cellX + 0.5f) + RMG_BORDER_CELLS;
-	Int fromY = (Int)(m_starts[0].m_cellY + 0.5f) + RMG_BORDER_CELLS;
-	Int toX = (Int)(m_starts[startIndex].m_cellX + 0.5f) + RMG_BORDER_CELLS;
-	Int toY = (Int)(m_starts[startIndex].m_cellY + 0.5f) + RMG_BORDER_CELLS;
+	Int fromX = (Int)(m_starts[fromStart].m_cellX + 0.5f) + RMG_BORDER_CELLS;
+	Int fromY = (Int)(m_starts[fromStart].m_cellY + 0.5f) + RMG_BORDER_CELLS;
+	Int toX = (Int)(m_starts[toStart].m_cellX + 0.5f) + RMG_BORDER_CELLS;
+	Int toY = (Int)(m_starts[toStart].m_cellY + 0.5f) + RMG_BORDER_CELLS;
 
 	const Int cellCount = m_width * m_height;
 	std::vector<Int> cost( cellCount, 0x7FFFFFFF );
 	std::vector<Int> cameFrom( cellCount, -1 );
 
-	/* Dijkstra with a bucket queue rather than a heap: every step costs one of a
-		handful of values, so the buckets are shallow and the queue is a vector. */
 	const Int flatCost = 1;
 	const Int cliffCost = 60;
 	const Int waterCost = 250;
 
-	std::vector<Int> open;
-	open.push_back( fromY * m_width + fromX );
-	cost[fromY * m_width + fromX] = 0;
+	/* Dijkstra over a binary heap of (cost, cell). A linear scan of the open list was fine on a
+		96-cell map and is not on a 456-cell one: the open list runs to tens of thousands of cells
+		and the scan is what the whole generator would then be doing. The cell index breaks ties so
+		the route does not depend on how the heap happened to order two equal costs. */
+	struct RMGOpenCell
+	{
+		Int m_cost;
+		Int m_index;
+
+		Bool operator<( const RMGOpenCell& other ) const
+		{
+			if( m_cost != other.m_cost )
+				return m_cost > other.m_cost;		// std::push_heap wants the cheapest last
+			return m_index > other.m_index;
+		}
+	};
+
+	std::vector<RMGOpenCell> open;
+	RMGOpenCell first;
+	first.m_cost = 0;
+	first.m_index = fromY * m_width + fromX;
+	open.push_back( first );
+	cost[first.m_index] = 0;
 
 	while( !open.empty() )
 	{
-		// Cheapest open cell.
-		Int bestSlot = 0;
-		for( UnsignedInt i = 1; i < open.size(); i++ )
-		{
-			if( cost[open[i]] < cost[open[bestSlot]] )
-				bestSlot = i;
-		}
-
-		Int index = open[bestSlot];
-		open[bestSlot] = open.back();
+		std::pop_heap( open.begin(), open.end() );
+		RMGOpenCell cheapest = open.back();
 		open.pop_back();
+
+		Int index = cheapest.m_index;
+		if( cheapest.m_cost > cost[index] )
+			continue;								// a cheaper way here was found after this was queued
 
 		if( index == toY * m_width + toX )
 			break;
@@ -1048,7 +1112,12 @@ Bool RMGLayout::carvePassTo( Int startIndex )
 
 			cost[next] = cost[index] + step;
 			cameFrom[next] = index;
-			open.push_back( next );
+
+			RMGOpenCell reached;
+			reached.m_cost = cost[next];
+			reached.m_index = next;
+			open.push_back( reached );
+			std::push_heap( open.begin(), open.end() );
 		}
 	}
 
@@ -1132,10 +1201,26 @@ Bool RMGLayout::carvePassTo( Int startIndex )
 	return TRUE;
 }
 
-/** Every start has to be able to walk to every other one. The flood fill says
-	which cannot, and a pass is cut to each of those in turn until they can. */
+/** The ramp network. Terraced ground is a stack of plateaus with cliffs between them, so a map
+	that cuts nothing is a map where half the players cannot reach the other half. Every start is
+	joined to the next one round the list, which puts a ramp wherever a route has to change layer;
+	then the flood fill says who is still cut off, and a pass is cut to each of those in turn.
+	The ring is what makes a map rather than a corridor: the shortest way between two players is
+	usually not the ramp either of them would use to reach a third. */
 void RMGLayout::connectStarts( void )
 {
+	buildPassability();
+
+	if( m_starts.size() > 2 )
+	{
+		for( UnsignedInt i = 0; i < m_starts.size(); i++ )
+		{
+			carvePass( (Int)i, (Int)((i + 1) % m_starts.size()) );
+			flattenBases();
+			buildPassability();
+		}
+	}
+
 	for( Int attempt = 0; attempt < RMG_PASS_ATTEMPTS; attempt++ )
 	{
 		buildPassability();
@@ -1192,7 +1277,7 @@ void RMGLayout::connectStarts( void )
 		if( unreachable < 0 )
 			return;
 
-		if( !carvePassTo( unreachable ) )
+		if( !carvePass( 0, unreachable ) )
 			return;
 
 		// The route runs into the base at either end of it, so the discs are laid flat again
@@ -1319,19 +1404,15 @@ Short RMGLayout::blendEntryFor( Int blendTileIndex, Int cornerMask )
 	if( bestShape < 0 )
 		return 0;
 
-	const RMGBlendShape& shape = theBlendShapes[bestShape];
+	/* A tile and a shape name an entry, so that pair is the key. A scan of the table instead would
+		be a scan per cell of the map, and on a 456-cell map with a few thousand entries in the
+		table that is most of the generator's time. */
+	Int key = blendTileIndex * theNumBlendShapes + bestShape;
+	std::map<Int, Short>::const_iterator found = m_blendLookup.find( key );
+	if( found != m_blendLookup.end() )
+		return found->second;
 
-	for( UnsignedInt i = 1; i < m_blends.size(); i++ )
-	{
-		if( m_blends[i].m_blendTileIndex == blendTileIndex &&
-				m_blends[i].m_horizontal == shape.m_horizontal &&
-				m_blends[i].m_vertical == shape.m_vertical &&
-				m_blends[i].m_rightDiagonal == shape.m_rightDiagonal &&
-				m_blends[i].m_leftDiagonal == shape.m_leftDiagonal &&
-				m_blends[i].m_inverted == shape.m_inverted &&
-				m_blends[i].m_longDiagonal == shape.m_longDiagonal )
-			return (Short)i;
-	}
+	const RMGBlendShape& shape = theBlendShapes[bestShape];
 
 	RMGBlend blend;
 	blend.m_blendTileIndex = blendTileIndex;
@@ -1343,7 +1424,9 @@ Short RMGLayout::blendEntryFor( Int blendTileIndex, Int cornerMask )
 	blend.m_longDiagonal = shape.m_longDiagonal;
 	m_blends.push_back( blend );
 
-	return (Short)(m_blends.size() - 1);
+	Short entry = (Short)(m_blends.size() - 1);
+	m_blendLookup[key] = entry;
+	return entry;
 }
 
 /** Every cell whose neighbour carries a higher-priority ground gets that ground
@@ -1353,6 +1436,7 @@ Short RMGLayout::blendEntryFor( Int blendTileIndex, Int cornerMask )
 void RMGLayout::buildBlends( void )
 {
 	m_blends.clear();
+	m_blendLookup.clear();
 
 	RMGBlend nothing;
 	memset( &nothing, 0, sizeof(nothing) );
@@ -1670,8 +1754,13 @@ void RMGLayout::placeScenery( const UnsignedByte perm[512] )
 	Real playable = (Real)m_settings.m_playableCells;
 	Real forestScale = RMG_FOREST_FEATURES / playable;
 
-	Int treeBudget = RMG_TREES_PER_PLAYER * m_settings.m_numPlayers;
-	Int rockBudget = RMG_ROCKS_PER_PLAYER * m_settings.m_numPlayers;
+	/* Budgets are a safety net, not the count: the forest field decides how many trees there are,
+		and it scales with the ground because it is sampled per cell. A budget spent in scan order
+		would put every tree in the top of the map, so it sits high enough that an ordinary map
+		never reaches it. */
+	Real area = playable * playable;
+	Int treeBudget = (Int)(area / RMG_CELLS_PER_TREE);
+	Int rockBudget = (Int)(area / RMG_CELLS_PER_ROCK);
 	Int propID = 1;
 
 	for( Int y = 2; y < m_settings.m_playableCells - 2; y += RMG_PROP_STRIDE )
@@ -1722,19 +1811,28 @@ void RMGLayout::placeScenery( const UnsignedByte perm[512] )
 			if( treeBudget <= 0 )
 				continue;
 
-			Real density = fractalNoise( perm, (Real)x * forestScale + 100.0f,
-																	 (Real)y * forestScale - 100.0f, 3 );
-			if( density < 0.12f )
+			/* Where a wood is, and how deep into it this cell is, both come out of the same field,
+				warped by a second one so the edge of a wood is ragged rather than a contour line.
+				The chance climbs towards the middle of a wood, which is what makes a stand thick in
+				the centre and thin at the edges instead of an even sprinkle with a hard border. */
+			Real forestX = (Real)x * forestScale + 100.0f;
+			Real forestY = (Real)y * forestScale - 100.0f;
+			Real warpX = forestX + 0.6f * fractalNoise( perm, forestX * 2.3f, forestY * 2.3f, 2 );
+			Real warpY = forestY + 0.6f * fractalNoise( perm, forestX * 2.3f + 9.0f,
+																									forestY * 2.3f - 4.0f, 2 );
+
+			Real density = fractalNoise( perm, warpX, warpY, 4 );
+			if( density < RMG_FOREST_THRESHOLD )
 				continue;
 
-			Real chance = (density - 0.12f) / 0.55f;
-			if( chance > 0.85f )
-				chance = 0.85f;
+			Real chance = (density - RMG_FOREST_THRESHOLD) * 0.55f;
+			if( chance > 0.16f )
+				chance = 0.16f;
 			if( (Real)((hash >> 24) % 1000U) / 1000.0f > chance )
 				continue;
 
 			// The wood, not the tree, picks the species.
-			UnsignedInt woodHash = hashCell( m_settings.m_seed + 40009, x / 12, y / 12 );
+			UnsignedInt woodHash = hashCell( m_settings.m_seed + 40009, x / 16, y / 16 );
 
 			AsciiString uniqueID;
 			uniqueID.format( "Prop %d", propID++ );
@@ -1954,9 +2052,9 @@ static void writeSides( MapChunkWriter& w )
 	compares the ground against. */
 static void writeWaterAreas( MapChunkWriter& w, const RMGLayout& layout )
 {
-	// Sixteen sides rather than eight: the water's edge is drawn as the polygon itself, and eight
-	// of them reads as a stop sign lying in the grass.
-	const Int numSides = 16;
+	// One point per outline sample, so the polygon the engine floods is exactly the basin that was
+	// carved into the ground rather than a circle drawn over it.
+	const Int numSides = RMG_LAKE_POINTS;
 
 	w.openChunk( "PolygonTriggers", K_TRIGGERS_VERSION_4 );
 		w.writeInt( (Int)layout.m_lakes.size() );
@@ -1979,8 +2077,9 @@ static void writeWaterAreas( MapChunkWriter& w, const RMGLayout& layout )
 			for( Int point = 0; point < numSides; point++ )
 			{
 				Real angle = (2.0f * PI * (Real)point) / (Real)numSides;
-				Real x = layout.m_lakes[i].m_cellX + layout.m_lakes[i].m_radius * Cos( angle );
-				Real y = layout.m_lakes[i].m_cellY + layout.m_lakes[i].m_radius * Sin( angle );
+				Real radius = layout.m_lakes[i].m_outline[point];
+				Real x = layout.m_lakes[i].m_cellX + radius * Cos( angle );
+				Real y = layout.m_lakes[i].m_cellY + radius * Sin( angle );
 
 				w.writeInt( (Int)(x * MAP_XY_FACTOR + 0.5f) );
 				w.writeInt( (Int)(y * MAP_XY_FACTOR + 0.5f) );
