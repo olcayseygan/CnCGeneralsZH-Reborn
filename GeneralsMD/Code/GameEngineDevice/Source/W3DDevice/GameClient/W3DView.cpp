@@ -609,6 +609,27 @@ void W3DView::getPickRay(const ICoord2D *screen, Vector3 *rayStart, Vector3 *ray
 //-------------------------------------------------------------------------------------------------
 /** set the transform matrix of m_3DCamera, based on m_pos & m_angle */
 //-------------------------------------------------------------------------------------------------
+Bool W3DView::isDoingScriptedCamera( void ) const
+{
+	return m_doingRotateCamera || m_doingMoveCameraOnWaypointPath || m_doingPitchCamera
+		|| m_doingZoomCamera || m_doingScriptedCameraLock;
+}
+
+//-------------------------------------------------------------------------------------------------
+// Every user camera action takes the view away from whatever the script was doing with it.  This
+// used to be five assignments copied into each setter, and the copies had drifted: lookAt left a
+// scripted pitch and zoom running, and setPitch left the waypoint-arrival flag set.
+void W3DView::stopDoingScriptedCamera( void )
+{
+	m_doingMoveCameraOnWaypointPath = false;
+	m_CameraArrivedAtWaypointOnPathFlag = false;
+	m_doingRotateCamera = false;
+	m_doingPitchCamera = false;
+	m_doingZoomCamera = false;
+	m_doingScriptedCameraLock = false;
+}
+
+//-------------------------------------------------------------------------------------------------
 void W3DView::setCameraTransform( void )
 {
 	if (m_viewLockedUntilFrame > TheGameClient->getFrame())
@@ -1411,7 +1432,7 @@ void W3DView::update(void)
 			recalcCamera = true;
 		}
 	} else {
-		if (m_doingRotateCamera || m_doingMoveCameraOnWaypointPath || m_doingPitchCamera || m_doingZoomCamera || m_doingScriptedCameraLock) {
+		if (isDoingScriptedCamera()) {
 			didScriptedMovement = true; // don't mess up the scripted movement
 		}
 	}
@@ -2135,13 +2156,7 @@ void W3DView::setAngle( Real angle )
 	View::setAngle( angle );
 
 
-	m_doingMoveCameraOnWaypointPath = false;
-	m_CameraArrivedAtWaypointOnPathFlag = false;
-
-	m_doingRotateCamera = false;
-	m_doingPitchCamera = false;
-	m_doingZoomCamera = false;
-	m_doingScriptedCameraLock = false;
+	stopDoingScriptedCamera();
 	// set the camera
 	setCameraTransform();
 }
@@ -2159,11 +2174,7 @@ void W3DView::setPitch( Real angle )
 	m_cameraConstraintValid = false;
 
 
-	m_doingMoveCameraOnWaypointPath = false;
-	m_doingRotateCamera = false;
-	m_doingPitchCamera = false;
-	m_doingZoomCamera = false;
-	m_doingScriptedCameraLock = false;
+	stopDoingScriptedCamera();
 	// set the camera
 	setCameraTransform();
 }
@@ -2212,12 +2223,7 @@ void W3DView::setHeightAboveGround(Real z)
 
 	}  // end if
 
-	m_doingMoveCameraOnWaypointPath = false;
-	m_CameraArrivedAtWaypointOnPathFlag = false;
-	m_doingRotateCamera = false;
-	m_doingPitchCamera = false;
-	m_doingZoomCamera = false;
-	m_doingScriptedCameraLock = false;
+	stopDoingScriptedCamera();
 	m_cameraConstraintValid = false; // recalc it.
 	setCameraTransform();
 }
@@ -2231,12 +2237,7 @@ void W3DView::setZoom(Real z)
 {
 	View::setZoom(z);
 
-	m_doingMoveCameraOnWaypointPath = false;
-	m_CameraArrivedAtWaypointOnPathFlag = false;
-	m_doingRotateCamera = false;
-	m_doingPitchCamera = false;
-	m_doingZoomCamera = false;
-	m_doingScriptedCameraLock = false;
+	stopDoingScriptedCamera();
 	m_cameraConstraintValid = false; // recalc it.
 	setCameraTransform();
 }
@@ -2257,12 +2258,7 @@ void W3DView::setZoomToHeight( Real heightAboveGround )
 	m_zoom = desiredZoom;
 	m_heightAboveGround = heightAboveGround;
 
-	m_doingMoveCameraOnWaypointPath = false;
-	m_CameraArrivedAtWaypointOnPathFlag = false;
-	m_doingRotateCamera = false;
-	m_doingPitchCamera = false;
-	m_doingZoomCamera = false;
-	m_doingScriptedCameraLock = false;
+	stopDoingScriptedCamera();
 	m_cameraConstraintValid = false; // recalc it.
 	setCameraTransform();
 }
@@ -2664,11 +2660,8 @@ void W3DView::lookAt( const Coord3D *o )
 		}  // end if
 	}			 
 	pos.z = 0;
-	setPosition(&pos); 
-	m_doingRotateCamera = false;
-	m_doingMoveCameraOnWaypointPath = false;
-	m_CameraArrivedAtWaypointOnPathFlag = false;
-	m_doingScriptedCameraLock = false;
+	setPosition(&pos);
+	stopDoingScriptedCamera();
 
 	setCameraTransform();
 
