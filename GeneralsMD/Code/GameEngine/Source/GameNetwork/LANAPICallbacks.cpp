@@ -222,12 +222,28 @@ Bool LANAPI::StartAutomatedGame( AsciiString mapName, Int seed, const UnsignedIn
 	gameName.format( L"%8.8X", slotIPs[0] );
 	game->setName( gameName );
 
+	/* -teams splits the slot list into allied blocks the same way it splits an -autoskirmish lobby:
+		 with four slots and two teams the first two are team 0 and the rest team 1.  Every machine is
+		 handed the same slot count and the same team count, so every machine works out the same
+		 split.  Without it every slot is -1, "no team", and everybody fights everybody - which is
+		 what a scripted throughput test wants and what a test of anything allied cannot use. */
+	const Int teams = TheGlobalData->m_autoSkirmishTeams;
+	const Int slotsPerTeam = (teams > 1 && numSlots >= teams) ? ((numSlots + teams - 1) / teams) : 0;
+
 	for (Int i = 0; i < numSlots; ++i)
 	{
 		/* The names have to differ: GameInfo looks players up by name, and the player list ends up
 			 with one side per slot named after it. */
 		UnicodeString playerName;
 		playerName.format( L"Player%d", i + 1 );
+
+		Int teamNumber = -1;
+		if (slotsPerTeam > 0)
+		{
+			teamNumber = i / slotsPerTeam;
+			if (teamNumber >= teams)
+				teamNumber = teams - 1;		// an uneven split puts the remainder on the last team
+		}
 
 		LANGameSlot slot;
 		slot.setState( SLOT_PLAYER, playerName );
@@ -239,7 +255,7 @@ Bool LANAPI::StartAutomatedGame( AsciiString mapName, Int seed, const UnsignedIn
 		slot.setPlayerTemplate( PLAYERTEMPLATE_RANDOM );
 		slot.setColor( -1 );			// -1 is "random" to populateRandomSideAndColor
 		slot.setStartPos( -1 );		// and to populateRandomStartPosition
-		slot.setTeamNumber( -1 );	// -1 is "no team", so everybody fights everybody
+		slot.setTeamNumber( teamNumber );
 		slot.setAccept();
 		game->setSlot( i, slot );
 

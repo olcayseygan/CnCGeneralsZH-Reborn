@@ -1774,8 +1774,14 @@ static void updateHeadlessRun( void )
 	/* -autoskirmish counts as unattended even when it draws.  THREADING-ROADMAP.md section 0 step 4
 		 asks for a heavy scenario under a real renderer, and a run that never ends and never writes
 		 its numbers down is not a measurement.  This still cannot fire on a game a person started:
-		 reaching here needs -headless or -autoskirmish, and neither is on a menu. */
-	const Bool unattended = TheGlobalData->m_headless || TheGlobalData->m_autoSkirmishPlayers > 0;
+		 reaching here needs -headless, -autoskirmish or -netgame, and none of the three is on a menu.
+
+		 -netgame is on that list for the same reason and one of its own: a network game that draws
+		 is the only way to photograph anything that only exists between two machines, and until it
+		 was here that run had to be -headless to end by itself, which is to say it could not be
+		 photographed at all. */
+	const Bool unattended = TheGlobalData->m_headless || TheGlobalData->m_autoSkirmishPlayers > 0 ||
+													!TheGlobalData->m_netGameHosts.isEmpty();
 
 	/* Except that a run with a control socket open is not unattended at all - somebody is driving
 		 it from the other end, and tearing the process down the moment a match is decided takes the
