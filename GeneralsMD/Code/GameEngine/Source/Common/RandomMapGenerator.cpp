@@ -102,7 +102,12 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 #define RMG_LAKE_DEPTH			13.0f	///< and how far the bed sits below that surface
 // Wide, because the shore is what the renderer's soft water edge is drawn on: it looks for cells
 // whose corners straddle the water plane, and a bank that drops in one step gives it nothing.
-#define RMG_LAKE_SHORE			10.0f	///< cells the basin eases out over
+#define RMG_LAKE_SHORE			18.0f	///< cells the basin eases out over
+/* Dry land has to be dry. A lake is a polygon, not a flood, so ground outside one that sits below
+	the water surface is not filled in - it is drawn as land with the lake standing above it like a
+	puddle on a table, which is exactly what the noise leaves behind when it puts a lake in the
+	lowest ground it can find. */
+#define RMG_LAKE_BANK			4.0f	///< height bytes the land outside a lake is kept above it
 #define RMG_WAVE_SPACING		16.0f	///< cells of shoreline between two ambient wave emitters
 #define RMG_LAKE_RADIUS			0.055f	///< fraction of the playable size
 #define RMG_LAKE_MIN_CELLS		96
@@ -129,13 +134,27 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 	beside it either. The pad is flat to its radius and eases back into the terrain over the blend. */
 #define RMG_PAD_RADIUS			5.0f
 #define RMG_PAD_BLEND			10.0f
+#define RMG_PAD_SHORE_KEEP		2.0f	///< cells of beach a pad never touches
 
-// A town: streets on a grid, buildings in the blocks between them, all of it on one level.
-#define RMG_TOWN_BLOCK			26.0f	///< cells between two street centre lines
-#define RMG_TOWN_STREETS		4		///< streets each way, so three blocks by three
-#define RMG_TOWN_SET_BACK		6.0f	///< cells from the street centre to a building front
-#define RMG_TOWN_PLOT			11.0f	///< cells of frontage each building takes along a street
+/* A town. Nothing here is a fixed number: each town rolls how many streets it has each way, how far
+	apart they run, how deep the plots are, and which way the whole grid is turned. Two towns on one
+	map are two different towns. */
+#define RMG_TOWN_MIN_STREETS	3
+#define RMG_TOWN_MAX_STREETS	6
+#define RMG_TOWN_BLOCK_MIN		18.0f	///< cells between two street centre lines, at the closest
+#define RMG_TOWN_BLOCK_MAX		34.0f	///< and at the widest
+#define RMG_TOWN_PLOT_MIN		9.0f	///< cells of frontage a building takes along a street
+#define RMG_TOWN_PLOT_MAX		14.0f
+#define RMG_TOWN_SET_BACK_MIN	5.0f	///< cells from the street centre to a building front
+#define RMG_TOWN_SET_BACK_MAX	8.0f
+#define RMG_TOWN_GAP_IN_100		22		///< plots left empty, so a street has yards and corners
+#define RMG_TOWN_JITTER			2.0f	///< cells a building sits off its own frontage line
+#define RMG_TOWN_DRY_MARGIN		4.0f	///< cells a building or a street keeps off the water
 #define RMG_TOWN_ROAD			"TwoLane"
+
+// A street is laid in dry runs: what crosses water is dropped rather than driven into the lake.
+#define RMG_ROAD_STEP			2.0f	///< cells between two wet-or-dry samples along a segment
+#define RMG_ROAD_MIN_RUN		8.0f	///< shorter than this and the run is not worth a road
 
 // Bunkers go on the ramps, which is the ground worth holding.
 #define RMG_BUNKER_CLEARANCE	10.0f
@@ -462,6 +481,96 @@ struct RMGObject
 #define RMG_FLAG_ROAD_POINT1	0x00000002
 #define RMG_FLAG_ROAD_POINT2	0x00000004
 
+/** The shape one town was rolled to be: how many streets it has each way, where each one runs in
+	the town's own coordinates, how deep its plots are and which way the whole grid is turned. It is
+	rolled before a site is looked for, because the search needs the radius to keep the streets
+	inside the map. */
+struct RMGTownPlan
+{
+	Real m_rotation;		///< radians the grid is turned by, so no two towns face the same way
+	Int m_streetsAcross;
+	Int m_streetsDown;
+	Real m_acrossAt[RMG_TOWN_MAX_STREETS];	///< where each across-street runs, town coordinates
+	Real m_downAt[RMG_TOWN_MAX_STREETS];
+	Real m_plotLength;
+	Real m_setBack;
+	Real m_radius;			///< from the middle to the far side of the outermost frontage
+};
+
+/// A hash read as a fraction of one, which is how every choice a town makes is made.
+static Real hashUnit( Int seed, Int a, Int b )
+{
+	return (Real)(hashCell( seed, a, b ) % 4096U) / 4096.0f;
+}
+
+/// Where one direction's streets run, spaced unevenly and centred on the town. Returns the span.
+static Real rollStreetLines( Int seed, Int town, Int streets, Real *out )
+{
+	Real at = 0.0f;
+	Int line;
+
+	for( line = 0; line < streets; line++ )
+	{
+		out[line] = at;
+		at += lerpReal( RMG_TOWN_BLOCK_MIN, RMG_TOWN_BLOCK_MAX, hashUnit( seed, town, line ) );
+	}
+
+	Real span = out[streets - 1];
+	for( line = 0; line < streets; line++ )
+		out[line] -= span * 0.5f;
+
+	return span;
+}
+
+static void rollTownPlan( Int seed, Int town, RMGTownPlan *plan )
+{
+	// A square grid repeats every quarter turn, so a quarter turn is the whole choice.
+	plan->m_rotation = hashUnit( seed + 613, town, 0 ) * PI * 0.5f;
+
+	const UnsignedInt streetChoices = (UnsignedInt)(RMG_TOWN_MAX_STREETS - RMG_TOWN_MIN_STREETS + 1);
+	plan->m_streetsAcross = RMG_TOWN_MIN_STREETS +
+			(Int)(hashCell( seed + 613, town, 1 ) % streetChoices);
+	plan->m_streetsDown = RMG_TOWN_MIN_STREETS +
+			(Int)(hashCell( seed + 613, town, 2 ) % streetChoices);
+
+	plan->m_plotLength = lerpReal( RMG_TOWN_PLOT_MIN, RMG_TOWN_PLOT_MAX,
+																 hashUnit( seed + 613, town, 3 ) );
+	plan->m_setBack = lerpReal( RMG_TOWN_SET_BACK_MIN, RMG_TOWN_SET_BACK_MAX,
+															hashUnit( seed + 613, town, 4 ) );
+
+	Real spanAcross = rollStreetLines( seed + 6131, town, plan->m_streetsAcross, plan->m_acrossAt );
+	Real spanDown = rollStreetLines( seed + 6133, town, plan->m_streetsDown, plan->m_downAt );
+	Real span = (spanAcross > spanDown) ? spanAcross : spanDown;
+
+	plan->m_radius = span * 0.5f + plan->m_setBack + 4.0f;
+}
+
+/// A point in the town's own coordinates, put where the map has it.
+static void townToWorld( Real centreX, Real centreY, const RMGTownPlan& plan, Real across, Real down,
+												 Real *outX, Real *outY )
+{
+	Real cosine = Cos( plan.m_rotation );
+	Real sine = Sin( plan.m_rotation );
+
+	*outX = centreX + across * cosine - down * sine;
+	*outY = centreY + across * sine + down * cosine;
+}
+
+/// How far a plot is from the nearest street crossing it, so junctions are left as junctions.
+static Real nearestStreetDistance( const Real *streetAt, Int streets, Real value )
+{
+	Real nearest = 1.0e9f;
+
+	for( Int line = 0; line < streets; line++ )
+	{
+		Real distance = fabsf( value - streetAt[line] );
+		if( distance < nearest )
+			nearest = distance;
+	}
+
+	return nearest;
+}
+
 /** A lake is a circle whose radius is a noise field of its own, sampled once per outline point and
 	interpolated in between, so the shore wanders the way a shore does and the polygon the engine
 	gets is the same shape as the basin that was carved. */
@@ -556,6 +665,8 @@ private:
 	void placeScenery( const UnsignedByte perm[512] );
 	void flattenPad( Real cellX, Real cellY, Real radius, Real blend );
 	void addRoad( Real fromX, Real fromY, Real toX, Real toY );
+	void addRoadClipped( Real fromX, Real fromY, Real toX, Real toY );
+	Bool dryAt( Real cellX, Real cellY, Real margin ) const;
 
 	Real cellSpanWorld( Int x, Int y ) const;
 	Real roughnessAt( Int cellX, Int cellY, Int radius ) const;
@@ -863,6 +974,29 @@ void RMGLayout::carveLakeBasins( void )
 			if( h > 254.0f ) h = 254.0f;
 
 			m_heights[cellIndex( x, y )] = (UnsignedByte)(h + 0.5f);
+		}
+	}
+
+	// And everything that is not a lake comes up out of the water.
+	Real bank = m_waterHeight + RMG_LAKE_BANK;
+
+	for( Int landY = 0; landY < m_height; landY++ )
+	{
+		for( Int landX = 0; landX < m_width; landX++ )
+		{
+			/* Measured rather than read off the lake mask, and a cell short of the rim counts as
+				land: the water area the map ships is a 32-sided polygon through the outline, so the
+				cells between a chord and the arc it cuts are outside the water the game draws and
+				have to be dry ground like any other. */
+			Real distanceToShore;
+			insideLake( (Real)(landX - RMG_BORDER_CELLS), (Real)(landY - RMG_BORDER_CELLS),
+									&distanceToShore );
+			if( distanceToShore < -1.0f )
+				continue;
+
+			Int index = cellIndex( landX, landY );
+			if( (Real)m_heights[index] < bank )
+				m_heights[index] = (UnsignedByte)(bank + 0.5f);
 		}
 	}
 }
@@ -1403,7 +1537,9 @@ void RMGLayout::buildTerrainClasses( const UnsignedByte perm[512] )
 
 			UnsignedByte terrainClass = RMG_TERRAIN_GRASS;
 
-			if( height < m_waterHeight + 3.0f + wobble * 2.0f )
+			// Sand runs from the water up the whole beach, which is what makes a lake read as a lake
+			// with a shore rather than a hole of water cut in the grass.
+			if( height < m_waterHeight + 8.0f + wobble * 3.0f )
 				terrainClass = RMG_TERRAIN_SAND;
 			else if( span > RMG_CLIFF_WORLD_SPAN * (0.45f + wobble * 0.12f) )
 				terrainClass = RMG_TERRAIN_ROCK;
@@ -1662,6 +1798,18 @@ void RMGLayout::flattenPad( Real cellX, Real cellY, Real radius, Real blend )
 			if( distance > radius )
 				t = (distance - radius) / (blend - radius);
 
+			/* The beach keeps its own profile. A pad that runs to the water's edge levels the shelf
+				the soft water edge is drawn on and leaves the bank standing over the lake like a
+				kerb, so the pad fades out as it comes up to the shore instead. */
+			Real distanceToShore;
+			insideLake( (Real)(x - RMG_BORDER_CELLS), (Real)(y - RMG_BORDER_CELLS), &distanceToShore );
+			if( distanceToShore < RMG_PAD_SHORE_KEEP )
+				continue;
+
+			Real shoreT = (distanceToShore - RMG_PAD_SHORE_KEEP) / RMG_LAKE_SHORE;
+			if( shoreT < 1.0f && t < 1.0f - shoreT )
+				t = 1.0f - shoreT;
+
 			Real h = lerpReal( level, (Real)m_heights[cellIndex( x, y )], fadeCurve( t ) );
 			if( h < 1.0f ) h = 1.0f;
 			if( h > 254.0f ) h = 254.0f;
@@ -1690,6 +1838,56 @@ void RMGLayout::addRoad( Real fromX, Real fromY, Real toX, Real toY )
 	point.m_worldY = toY * MAP_XY_FACTOR;
 	point.m_flags = RMG_FLAG_ROAD_POINT2;
 	m_objects.push_back( point );
+}
+
+/// Whether a point is far enough from every lake to build or pave on.
+Bool RMGLayout::dryAt( Real cellX, Real cellY, Real margin ) const
+{
+	Real distanceToShore;
+	insideLake( cellX, cellY, &distanceToShore );
+
+	return distanceToShore >= margin;
+}
+
+/** The dry parts of a street. A town beside a lake has streets that run at the water, and a road
+	object pair does not care whether the ground under it is a lake bed - it paves it, and what the
+	player sees is tarmac going into the water. This walks the line, keeps the runs that stay on dry
+	ground and drops the rest, so the street stops at the bank. */
+void RMGLayout::addRoadClipped( Real fromX, Real fromY, Real toX, Real toY )
+{
+	Real spanX = toX - fromX;
+	Real spanY = toY - fromY;
+	Real length = sqrtf( spanX * spanX + spanY * spanY );
+	if( length < RMG_ROAD_MIN_RUN )
+		return;
+
+	Int steps = (Int)(length / RMG_ROAD_STEP) + 1;
+	Real runStart = -1.0f;
+
+	for( Int step = 0; step <= steps; step++ )
+	{
+		Real along = (Real)step * length / (Real)steps;
+		Real x = fromX + spanX * (along / length);
+		Real y = fromY + spanY * (along / length);
+		Bool dry = (step < steps) && dryAt( x, y, RMG_TOWN_DRY_MARGIN );
+
+		if( dry && runStart < 0.0f )
+		{
+			runStart = along;
+			continue;
+		}
+
+		if( dry || runStart < 0.0f )
+			continue;
+
+		if( along - runStart >= RMG_ROAD_MIN_RUN )
+		{
+			addRoad( fromX + spanX * (runStart / length), fromY + spanY * (runStart / length),
+							 fromX + spanX * (along / length), fromY + spanY * (along / length) );
+		}
+
+		runStart = -1.0f;
+	}
 }
 
 /** The flattest buildable spot in a ring around a point, whatever else is on the map. This is how
@@ -1728,9 +1926,17 @@ Bool RMGLayout::findSiteNear( Real centreX, Real centreY, Real minRadius, Real m
 			if( !passableAtCell( mapX, mapY ) )
 				continue;
 
+			/* Off the water by something like what is being placed, capped: a town wants its middle
+				well clear of a lake, but demanding the whole grid's radius of dry ground would mean
+				no town on any map with water on it. What overhangs the bank is clipped where it is
+				laid instead. */
+			Real dryMargin = 4.0f + clearance * 0.5f;
+			if( dryMargin > 26.0f )
+				dryMargin = 26.0f;
+
 			Real distanceToShore;
 			insideLake( x, y, &distanceToShore );
-			if( distanceToShore < 4.0f )
+			if( distanceToShore < dryMargin )
 				continue;
 
 			if( !siteIsClear( x, y, clearance ) )
@@ -1856,8 +2062,11 @@ void RMGLayout::placeSupplyAndDerricks( void )
 	}
 }
 
-/** Civilian buildings come in small clusters facing the same way, the way a
-	hamlet does, rather than one at a time wherever there is room. */
+/** A town is generated, not stamped. Each one rolls its own grid - how many streets it has each
+	way, how far apart they run, how deep its plots are, which way the whole thing faces - and the
+	buildings come off a list walked in order down each street with gaps left in it. Anything that
+	would land in a lake is dropped where it is laid rather than kept out by making the town smaller,
+	so a town on a bank keeps its shape and loses the street that ran into the water. */
 void RMGLayout::placeTowns( void )
 {
 	/* Two rows of frontage, because a street has two sides and a town where every building is the
@@ -1873,82 +2082,122 @@ void RMGLayout::placeTowns( void )
 	const Int numStreetNames = sizeof(theStreetNames) / sizeof(theStreetNames[0]);
 
 	Int buildingID = 1;
+	// Two at the least: one town on a map is a landmark, two are a place the fight moves between.
 	Int towns = m_settings.m_numPlayers / 2;
-	if( towns < 1 )
-		towns = 1;
-
-	Real half = (Real)(RMG_TOWN_STREETS - 1) * RMG_TOWN_BLOCK * 0.5f;
-	Real townRadius = half + RMG_TOWN_SET_BACK + 4.0f;
-
-	// Out of everybody's base, in the ground between them, which is where a town is worth fighting
-	// through rather than one more thing in somebody's back garden.
-	Real inner = RMG_BLEND_RADIUS + townRadius + 6.0f;
-	Real outer = inner + (Real)m_settings.m_playableCells * 0.22f;
+	if( towns < 2 )
+		towns = 2;
 
 	for( Int town = 0; town < towns; town++ )
 	{
+		RMGTownPlan plan;
+		rollTownPlan( m_settings.m_seed, town, &plan );
+
+		// Out of everybody's base, in the ground between them, which is where a town is worth
+		// fighting through rather than one more thing in somebody's back garden.
+		Real inner = RMG_BLEND_RADIUS + plan.m_radius + 6.0f;
+		Real outer = inner + (Real)m_settings.m_playableCells * 0.22f;
 		UnsignedInt which = (UnsignedInt)town % (UnsignedInt)m_starts.size();
 
 		RMGPoint site;
 		if( !findSiteNear( m_starts[which].m_cellX, m_starts[which].m_cellY, inner, outer,
-											 townRadius, &site ) )
+											 plan.m_radius, &site ) )
 			continue;
 
 		// The whole town sits on one level: streets that run downhill through a terrace edge are
 		// streets with a cliff across them.
-		flattenPad( site.m_cellX, site.m_cellY, townRadius, townRadius + 12.0f );
+		flattenPad( site.m_cellX, site.m_cellY, plan.m_radius, plan.m_radius + 12.0f );
 
 		UnsignedInt hash = hashCell( m_settings.m_seed + 613, (Int)site.m_cellX, (Int)site.m_cellY );
 		Int nameOffset = (Int)(hash % (UnsignedInt)numStreetNames);
 
-		Int line;
-		for( line = 0; line < RMG_TOWN_STREETS; line++ )
-		{
-			Real offset = (Real)line * RMG_TOWN_BLOCK - half;
+		Real acrossEnd = plan.m_acrossAt[plan.m_streetsAcross - 1] + plan.m_setBack;
+		Real acrossStart = plan.m_acrossAt[0] - plan.m_setBack;
+		Real downEnd = plan.m_downAt[plan.m_streetsDown - 1] + plan.m_setBack;
+		Real downStart = plan.m_downAt[0] - plan.m_setBack;
 
-			addRoad( site.m_cellX + offset, site.m_cellY - half - RMG_TOWN_SET_BACK,
-							 site.m_cellX + offset, site.m_cellY + half + RMG_TOWN_SET_BACK );
-			addRoad( site.m_cellX - half - RMG_TOWN_SET_BACK, site.m_cellY + offset,
-							 site.m_cellX + half + RMG_TOWN_SET_BACK, site.m_cellY + offset );
+		Int line;
+		Real fromX, fromY, toX, toY;
+
+		for( line = 0; line < plan.m_streetsAcross; line++ )
+		{
+			townToWorld( site.m_cellX, site.m_cellY, plan, plan.m_acrossAt[line], downStart,
+									 &fromX, &fromY );
+			townToWorld( site.m_cellX, site.m_cellY, plan, plan.m_acrossAt[line], downEnd,
+									 &toX, &toY );
+			addRoadClipped( fromX, fromY, toX, toY );
 		}
 
-		/* Buildings stand back from a street on both sides, facing it, in a row down its whole
-			length. The plots either side of a crossing are left empty so the junction is a
-			junction rather than a building with a road through it, and that gap is what makes the
-			grid read as blocks with frontage instead of a field of buildings. */
-		for( line = 0; line < RMG_TOWN_STREETS; line++ )
+		for( line = 0; line < plan.m_streetsDown; line++ )
 		{
-			Real offset = (Real)line * RMG_TOWN_BLOCK - half;
+			townToWorld( site.m_cellX, site.m_cellY, plan, acrossStart, plan.m_downAt[line],
+									 &fromX, &fromY );
+			townToWorld( site.m_cellX, site.m_cellY, plan, acrossEnd, plan.m_downAt[line],
+									 &toX, &toY );
+			addRoadClipped( fromX, fromY, toX, toY );
+		}
 
-			for( Real down = -half; down <= half + 0.5f; down += RMG_TOWN_PLOT )
+		/* Buildings stand back from a street on both sides, facing it, down its whole length. The
+			plots either side of a crossing are left empty so the junction stays a junction, and a
+			fifth of the rest are left empty too, which is what stops a street reading as a wall of
+			frontage with no yards, corners or car parks in it. */
+		for( Int direction = 0; direction < 2; direction++ )
+		{
+			const Real *streetAt = (direction == 0) ? plan.m_acrossAt : plan.m_downAt;
+			const Real *crossingAt = (direction == 0) ? plan.m_downAt : plan.m_acrossAt;
+			Int streets = (direction == 0) ? plan.m_streetsAcross : plan.m_streetsDown;
+			Int crossings = (direction == 0) ? plan.m_streetsDown : plan.m_streetsAcross;
+			Real alongStart = (direction == 0) ? downStart : acrossStart;
+			Real alongEnd = (direction == 0) ? downEnd : acrossEnd;
+
+			for( line = 0; line < streets; line++ )
 			{
-				// How far this plot is from the nearest crossing street.
-				Real fromCrossing = fabsf( fmodf( down + half, RMG_TOWN_BLOCK ) );
-				if( fromCrossing > RMG_TOWN_BLOCK * 0.5f )
-					fromCrossing = RMG_TOWN_BLOCK - fromCrossing;
-				if( fromCrossing < RMG_TOWN_PLOT * 0.75f )
-					continue;
+				Int plot = 0;
 
-				for( Int side = 0; side < 2; side++ )
+				for( Real along = alongStart; along <= alongEnd + 0.5f; along += plan.m_plotLength )
 				{
-					Real back = (side == 0) ? -RMG_TOWN_SET_BACK : RMG_TOWN_SET_BACK;
-					Real facing = (side == 0) ? 0.0f : PI;
+					plot++;
 
-					AsciiString uniqueID;
-					uniqueID.format( "Civilian %d", buildingID++ );
-					addObject( theStreetNames[(nameOffset + buildingID) % numStreetNames],
-										 uniqueID.str(), site.m_cellX + offset + back,
-										 site.m_cellY + down, facing );
+					if( nearestStreetDistance( crossingAt, crossings, along ) < plan.m_plotLength * 0.5f )
+						continue;
 
-					uniqueID.format( "Civilian %d", buildingID++ );
-					addObject( theStreetNames[(nameOffset + buildingID) % numStreetNames],
-										 uniqueID.str(), site.m_cellX + down,
-										 site.m_cellY + offset + back, facing + PI * 0.5f );
+					for( Int side = 0; side < 2; side++ )
+					{
+						UnsignedInt plotHash = hashCell( m_settings.m_seed + 6139,
+																						 town * 64 + line * 4 + side, plot );
+						if( plotHash % 100U < RMG_TOWN_GAP_IN_100 )
+							continue;
+
+						Real jitter = (hashUnit( m_settings.m_seed + 6141, town * 64 + line * 4 + side,
+																		 plot ) - 0.5f) * 2.0f * RMG_TOWN_JITTER;
+						Real back = (side == 0) ? -plan.m_setBack - jitter : plan.m_setBack + jitter;
+						Real facing = (side == 0) ? 0.0f : PI;
+
+						Real buildingX, buildingY;
+						if( direction == 0 )
+						{
+							townToWorld( site.m_cellX, site.m_cellY, plan, streetAt[line] + back, along,
+													 &buildingX, &buildingY );
+						}
+						else
+						{
+							townToWorld( site.m_cellX, site.m_cellY, plan, along, streetAt[line] + back,
+													 &buildingX, &buildingY );
+							facing += PI * 0.5f;
+						}
+
+						if( !dryAt( buildingX, buildingY, RMG_TOWN_DRY_MARGIN ) )
+							continue;
+
+						AsciiString uniqueID;
+						uniqueID.format( "Civilian %d", buildingID++ );
+						addObject( theStreetNames[(nameOffset + buildingID) % numStreetNames],
+											 uniqueID.str(), buildingX, buildingY, plan.m_rotation + facing );
+					}
 				}
 			}
 		}
 
-		reserveSite( site.m_cellX, site.m_cellY, townRadius + 4.0f );
+		reserveSite( site.m_cellX, site.m_cellY, plan.m_radius + 4.0f );
 	}
 }
 
@@ -1961,9 +2210,14 @@ void RMGLayout::placeBunkers( void )
 
 	for( UnsignedInt i = 0; i < m_ramps.size(); i++ )
 	{
+		/* A ramp is a gap in a cliff, so the ground beside one is the ground the search likes least.
+			Rather than leave the ramp unwatched, the ask drops to less elbow room and then to a
+			wider ring before giving up on it. */
 		RMGPoint site;
 		if( !findSiteNear( m_ramps[i].m_cellX, m_ramps[i].m_cellY, 6.0f, 18.0f,
-											 RMG_BUNKER_CLEARANCE, &site ) )
+											 RMG_BUNKER_CLEARANCE, &site ) &&
+				!findSiteNear( m_ramps[i].m_cellX, m_ramps[i].m_cellY, 6.0f, 18.0f, 5.0f, &site ) &&
+				!findSiteNear( m_ramps[i].m_cellX, m_ramps[i].m_cellY, 6.0f, 30.0f, 5.0f, &site ) )
 			continue;
 
 		if( distanceToNearestStart( site.m_cellX, site.m_cellY ) < RMG_BLEND_RADIUS + 8.0f )

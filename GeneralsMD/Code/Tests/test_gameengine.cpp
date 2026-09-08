@@ -6378,6 +6378,9 @@ struct RMGParse
 	std::vector<Short> m_blendIndexes;			///< per cell, into m_blends; 0 is no blend
 	std::vector<RMGBlendEntry> m_blends;		///< the table itself, entry 0 excepted
 	std::vector<Coord3D> m_waterPoints;			///< first point of each water area
+	std::vector< std::vector<Coord3D> > m_waterPolygons;	///< and every point of it
+	std::vector<Coord3D> m_objectPositions;
+	std::vector<Int> m_objectFlags;				///< the road flags, for the objects that carry them
 
 	RMGParse() :
 		m_width(0), m_height(0), m_border(0), m_boundaryX(0), m_boundaryY(0), m_dataSize(0),
@@ -6510,16 +6513,20 @@ static Bool RMGParseWaterAreas( DataChunkInput &file, DataChunkInfo *info, void 
 		Int numPoints = file.readInt();
 		CHECK( numPoints >= 3 );
 
+		std::vector<Coord3D> polygon;
 		for( Int point = 0; point < numPoints; point++ )
 		{
 			Coord3D loc;
 			loc.x = (Real)file.readInt();
 			loc.y = (Real)file.readInt();
 			loc.z = (Real)file.readInt();
+			polygon.push_back( loc );
 
 			if( point == 0 )
 				theRMGParse.m_waterPoints.push_back( loc );
 		}
+
+		theRMGParse.m_waterPolygons.push_back( polygon );
 	}
 	return TRUE;
 }
@@ -6557,12 +6564,14 @@ static Bool RMGParseObject( DataChunkInput &file, DataChunkInfo *info, void * )
 	loc.y = file.readReal();
 	loc.z = file.readReal();
 	file.readReal();									// angle
-	file.readInt();										// flags
+	Int flags = file.readInt();
 	AsciiString name = file.readAsciiString();
 	Dict d = file.readDict();
 
 	theRMGParse.m_numObjects++;
 	theRMGParse.m_objectNames.push_back( name );
+	theRMGParse.m_objectPositions.push_back( loc );
+	theRMGParse.m_objectFlags.push_back( flags );
 
 	if( d.getType( NAMEKEY( "waypointID" ) ) == Dict::DICT_INT )
 	{
@@ -7115,6 +7124,173 @@ TEST(every_player_gets_two_supply_docks_and_two_derricks_whatever_the_seed)
 	}
 }
 
+/// Whether a point falls inside one of the map's water polygons, by the usual crossing count.
+static Bool insideAWaterArea( Real x, Real y )
+{
+	for( Int area = 0; area < (Int)theRMGParse.m_waterPolygons.size(); area++ )
+	{
+		const std::vector<Coord3D>& polygon = theRMGParse.m_waterPolygons[area];
+		Bool inside = FALSE;
+
+		for( Int point = 0, last = (Int)polygon.size() - 1; point < (Int)polygon.size();
+				 last = point++ )
+		{
+			if( (polygon[point].y > y) == (polygon[last].y > y) )
+				continue;
+
+			Real crossingX = polygon[point].x + (y - polygon[point].y) *
+					(polygon[last].x - polygon[point].x) / (polygon[last].y - polygon[point].y);
+			if( x < crossingX )
+				inside = !inside;
+		}
+
+		if( inside )
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A road object pair does not care what is under it - it paves the ground, lake bed included, and
+	a street laid across a lake comes out as tarmac running into the water. The streets are clipped
+	to their dry runs and a building on a wet plot is dropped, and this is what says both still
+	happen. Towns are placed near water on purpose, so this test needs seeds with lakes in them. */
+//-------------------------------------------------------------------------------------------------
+TEST(no_street_or_civilian_building_stands_in_a_lake)
+{
+	CHECK( bootOnce() );
+
+	RandomMapSettings settings;
+	settings.m_numPlayers = 4;
+	settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, 4 );
+
+	Int mapsWithWater = 0;
+
+	for( Int seed = 1; seed <= 6; seed++ )
+	{
+		settings.m_seed = seed * 7919;
+
+		std::vector<char> bytes;
+		RandomMapGenerator::generate( settings, bytes );
+		parseGeneratedMap( bytes );
+
+		if( theRMGParse.m_waterPolygons.empty() )
+			continue;
+		mapsWithWater++;
+
+		for( Int i = 0; i < (Int)theRMGParse.m_objectNames.size(); i++ )
+		{
+			Bool isStreet = (theRMGParse.m_objectFlags[i] & (FLAG_ROAD_POINT1 | FLAG_ROAD_POINT2)) != 0;
+			Bool isBuilding = theRMGParse.m_objectNames[i].startsWith( "Stan" ) ||
+												theRMGParse.m_objectNames[i].startsWith( "Asian" ) ||
+												theRMGParse.m_objectNames[i].startsWith( "Civilian" );
+			if( !isStreet && !isBuilding )
+				continue;
+
+			CHECK( !insideAWaterArea( theRMGParse.m_objectPositions[i].x,
+																theRMGParse.m_objectPositions[i].y ) );
+		}
+	}
+
+	CHECK( mapsWithWater > 0 );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A lake is a polygon, not a flood: ground outside one that lies below the water surface is not
+	filled in, it is drawn as land with the water standing over it, and the lake reads as a puddle
+	sitting on top of the map.  Lakes are carved into the lowest ground there is, so this is what the
+	noise leaves behind unless the land is lifted out of the water afterwards. */
+//-------------------------------------------------------------------------------------------------
+TEST(no_dry_ground_lies_below_the_water_surface)
+{
+	CHECK( bootOnce() );
+
+	Int mapsWithWater = 0;
+
+	for( Int seed = 1; seed <= 4; seed++ )
+	{
+		RandomMapSettings settings;
+		settings.m_seed = seed * 7919;
+		settings.m_numPlayers = 4;
+		settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_SMALL, 4 );
+
+		std::vector<char> bytes;
+		RandomMapGenerator::generate( settings, bytes );
+		parseGeneratedMap( bytes );
+
+		if( theRMGParse.m_waterPolygons.empty() )
+			continue;
+		mapsWithWater++;
+
+		Real waterZ = theRMGParse.m_waterPolygons[0][0].z;
+		CHECK( waterZ > 0.0f );
+
+		for( Int y = 0; y < theRMGParse.m_height; y += 2 )
+		{
+			for( Int x = 0; x < theRMGParse.m_width; x += 2 )
+			{
+				Real worldX = (Real)(x - theRMGParse.m_border) * MAP_XY_FACTOR;
+				Real worldY = (Real)(y - theRMGParse.m_border) * MAP_XY_FACTOR;
+				if( insideAWaterArea( worldX, worldY ) )
+					continue;
+
+				Real ground = (Real)theRMGParse.m_heights[y * theRMGParse.m_width + x] * MAP_HEIGHT_SCALE;
+				CHECK( ground >= waterZ );
+			}
+		}
+	}
+
+	CHECK( mapsWithWater > 0 );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Two towns on one map are two towns, not the same grid stamped twice.  Each rolls its own street
+	count, block spacing and rotation out of the seed, so what says the towns are generated rather
+	than placed is that the same seed at two player counts does not lay the same number of buildings
+	and streets down. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_town_is_rolled_rather_than_stamped)
+{
+	CHECK( bootOnce() );
+
+	Int lastBuildings = -1;
+	Int differentLayouts = 0;
+
+	for( Int seed = 1; seed <= 5; seed++ )
+	{
+		RandomMapSettings settings;
+		settings.m_seed = seed * 31337;
+		settings.m_numPlayers = 4;
+		settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, 4 );
+
+		std::vector<char> bytes;
+		RandomMapGenerator::generate( settings, bytes );
+		parseGeneratedMap( bytes );
+
+		Int buildings = 0, streetPoints = 0;
+		for( Int i = 0; i < (Int)theRMGParse.m_objectNames.size(); i++ )
+		{
+			if( (theRMGParse.m_objectFlags[i] & (FLAG_ROAD_POINT1 | FLAG_ROAD_POINT2)) != 0 )
+				streetPoints++;
+			else if( theRMGParse.m_objectNames[i].startsWith( "Stan" ) ||
+							 theRMGParse.m_objectNames[i].startsWith( "Asian" ) ||
+							 theRMGParse.m_objectNames[i].startsWith( "Civilian" ) )
+				buildings++;
+		}
+
+		CHECK( buildings > 0 );
+		CHECK( streetPoints > 0 );
+		CHECK( streetPoints % 2 == 0 );			// a road is a pair, or the renderer draws nothing
+
+		if( lastBuildings >= 0 && buildings != lastBuildings )
+			differentLayouts++;
+		lastBuildings = buildings;
+	}
+
+	CHECK( differentLayouts > 0 );
+}
+
 //-------------------------------------------------------------------------------------------------
 /** A map has to hold the players it is generated for.  The three sizes are three different maps
 	for the same game, and every one of them grows with the number of players rather than packing
@@ -7182,9 +7358,9 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0x91026C19 },
-		{ 12345, 4, 96, 0xC248EEA9 },
-		{ 7, 8, 128, 0x38E6A48E },
+		{ 0, 2, 64, 0xF59BF75C },
+		{ 12345, 4, 96, 0x6B8891F3 },
+		{ 7, 8, 128, 0x4D5C3AD3 },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
