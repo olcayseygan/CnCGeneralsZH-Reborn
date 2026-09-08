@@ -120,7 +120,10 @@ protected:
 	Bool m_reconstructViewBox;										///< true when we need to reconstruct the box
 	ICoord2D m_viewBox[ 4 ];											///< radar cell points for the 4 corners of view box
 
-	std::list<const Coord3D *> m_cachedHeroPosList;					//< cache of hero positions for drawing icons in radar overlay
+	// By value, not by pointer into the object.  The list is rebuilt every OVERLAY_REFRESH_RATE
+	// frames and read on every one of them, so a hero killed in between left a pointer into a
+	// deleted Object for the icon pass to read.
+	std::list<Coord3D> m_cachedHeroPosList;					//< cache of hero positions for drawing icons in radar overlay
 };
 
 

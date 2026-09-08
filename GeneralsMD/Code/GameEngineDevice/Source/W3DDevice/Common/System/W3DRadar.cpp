@@ -599,10 +599,10 @@ void W3DRadar::drawEvents( Int pixelX, Int pixelY, Int width, Int height )
 void W3DRadar::drawIcons( Int pixelX, Int pixelY, Int width, Int height )
 {
 	// draw the hero icons
-	std::list<const Coord3D *>::const_iterator iter = m_cachedHeroPosList.begin();
+	std::list<Coord3D>::const_iterator iter = m_cachedHeroPosList.begin();
 	while (iter != m_cachedHeroPosList.end())
 	{
-		drawHeroIcon( pixelX, pixelY, width, height, (*iter) );
+		drawHeroIcon( pixelX, pixelY, width, height, &(*iter) );
 		++iter;
 	}
 }
@@ -652,7 +652,7 @@ void W3DRadar::renderObjectList( const RadarObject *listHead, TextureClass *text
 		// cache hero object positions for drawing in icon layer
 		if( calcHero && obj->isHero() )
 		{
-			m_cachedHeroPosList.push_back(obj->getPosition());
+			m_cachedHeroPosList.push_back(*obj->getPosition());
 		}
     Bool skip = FALSE;
 
