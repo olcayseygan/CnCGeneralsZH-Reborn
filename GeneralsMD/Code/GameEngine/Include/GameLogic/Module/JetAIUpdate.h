@@ -133,6 +133,8 @@ public:
 	}
 	void friend_addWaypointToGoalPath( const Coord3D &pos );
 	AICommandType friend_getPendingCommandType() const;
+	AICommandType friend_getHeldOrder( ObjectID& targetID, Coord3D& targetPos ) const;
+	Bool friend_isRearming() const;
 	void friend_purgePendingCommand();
 
 protected:

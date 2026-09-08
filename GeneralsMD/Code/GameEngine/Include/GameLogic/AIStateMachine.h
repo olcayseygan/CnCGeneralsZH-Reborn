@@ -979,9 +979,10 @@ class AIAttackFireWeaponState : public State
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackFireWeaponState, "AIAttackFireWeaponState")		
 public:
 	AIAttackFireWeaponState( StateMachine *machine, NotifyWeaponFiredInterface* att ) : 
-		State( machine, "AIAttackFireWeaponState" ), 
-		m_att(att) 
-	{ 
+		State( machine, "AIAttackFireWeaponState" ),
+		m_att(att),
+		m_saidHeldFire(FALSE)
+	{
 	}
 	virtual Bool isAttack() const { return TRUE; }
 	virtual StateReturnType update();
@@ -994,6 +995,7 @@ protected:
 	virtual void loadPostProcess(){};
 private:
 	NotifyWeaponFiredInterface *const m_att;		// this is NOT owned by us and should not be freed
+	Bool m_saidHeldFire;												// one log line per held shot, not one per frame of holding it
 };
 EMPTY_DTOR(AIAttackFireWeaponState)
 

@@ -82,6 +82,25 @@ public:
 	/// The same question asked about a live object, whose health it reads for you.
 	static Bool isAlreadyDoomed(const Object *victim);
 
+	/**
+		Say, before the round leaves the barrel, that this shooter means to put this much damage into
+		this victim. A shot that is still being aimed or is inside its wind-up is worth announcing:
+		until it is fired there is nothing in the ledger, so a whole flight commits to the same target
+		and only finds out on the frame the first missile launches. Re-announcing refreshes the claim
+		and it lapses within a few frames of the last one, so a unit that changes its mind releases it
+		by falling silent.
+	*/
+	static void claimShot(ObjectID victim, ObjectID shooter, Real amount, UnsignedInt currentFrame);
+
+	/**
+		TRUE if somebody else has this victim covered: damage in flight plus the shots other units
+		have announced already exceed its health. The asker's own claim is left out, so a unit is
+		never talked out of the shot it is lining up. This is the question a unit asks before
+		committing; isAlreadyDoomed, which counts only fire that is genuinely in the air, is the
+		question to ask when an announcement is not good enough.
+	*/
+	static Bool isSpokenFor(const Object *victim, ObjectID asker);
+
 };
 
 #endif // __INCOMINGDAMAGE_H__

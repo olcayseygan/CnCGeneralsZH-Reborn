@@ -2584,6 +2584,44 @@ AICommandType JetAIUpdate::friend_getPendingCommandType() const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The order this aircraft accepted but has not started yet.  Taking off clears the state machine
+	* and parks the command here, so between the player's click and the wheels leaving the ground the
+	* order exists nowhere else. */
+//-------------------------------------------------------------------------------------------------
+AICommandType JetAIUpdate::friend_getHeldOrder( ObjectID& targetID, Coord3D& targetPos ) const
+{
+	if( !getFlag( HAS_PENDING_COMMAND ) )
+		return AICMD_NO_COMMAND;
+
+	targetID = m_mostRecentCommand.getTargetObjectID();
+	targetPos = m_mostRecentCommand.getTargetPosition();
+	return m_mostRecentCommand.getCommandType();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** On its way home, on the ground, or filling its racks: everything between running dry and being
+	* ready to fly out again.  An aircraft in here is not refusing the order it was given, it is in the
+	* middle of the trip that lets it carry the order out. */
+//-------------------------------------------------------------------------------------------------
+Bool JetAIUpdate::friend_isRearming() const
+{
+	switch( getStateMachine()->getCurrentStateID() )
+	{
+		case RETURNING_FOR_LANDING:
+		case RETURN_TO_DEAD_AIRFIELD:
+		case CIRCLING_DEAD_AIRFIELD:
+		case LANDING_AWAIT_CLEARANCE:
+		case LANDING:
+		case TAXI_FROM_LANDING:
+		case ORIENT_FOR_PARKING_PLACE:
+		case RELOAD_AMMO:
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
 void JetAIUpdate::friend_purgePendingCommand()
 {
 	setFlag(HAS_PENDING_COMMAND, false);

@@ -112,14 +112,6 @@ GameMessageDisposition HintSpyTranslator::translateGameMessage(const GameMessage
 			break;
 
 		//-----------------------------------------------------------------------------
-		case GameMessage::MSG_DO_MOVETO:
-		case GameMessage::MSG_DO_ATTACKMOVETO:
-		case GameMessage::MSG_DO_FORCEMOVETO:
-		case GameMessage::MSG_ADD_WAYPOINT:
-			TheInGameUI->createMoveHint( msg );
-			break;
-
-		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_DO_ATTACK_OBJECT:
 			TheInGameUI->createAttackHint( msg );
 			break;

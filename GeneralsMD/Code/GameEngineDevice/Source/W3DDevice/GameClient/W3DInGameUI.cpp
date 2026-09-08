@@ -280,16 +280,6 @@ void DebugHintObject::Render(RenderInfoClass & rinfo)
 //-------------------------------------------------------------------------------------------------
 W3DInGameUI::W3DInGameUI()
 {
-	Int i;
-
-	for( i = 0; i < MAX_MOVE_HINTS; i++ )
-	{
-
-		m_moveHintRenderObj[ i ] = NULL;
-		m_moveHintAnim[ i ] = NULL;
-
-	}  // end for i
-
 	m_buildingPlacementAnchor = NULL;
 	m_buildingPlacementArrow = NULL;
 
@@ -299,17 +289,6 @@ W3DInGameUI::W3DInGameUI()
 //-------------------------------------------------------------------------------------------------
 W3DInGameUI::~W3DInGameUI()
 {
-	Int i;
-
-	// remove render objects for hints
-	for( i = 0; i < MAX_MOVE_HINTS; i++ )
-	{
-
-		REF_PTR_RELEASE( m_moveHintRenderObj[ i ] );
-		REF_PTR_RELEASE( m_moveHintAnim[ i ] );
-
-	}  // end for i
-
 	REF_PTR_RELEASE( m_buildingPlacementAnchor );
 	REF_PTR_RELEASE( m_buildingPlacementArrow );
 
@@ -430,9 +409,6 @@ void W3DInGameUI::draw( void )
 				 view = TheDisplay->getNextView( view ) )
 		{
 
-			// draw move hints
-			drawMoveHints( view );
-
 			// draw attack hints
 			drawAttackHints( view );
 
@@ -499,20 +475,21 @@ void W3DInGameUI::draw( void )
 }  // end draw
 
 //-------------------------------------------------------------------------------------------------
-// The build grid's own render state.  Alpha blended, untextured, depth tested but never depth
-// written, and PASS_ALWAYS: the grid is a sheet lying exactly on the terrain, so anything that
-// compared depth against the terrain would z-fight with it.  Drawing it in the terrain pass and
-// never writing depth means everything drawn after the terrain - buildings, units, trees, the
-// placement ghost itself - covers it, which is what makes it read as paint on the ground.
+// The render state every sheet painted on the ground is drawn with: the build grid, and the wash
+// inside an attack circle.  Alpha blended, untextured, depth tested but never depth written, and
+// PASS_ALWAYS: the sheet lies exactly on the terrain, so anything that compared depth against the
+// terrain would z-fight with it.  Drawing it in the terrain pass and never writing depth means
+// everything drawn after the terrain - buildings, units, trees, the placement ghost itself - covers
+// it, which is what makes it read as paint on the ground.
 // This is the bibs' shader with texturing off (see W3DBibBuffer).
-#define SC_BUILD_GRID ( SHADE_CNST(ShaderClass::PASS_ALWAYS, ShaderClass::DEPTH_WRITE_DISABLE, ShaderClass::COLOR_WRITE_ENABLE, ShaderClass::SRCBLEND_SRC_ALPHA, \
+#define SC_GROUND_OVERLAY ( SHADE_CNST(ShaderClass::PASS_ALWAYS, ShaderClass::DEPTH_WRITE_DISABLE, ShaderClass::COLOR_WRITE_ENABLE, ShaderClass::SRCBLEND_SRC_ALPHA, \
 	ShaderClass::DSTBLEND_ONE_MINUS_SRC_ALPHA, ShaderClass::FOG_DISABLE, ShaderClass::GRADIENT_MODULATE, ShaderClass::SECONDARY_GRADIENT_DISABLE, ShaderClass::TEXTURING_DISABLE, \
 	ShaderClass::ALPHATEST_DISABLE, ShaderClass::CULL_MODE_DISABLE, \
 	ShaderClass::DETAILCOLOR_DISABLE, ShaderClass::DETAILALPHA_DISABLE) )
 
-/** rgb plus an alpha given as a float 0..255, clamped - the grid's colours are all one colour at
+/** rgb plus an alpha given as a float 0..255, clamped - these sheets are all one colour at
 	* a per-vertex strength. */
-static UnsignedInt gridColor( UnsignedInt rgb, Real alpha )
+static UnsignedInt overlayColor( UnsignedInt rgb, Real alpha )
 {
 	Int a = REAL_TO_INT( alpha );
 	if( a < 0 )
@@ -522,13 +499,14 @@ static UnsignedInt gridColor( UnsignedInt rgb, Real alpha )
 	return rgb | ((UnsignedInt)a << 24);
 }
 
-/** Batches the grid's quads through the dynamic vertex buffer.  The patch is ~1700 line quads plus
-	* a fill for each blocked cell, which is more than one dynamic lock wants to hold, so it flushes
-	* in fixed chunks - the draw state is set once by the caller and holds across the flushes. */
-class BuildGridQuads
+/** Batches a ground sheet's quads through the dynamic vertex buffer.  The build grid alone is ~1700
+	* line quads plus a fill for each blocked cell, which is more than one dynamic lock wants to hold,
+	* so it flushes in fixed chunks - the draw state is set once by the caller and holds across the
+	* flushes. */
+class GroundOverlayQuads
 {
 public:
-	BuildGridQuads( void ) : m_quads( 0 ) { }
+	GroundOverlayQuads( void ) : m_quads( 0 ) { }
 
 	void add( const Vector3 &p0, const Vector3 &p1, const Vector3 &p2, const Vector3 &p3,
 						UnsignedInt c0, UnsignedInt c1, UnsignedInt c2, UnsignedInt c3 )
@@ -557,7 +535,7 @@ private:
 	Int m_quads;
 };
 
-void BuildGridQuads::flush( void )
+void GroundOverlayQuads::flush( void )
 {
 	if( m_quads == 0 )
 		return;
@@ -605,6 +583,23 @@ void BuildGridQuads::flush( void )
 	DX8Wrapper::Set_Index_Buffer( ibAccess, 0 );
 	DX8Wrapper::Set_Vertex_Buffer( vbAccess );
 	DX8Wrapper::Draw_Triangles( 0, quads * 2, 0, quads * 4 );
+}
+
+// 32k of vertices, shared by every sheet drawn on the ground.  They all run on the render thread
+// and each one flushes before it returns, so there is only ever one batch in flight.
+static GroundOverlayQuads theGroundOverlayQuads;
+
+/** The prelit, untextured, alpha blended state a ground sheet is drawn with.  Set once per sheet,
+	* before any quad is added. */
+static void setGroundOverlayState( void )
+{
+	static ShaderClass overlayShader( SC_GROUND_OVERLAY );
+	VertexMaterialClass *material = VertexMaterialClass::Get_Preset( VertexMaterialClass::PRELIT_DIFFUSE );
+	DX8Wrapper::Set_Material( material );
+	REF_PTR_RELEASE( material );
+	DX8Wrapper::Set_Texture( 0, NULL );
+	DX8Wrapper::Set_Shader( overlayShader );
+	DX8Wrapper::Apply_Render_State_Changes();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -692,19 +687,9 @@ void W3DInGameUI::drawBuildGrid( void )
 		}
 	}
 
-	// the state the quads are drawn with: prelit (the colour is all in the vertices), untextured,
-	// alpha blended, depth tested but never depth written, and PASS_ALWAYS so a sheet lying on the
-	// terrain cannot z-fight with the terrain triangles underneath it.  This is the bibs' own
-	// shader, and the bibs are the proof it reads as paint rather than as decal geometry.
-	static ShaderClass gridShader( SC_BUILD_GRID );
-	VertexMaterialClass *material = VertexMaterialClass::Get_Preset( VertexMaterialClass::PRELIT_DIFFUSE );
-	DX8Wrapper::Set_Material( material );
-	REF_PTR_RELEASE( material );
-	DX8Wrapper::Set_Texture( 0, NULL );
-	DX8Wrapper::Set_Shader( gridShader );
-	DX8Wrapper::Apply_Render_State_Changes();
+	setGroundOverlayState();
 
-	static BuildGridQuads quads;		// 32k of vertices; static so it is not a stack frame
+	GroundOverlayQuads &quads = theGroundOverlayQuads;
 
 	// the lines themselves, one quad per cell edge so they follow the ground over every bump
 	const Real LINE_ALPHA = 0x58;
@@ -714,8 +699,8 @@ void W3DInGameUI::drawBuildGrid( void )
 		{
 			if( ix + 1 < GRID_POINTS && ( fade[ iy ][ ix ] > 0.0f || fade[ iy ][ ix + 1 ] > 0.0f ) )
 			{
-				const UnsignedInt c0 = gridColor( 0x00FFFFFF, LINE_ALPHA * fade[ iy ][ ix ] );
-				const UnsignedInt c1 = gridColor( 0x00FFFFFF, LINE_ALPHA * fade[ iy ][ ix + 1 ] );
+				const UnsignedInt c0 = overlayColor( 0x00FFFFFF, LINE_ALPHA * fade[ iy ][ ix ] );
+				const UnsignedInt c1 = overlayColor( 0x00FFFFFF, LINE_ALPHA * fade[ iy ][ ix + 1 ] );
 				quads.add( Vector3( gx[ ix ],     gy[ iy ] - LINE_HALF_WIDTH, gz[ iy ][ ix ] ),
 									 Vector3( gx[ ix + 1 ], gy[ iy ] - LINE_HALF_WIDTH, gz[ iy ][ ix + 1 ] ),
 									 Vector3( gx[ ix + 1 ], gy[ iy ] + LINE_HALF_WIDTH, gz[ iy ][ ix + 1 ] ),
@@ -725,8 +710,8 @@ void W3DInGameUI::drawBuildGrid( void )
 
 			if( iy + 1 < GRID_POINTS && ( fade[ iy ][ ix ] > 0.0f || fade[ iy + 1 ][ ix ] > 0.0f ) )
 			{
-				const UnsignedInt c0 = gridColor( 0x00FFFFFF, LINE_ALPHA * fade[ iy ][ ix ] );
-				const UnsignedInt c1 = gridColor( 0x00FFFFFF, LINE_ALPHA * fade[ iy + 1 ][ ix ] );
+				const UnsignedInt c0 = overlayColor( 0x00FFFFFF, LINE_ALPHA * fade[ iy ][ ix ] );
+				const UnsignedInt c1 = overlayColor( 0x00FFFFFF, LINE_ALPHA * fade[ iy + 1 ][ ix ] );
 				quads.add( Vector3( gx[ ix ] - LINE_HALF_WIDTH, gy[ iy ],     gz[ iy ][ ix ] ),
 									 Vector3( gx[ ix ] + LINE_HALF_WIDTH, gy[ iy ],     gz[ iy ][ ix ] ),
 									 Vector3( gx[ ix ] + LINE_HALF_WIDTH, gy[ iy + 1 ], gz[ iy + 1 ][ ix ] ),
@@ -754,16 +739,72 @@ void W3DInGameUI::drawBuildGrid( void )
 								 Vector3( gx[ ix + 1 ], gy[ iy ],     gz[ iy ][ ix + 1 ] ),
 								 Vector3( gx[ ix + 1 ], gy[ iy + 1 ], gz[ iy + 1 ][ ix + 1 ] ),
 								 Vector3( gx[ ix ],     gy[ iy + 1 ], gz[ iy + 1 ][ ix ] ),
-								 gridColor( 0x00FF3030, BLOCKED_ALPHA * fade[ iy ][ ix ] ),
-								 gridColor( 0x00FF3030, BLOCKED_ALPHA * fade[ iy ][ ix + 1 ] ),
-								 gridColor( 0x00FF3030, BLOCKED_ALPHA * fade[ iy + 1 ][ ix + 1 ] ),
-								 gridColor( 0x00FF3030, BLOCKED_ALPHA * fade[ iy + 1 ][ ix ] ) );
+								 overlayColor( 0x00FF3030, BLOCKED_ALPHA * fade[ iy ][ ix ] ),
+								 overlayColor( 0x00FF3030, BLOCKED_ALPHA * fade[ iy ][ ix + 1 ] ),
+								 overlayColor( 0x00FF3030, BLOCKED_ALPHA * fade[ iy + 1 ][ ix + 1 ] ),
+								 overlayColor( 0x00FF3030, BLOCKED_ALPHA * fade[ iy + 1 ][ ix ] ) );
 		}
 	}
 
 	quads.flush();
 
 }  // end drawBuildGrid
+
+//-------------------------------------------------------------------------------------------------
+/** The wash inside the circle a left drag is sweeping targets out of.  The rim is a screen space
+	* line drawn with everything else; this is the ground it encloses, laid down in the terrain pass
+	* so it bends over every slope inside it and so the tanks standing in the circle are drawn on top
+	* of the wash instead of under it.
+	*
+	* Rings rather than one fan from the centre: a fan spans a valley with a single flat triangle,
+	* and the circles worth drawing are big enough to cross one. */
+//-------------------------------------------------------------------------------------------------
+void W3DInGameUI::drawAttackCircleFill( void )
+{
+	Coord3D center;
+	Real radius;
+	if( !getAttackCircleGround( center, radius ) )
+		return;
+
+	enum { FILL_SEGMENTS = 48, FILL_RINGS = 6 };
+
+	// the ground is sampled at the vertex, so a sheet across a slope would sink into the hill
+	// between two samples; lifting it a hair keeps it out of the dirt without floating
+	const Real FILL_LIFT = 0.35f;
+	// faint on purpose.  It says which ground is inside the circle, it does not hide what is on it
+	const Real FILL_ALPHA = 0x2C;
+	const UnsignedInt FILL_RGB = 0x00FF5555;		// the attack red the rim and the hints use
+
+	Vector3 ring[ FILL_RINGS + 1 ][ FILL_SEGMENTS + 1 ];
+	Int r, s;
+	for( r = 0; r <= FILL_RINGS; ++r )
+	{
+		const Real ringRadius = radius * (Real)r / (Real)FILL_RINGS;
+		for( s = 0; s <= FILL_SEGMENTS; ++s )
+		{
+			const Real angle = 2.0f * PI * (Real)s / (Real)FILL_SEGMENTS;
+			const Real x = center.x + ringRadius * (Real)cos( angle );
+			const Real y = center.y + ringRadius * (Real)sin( angle );
+			ring[ r ][ s ].Set( x, y, TheTerrainLogic->getGroundHeight( x, y ) + FILL_LIFT );
+		}
+	}
+
+	setGroundOverlayState();
+
+	GroundOverlayQuads &quads = theGroundOverlayQuads;
+	const UnsignedInt fill = overlayColor( FILL_RGB, FILL_ALPHA );
+	for( r = 0; r < FILL_RINGS; ++r )
+	{
+		for( s = 0; s < FILL_SEGMENTS; ++s )
+		{
+			quads.add( ring[ r ][ s ], ring[ r + 1 ][ s ], ring[ r + 1 ][ s + 1 ], ring[ r ][ s + 1 ],
+								 fill, fill, fill, fill );
+		}
+	}
+
+	quads.flush();
+
+}  // end drawAttackCircleFill
 
 //-------------------------------------------------------------------------------------------------
 /** draw 2d selection region on screen */
@@ -814,14 +855,9 @@ void W3DInGameUI::drawFormationLine( void )
 //-------------------------------------------------------------------------------------------------
 void W3DInGameUI::drawAttackCircle( void )
 {
-	Coord3D center, rim;
-	TheTacticalView->screenToTerrain( &getAttackCircleAnchor(), &center );
-	TheTacticalView->screenToTerrain( &getAttackCircleCursor(), &rim );
-
-	const Real dx = rim.x - center.x;
-	const Real dy = rim.y - center.y;
-	const Real radius = (Real)sqrt( dx * dx + dy * dy );
-	if( radius < 1.0f )
+	Coord3D center;
+	Real radius;
+	if( !getAttackCircleGround( center, radius ) )
 		return;
 
 	const Int segments = 48;
@@ -1040,9 +1076,26 @@ void W3DInGameUI::drawOrderHints( void )
 
 	const Real width = 1.0f;
 
+	// A new marker slides up out of the bottom right and fades in over this long, so an order that
+	// has just been given announces itself instead of appearing fully formed.  Wall clock rather
+	// than frames: the picture is uncapped, so a frame count would run at the frame rate.
+	const UnsignedInt MARKER_SLIDE_MS = 130;
+	const Real MARKER_SLIDE_PIXELS = 13.0f;
+
+	const UnsignedInt nowMs = timeGetTime();
+
 	for( std::vector<OrderHint>::const_iterator it = hints.begin(); it != hints.end(); ++it )
 	{
 		const UnsignedInt lineColor = orderHintLineColor( it->kind );
+
+		const UnsignedInt ageMs = nowMs - it->bornMs;
+		Real arrival = 1.0f;
+		if( ageMs < MARKER_SLIDE_MS )
+			arrival = (Real)ageMs / (Real)MARKER_SLIDE_MS;
+
+		// eased out, so it comes in fast and settles rather than sliding at one speed and stopping
+		const Real remaining = 1.0f - arrival;
+		const Real eased = 1.0f - remaining * remaining * remaining;
 
 		// a unit off the edge of the screen still has a destination worth seeing, and the line to it
 		// says which way it went.  WTS_OUTSIDE_FRUSTUM still gives usable pixels, so only points
@@ -1065,136 +1118,18 @@ void W3DInGameUI::drawOrderHints( void )
 		{
 			const Int w = image->getImageWidth();
 			const Int h = image->getImageHeight();
-			const Int x = to.x - hotSpot.x;
-			const Int y = to.y - hotSpot.y;
-			TheDisplay->drawImage( image, x, y, x + w, y + h, orderHintMarkerColor( it->kind ) );
+			const Int slide = REAL_TO_INT_FLOOR( ( 1.0f - eased ) * MARKER_SLIDE_PIXELS );
+			const Int x = to.x - hotSpot.x + slide;
+			const Int y = to.y - hotSpot.y + slide;
+
+			// the tint carries the fade as well as the order's colour
+			const UnsignedInt markerColor = ( orderHintMarkerColor( it->kind ) & 0x00FFFFFF )
+																			| ( (UnsignedInt)REAL_TO_INT( 255.0f * eased ) << 24 );
+			TheDisplay->drawImage( image, x, y, x + w, y + h, markerColor );
 		}
 	}
 
 }  // end drawOrderHints
-
-//-------------------------------------------------------------------------------------------------
-/** Draw the visual feedback for clicking in the world and telling units
-	* to move there */
-//-------------------------------------------------------------------------------------------------
-void W3DInGameUI::drawMoveHints( View *view )
-{
-	Int i;
-//	Real width = 1.0f;
-//	UnsignedInt color = 0x9933FF33;  //0xAARRGGBB
-
-	for( i = 0; i < MAX_MOVE_HINTS; i++ )
-	{
-		Int elapsed = TheGameClient->getFrame() - m_moveHint[i].frame;
-
-		if( elapsed <= 40 )
-		{
-			RectClass rect;
-
-			// if this hint is not in this view ignore it
-			/// @todo write this to check if point is visible in view
-//			if( view->pointInView( &m_moveHint[ i ].pos == FALSE )
-//				continue;
-
-			// create render object and add to scene of needed
-			if( m_moveHintRenderObj[ i ] == NULL )
-			{
-				RenderObjClass *hint;
-				HAnimClass *anim;
-
-				// create hint object
-				hint = W3DDisplay::m_assetManager->Create_Render_Obj(TheGlobalData->m_moveHintName.str());
-
-				AsciiString animName;
-				animName.format("%s.%s", TheGlobalData->m_moveHintName.str(), TheGlobalData->m_moveHintName.str());
-				anim = W3DDisplay::m_assetManager->Get_HAnim(animName.str());
-	
-				// sanity
-				if( hint == NULL )
-				{
-
-					DEBUG_CRASH(("unable to create hint"));
-					return;
-
-				}  // end if
-
-				// asign render objects to GUI data
-				m_moveHintRenderObj[ i ] = hint;
-				
-				// note that 'anim' is returned from Get_HAnim with an AddRef, so we don't need to addref it again.
-				// however, we do need to release the contents of moveHintAnim (if any)
-				REF_PTR_RELEASE(m_moveHintAnim[i]);
-				m_moveHintAnim[i] = anim;
-								
-			}  // end if, create render objects
-
-			// show the render object if hidden
-			if( m_moveHintRenderObj[ i ]->Is_Hidden() == 1 ) {
-				m_moveHintRenderObj[ i ]->Set_Hidden( 0 );
-				// add to scene
-				W3DDisplay::m_3DScene->Add_Render_Object( m_moveHintRenderObj[ i ] );
-				if (m_moveHintAnim[i])
-					m_moveHintRenderObj[i]->Set_Animation(m_moveHintAnim[i], 0, RenderObjClass::ANIM_MODE_ONCE);
-			}
-
-			// move this hint render object to the position and align with terrain
-			Matrix3D transform;
-			PathfindLayerEnum layer = TheTerrainLogic->alignOnTerrain( 0, m_moveHint[ i ].pos, true, transform );
-			
-			Real waterZ;
-			if (layer == LAYER_GROUND && TheTerrainLogic->isUnderwater(m_moveHint[ i ].pos.x, m_moveHint[ i ].pos.y, &waterZ)) 
-			{
-				Coord3D tmp = m_moveHint[ i ].pos;
-				tmp.z = waterZ;
-				Coord3D normal;
-				normal.x = 0;
-				normal.y = 0;
-				normal.z = 1;
-				makeAlignToNormalMatrix(0, tmp, normal, transform);
-			}
-
-			m_moveHintRenderObj[ i ]->Set_Transform( transform );
-
-#if 0
-			// if there is a source then draw line from source to destination
-			Object *obj = TheGameLogic->getObject( m_moveHint[ i ].sourceID );
-			if( obj )
-			{
-				Drawable *source = obj->getDrawable();
-
-				if( source )
-				{
-					Coord3D pos;
-					ICoord2D start, end;
-
-					// project start and end point to screen point
-					source->getPosition( &pos );
-					view->worldToScreen( &pos, &start );
-					view->worldToScreen( &hintPos, &end );
-
-					// draw the line
-					TheDisplay->drawLine( start.x, start.y, end.x, end.y, width, color );
-
-				}  // end if
-			}  // end if
-#endif
-
-		}
-		else
-		{
-
-			// hide hint marker
-			if( m_moveHintRenderObj[ i ] )
-				if( m_moveHintRenderObj[ i ]->Is_Hidden() == 0 ) {
-					m_moveHintRenderObj[ i ]->Set_Hidden( 1 );
-					W3DDisplay::m_3DScene->Remove_Render_Object( m_moveHintRenderObj[ i ] );
-				}
-
-		}  // end else
-
-	}  // end for i
-
-}  // end drawMoveHints
 
 //-------------------------------------------------------------------------------------------------
 /** Draw visual back for clicking to attack a unit in the world */

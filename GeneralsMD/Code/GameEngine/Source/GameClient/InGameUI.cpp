@@ -82,6 +82,8 @@
 #include "GameLogic/AIGuard.h"
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
+#include "GameLogic/Module/JetAIUpdate.h"
+#include "GameLogic/IncomingDamage.h"
 #include "GameLogic/Weapon.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/GameLogic.h"
@@ -1010,7 +1012,6 @@ InGameUI::InGameUI()
 	m_isDragSelecting = false;
 	m_isFormationDragging = FALSE;
 	m_formationDragSpacing = FORMATION_DRAG_MIN_SPACING;
-	m_nextMoveHint = 0;
 	m_selectCount = 0;
 	m_frameSelectionChanged = 0;
   m_duringDoubleClickAttackMoveGuardHintTimer = 0;
@@ -1059,16 +1060,6 @@ InGameUI::InGameUI()
 	m_popupMessageColor = GameMakeColor(255,255,255,255);
 
 	m_tooltipsDisabledUntil = 0;
-
-	// init hint lists
-	for( i = 0; i < MAX_MOVE_HINTS; i++ )
-	{
-
-		m_moveHint[ i ].pos.zero();
-		m_moveHint[ i ].sourceID = 0;
-		m_moveHint[ i ].frame = 0;
-
-	}  //  end for i
 
 	for( i = 0; i < MAX_BUILD_PROGRESS; i++ )
 	{
@@ -1216,8 +1207,10 @@ InGameUI::InGameUI()
 	m_forceAttackArmed	= false;
 	m_preferSelection		= false;
 	m_isAttackCircling	= FALSE;
-	m_attackQueueTarget	= INVALID_ID;
 	m_shiftAttackQueueRunning = FALSE;
+	m_shiftAttackQueueEngagedFrame = 0;
+	m_shiftAttackQueueWaitingForRearm = FALSE;
+	m_shiftAttackQueueWaitingForSelection = FALSE;
 
 	m_curRcType = RADIUSCURSOR_NONE;
 	
@@ -1930,10 +1923,8 @@ void InGameUI::preDraw( void )
 	// where the selection is headed, read fresh from the units themselves
 	updateOrderHints();
 
-	// and the next target of an attack circle, if the current one has stopped existing
-	updateAttackQueue();
-
-	// and the next point of a shift-queued attack, if the current one is over
+	// and the next queued attack, hand-clicked or swept out of a circle, once the one in front of
+	// it is over
 	updateShiftAttackQueue();
 
 	// the build grid under a structure waiting to be placed is not drawn here: it is terrain
@@ -2396,15 +2387,6 @@ void InGameUI::reset( void )
 	clearFloatingText();
 	clearWorldAnimations();
 	resetIdleWorker();
-	// clear hint lists
-	for( i = 0; i < MAX_MOVE_HINTS; i++ )
-	{
-
-		m_moveHint[ i ].pos.zero();
-		m_moveHint[ i ].sourceID = 0;
-		m_moveHint[ i ].frame = 0;
-
-	}  //  end for i
 
 	m_waypointMode			= false;
 	m_forceAttackMode		= false;
@@ -2413,12 +2395,12 @@ void InGameUI::reset( void )
 	m_forceAttackArmed	= false;
 	m_preferSelection		= false;
 	m_isAttackCircling	= FALSE;
-	m_attackQueueTarget	= INVALID_ID;
-	m_attackQueue.clear();
-	m_attackQueueUnits.clear();
 	m_shiftAttackQueue.clear();
 	m_shiftAttackQueueUnits.clear();
 	m_shiftAttackQueueRunning = FALSE;
+	m_shiftAttackQueueEngagedFrame = 0;
+	m_shiftAttackQueueWaitingForRearm = FALSE;
+	m_shiftAttackQueueWaitingForSelection = FALSE;
 	m_clientQuiet    = false;
 	
 	m_windowLayouts.clear();
@@ -2673,7 +2655,9 @@ void InGameUI::addFormationDragPoint( const ICoord2D& pt )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::updateFormationHints( void )
 {
-	m_orderHints.clear();
+	// last frame's markers, kept only so this frame's can inherit their age (see addOrderHint)
+	std::vector<OrderHint> previous;
+	previous.swap( m_orderHints );
 
 	if( m_formationDragPoints.size() < 2 )
 		return;
@@ -2718,12 +2702,81 @@ void InGameUI::updateFormationHints( void )
 		hint.kind = isInAttackMoveToMode() ? ORDER_HINT_ATTACK_MOVE
 							: isForceAttackArmed() ? ORDER_HINT_ATTACK
 							: ORDER_HINT_MOVE;
+		hint.owner = movers[ i ]->getID();
 		hint.from = *movers[ i ]->getPosition();
 		pointAlongPath( path, arc, span * ((count == 1) ? 1.0f : ((Real)i / (Real)(count - 1))),
 										&hint.to );
 		hint.to.z = TheTerrainLogic->getGroundHeight( hint.to.x, hint.to.y );
-		m_orderHints.push_back( hint );
+		addOrderHint( hint, previous );
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The order an aircraft has taken but not started.  A plane on the ground answers a move or an
+	* attack by handing its state machine to the takeoff sequence and putting the order aside, so
+	* neither the state id nor the goal names the thing the player pointed at until it is flying. */
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::getHeldAircraftOrder( const Object *obj, OrderHintKind& kind, Coord3D& to ) const
+{
+	const AIUpdateInterface *ai = obj->getAIUpdateInterface();
+	const JetAIUpdate *jet = ai->getJetAIUpdate();
+	if( jet == NULL )
+		return FALSE;
+
+	ObjectID targetID = INVALID_ID;
+	Coord3D targetPos;
+	targetPos.zero();
+
+	switch( jet->friend_getHeldOrder( targetID, targetPos ) )
+	{
+		case AICMD_ATTACK_OBJECT:
+			kind = ORDER_HINT_ATTACK;
+			break;
+
+		case AICMD_FORCE_ATTACK_OBJECT:
+			kind = ORDER_HINT_FORCE_ATTACK;
+			break;
+
+		case AICMD_ATTACK_POSITION:
+		case AICMD_ATTACK_AREA:
+			kind = ORDER_HINT_ATTACK_GROUND;
+			break;
+
+		case AICMD_ATTACKMOVE_TO_POSITION:
+			kind = ORDER_HINT_ATTACK_MOVE;
+			break;
+
+		case AICMD_ENTER:
+		case AICMD_GET_REPAIRED:
+			kind = ORDER_HINT_ENTER;
+			break;
+
+		// a queued path is held as a coordinate list the storage does not hand back, so a shift move
+		// given to a parked plane stays invisible until it flies.  Single-point orders are the ones
+		// worth drawing here
+		case AICMD_MOVE_TO_POSITION:
+		case AICMD_MOVE_TO_OBJECT:
+			kind = ORDER_HINT_MOVE;
+			break;
+
+		default:
+			// everything else the aircraft holds is its own housekeeping, not a player order
+			return FALSE;
+	}
+
+	if( targetID != INVALID_ID )
+	{
+		const Object *target = TheGameLogic->findObjectByID( targetID );
+		if( target == NULL )
+			return FALSE;
+		to = *target->getPosition();
+	}
+	else
+	{
+		to = targetPos;
+	}
+
+	return TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2739,7 +2792,9 @@ void InGameUI::updateOrderHints( void )
 		return;
 	}
 
-	m_orderHints.clear();
+	// last frame's markers, kept only so this frame's can inherit their age (see addOrderHint)
+	std::vector<OrderHint> previous;
+	previous.swap( m_orderHints );
 
 	Player *local = ThePlayerList->getLocalPlayer();
 	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
@@ -2754,6 +2809,9 @@ void InGameUI::updateOrderHints( void )
 			continue;
 
 		OrderHint hint;
+		hint.owner = obj->getID();
+		Coord3D heldOrderGoal;
+		Bool isHoldingOrder = FALSE;
 		switch( ai->getCurrentStateID() )
 		{
 			case AI_MOVE_TO:
@@ -2821,53 +2879,186 @@ void InGameUI::updateOrderHints( void )
 				break;
 
 			default:
-				continue;
+				// a parked aircraft is running its own takeoff state machine, not the order the player
+				// gave it, and that order is held out of reach of the goal until the wheels are up.
+				// Ask for it, or an air strike shows nothing at all during the seconds the plane spends
+				// taxiing, which is exactly when the player wants to see where it is going
+				if( !getHeldAircraftOrder( obj, hint.kind, heldOrderGoal ) )
+					continue;
+				isHoldingOrder = TRUE;
+				break;
 		}
 
 		hint.from = *obj->getPosition();
 
-		// a queued path is shown point by point: one thread from the unit to its next point and one
-		// from each point to the one after it, so the whole shift queue is on the ground at once and
-		// stays there after the key is let go
-		const Int pathSize = ai->friend_getWaypointGoalPathSize();
-		const Int pathIndex = ai->friend_getCurrentGoalPathIndex();
-		if( pathSize > 0 && pathIndex >= 0 && pathIndex < pathSize )
+		if( isHoldingOrder )
 		{
-			for( Int i = pathIndex; i < pathSize; i++ )
+			hint.to = heldOrderGoal;
+		}
+		else
+		{
+			// a queued path is shown point by point: one thread from the unit to its next point and one
+			// from each point to the one after it, so the whole shift queue is on the ground at once and
+			// stays there after the key is let go
+			const Int pathSize = ai->friend_getWaypointGoalPathSize();
+			const Int pathIndex = ai->friend_getCurrentGoalPathIndex();
+			if( pathSize > 0 && pathIndex >= 0 && pathIndex < pathSize )
 			{
-				hint.to = *ai->friend_getGoalPathPosition( i );
-				m_orderHints.push_back( hint );
-				hint.from = hint.to;
+				for( Int i = pathIndex; i < pathSize; i++ )
+				{
+					hint.to = *ai->friend_getGoalPathPosition( i );
+					addOrderHint( hint, previous );
+					hint.from = hint.to;
+				}
+				continue;
 			}
-			continue;
+
+			// a goal object outranks the goal position: a unit chasing something is headed wherever that
+			// thing is standing now, not where it stood when the order was given
+			Object *goalObj = ai->getGoalObject();
+			if( goalObj )
+				hint.to = *goalObj->getPosition();
+			else
+				hint.to = *ai->getGoalPosition();
 		}
 
-		// a goal object outranks the goal position: a unit chasing something is headed wherever that
-		// thing is standing now, not where it stood when the order was given
-		Object *goalObj = ai->getGoalObject();
-		if( goalObj )
-			hint.to = *goalObj->getPosition();
-		else
-			hint.to = *ai->getGoalPosition();
-
-		m_orderHints.push_back( hint );
+		addOrderHint( hint, previous );
 
 		// the rest of a shift-queued attack: every point still owed after this one, drawn the same
 		// way a queued move is.  The queue is shared by the whole group rather than kept per unit,
 		// so each member's tail starts wherever that unit's own current order leaves off
-		if( !m_shiftAttackQueue.empty() &&
-				std::find( m_shiftAttackQueueUnits.begin(), m_shiftAttackQueueUnits.end(), obj->getID() ) != m_shiftAttackQueueUnits.end() )
+		if( std::find( m_shiftAttackQueueUnits.begin(), m_shiftAttackQueueUnits.end(), obj->getID() )
+				!= m_shiftAttackQueueUnits.end() )
 		{
 			hint.from = hint.to;
-			for( std::vector<AttackWaypoint>::const_iterator qit = m_shiftAttackQueue.begin();
-					 qit != m_shiftAttackQueue.end(); ++qit )
-			{
-				hint.to = qit->pos;
-				m_orderHints.push_back( hint );
-				hint.from = hint.to;
-			}
+			addShiftAttackQueueTail( hint, previous );
 		}
 	}
+
+	//
+	// A unit holding the list that drew nothing above has to draw it anyway.  An aircraft on its way
+	// home for ammo has no goal and no state the switch recognises, and one sitting on its airfield
+	// is not even in the selection, so the whole list went blank the moment the planes turned for
+	// home and came back only when they were shooting again - which looked exactly like the list had
+	// been thrown away.  Here it stays on the ground for the length of the trip.
+	//
+	if( !m_shiftAttackQueueRunning )
+		return;
+
+	for( std::vector<ObjectID>::const_iterator id = m_shiftAttackQueueUnits.begin();
+			 id != m_shiftAttackQueueUnits.end(); ++id )
+	{
+		Bool alreadyDrawn = FALSE;
+		for( std::vector<OrderHint>::const_iterator drawn = m_orderHints.begin();
+				 drawn != m_orderHints.end(); ++drawn )
+		{
+			if( drawn->owner == *id )
+			{
+				alreadyDrawn = TRUE;
+				break;
+			}
+		}
+
+		if( alreadyDrawn )
+			continue;
+
+		Object *owner = TheGameLogic->findObjectByID( *id );
+		if( owner == NULL || owner->isEffectivelyDead() )
+			continue;
+
+		OrderHint hint;
+		hint.owner = *id;
+		hint.from = *owner->getPosition();
+
+		// the order the group is on right now is no longer in the list, so it is drawn from here
+		const Object *active = m_shiftAttackQueueActive.targetID != INVALID_ID
+													 ? TheGameLogic->findObjectByID( m_shiftAttackQueueActive.targetID ) : NULL;
+		if( active && !active->isEffectivelyDead() )
+		{
+			hint.kind = ORDER_HINT_ATTACK;
+			hint.to = *active->getPosition();
+			addOrderHint( hint, previous );
+			hint.from = hint.to;
+		}
+		else if( m_shiftAttackQueueActive.targetID == INVALID_ID )
+		{
+			hint.kind = ORDER_HINT_ATTACK_MOVE;
+			hint.to = m_shiftAttackQueueActive.pos;
+			addOrderHint( hint, previous );
+			hint.from = hint.to;
+		}
+
+		addShiftAttackQueueTail( hint, previous );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Every target still owed, one thread from the last point to the next, starting wherever the hint
+	* handed in leaves off. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::addShiftAttackQueueTail( OrderHint& hint, const std::vector<OrderHint>& previous )
+{
+	for( std::vector<AttackWaypoint>::const_iterator qit = m_shiftAttackQueue.begin();
+			 qit != m_shiftAttackQueue.end(); ++qit )
+	{
+		if( qit->targetID != INVALID_ID )
+		{
+			// a queued victim is drawn where it stands now rather than where it stood when the player
+			// picked it, so the thread follows a target that is driving away.  One that died while it
+			// waited its turn is drawn nowhere: the order will be skipped
+			const Object *victim = TheGameLogic->findObjectByID( qit->targetID );
+			if( victim == NULL || victim->isEffectivelyDead() )
+				continue;
+
+			hint.kind = ORDER_HINT_ATTACK;
+			hint.to = *victim->getPosition();
+		}
+		else
+		{
+			hint.kind = ORDER_HINT_ATTACK_MOVE;
+			hint.to = qit->pos;
+		}
+
+		addOrderHint( hint, previous );
+		hint.from = hint.to;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Add a marker to this frame's list, carrying over when it first appeared.  The list is thrown
+	* away and rebuilt from the units every frame, so without this every marker would be newborn on
+	* every frame and none of them would ever finish sliding in.
+	*
+	* A marker is last frame's marker when it is the n-th one belonging to the same unit.  Matching
+	* on the destination instead would restart the slide on every frame of a chase, and matching on
+	* the unit alone would give a whole queue one age. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::addOrderHint( OrderHint& hint, const std::vector<OrderHint>& previous )
+{
+	Int ordinal = 0;
+	for( std::vector<OrderHint>::const_iterator it = m_orderHints.begin();
+			 it != m_orderHints.end(); ++it )
+	{
+		if( it->owner == hint.owner )
+			ordinal++;
+	}
+
+	hint.bornMs = timeGetTime();
+
+	Int seen = 0;
+	for( std::vector<OrderHint>::const_iterator it = previous.begin();
+			 it != previous.end(); ++it )
+	{
+		if( it->owner != hint.owner )
+			continue;
+		if( seen++ == ordinal )
+		{
+			hint.bornMs = it->bornMs;
+			break;
+		}
+	}
+
+	m_orderHints.push_back( hint );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2889,24 +3080,46 @@ void InGameUI::updateAttackCircle( const ICoord2D& pt )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Everything hostile standing in the circle becomes a queue, nearest first, and the group is put
-	* on the head of it.  Shroud decides membership: a target the player cannot see is not in the
-	* circle, whatever the partition manager knows about it. */
+/** The circle the player is dragging, in world terms: the anchor is its centre and the cursor sits
+	* on its rim.  Both the rim drawn on the screen and the wash laid on the ground ask this, so they
+	* cannot disagree about where the circle is. */
 //-------------------------------------------------------------------------------------------------
-void InGameUI::issueAttackCircle( void )
+Bool InGameUI::getAttackCircleGround( Coord3D& center, Real& radius ) const
 {
-	m_isAttackCircling = FALSE;
-	clearAttackQueue();
+	if( !m_isAttackCircling )
+		return FALSE;
 
-	Coord3D center, rim;
+	Coord3D rim;
 	TheTacticalView->screenToTerrain( &m_attackCircleAnchor, &center );
 	TheTacticalView->screenToTerrain( &m_attackCircleCursor, &rim );
 
 	const Real dx = rim.x - center.x;
 	const Real dy = rim.y - center.y;
-	const Real radius = sqrtf( dx * dx + dy * dy );
-	if( radius < 1.0f )
-		return;
+	radius = (Real)sqrt( dx * dx + dy * dy );
+
+	// a press that has not been dragged anywhere is a click, not a circle
+	return radius >= 1.0f;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Everything hostile standing in the circle joins the shift queue, nearest first, and the group is
+	* put on the head of it.  Shroud decides membership: a target the player cannot see is not in the
+	* circle, whatever the partition manager knows about it.  The targets go through the same queue a
+	* shift-clicked attack uses, so the whole list is drawn on the ground as threads and markers
+	* instead of only the one target the group happens to be shooting at. */
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::issueAttackCircle( void )
+{
+	Coord3D center;
+	Real radius;
+	const Bool wasDragged = getAttackCircleGround( center, radius );
+
+	m_isAttackCircling = FALSE;
+
+	// the button went down and came back up without going anywhere, so this was a plain attack
+	// click and the order belongs to the command translator, not here
+	if( !wasDragged )
+		return FALSE;
 
 	Player *local = ThePlayerList->getLocalPlayer();
 	const Int localIndex = local->getPlayerIndex();
@@ -2915,6 +3128,7 @@ void InGameUI::issueAttackCircle( void )
 																																		FROM_CENTER_2D, NULL,
 																																		ITER_SORTED_NEAR_TO_FAR );
 	MemoryPoolObjectHolder holder( iter );
+	Int targetCount = 0;
 	for( Object *obj = iter->first(); obj; obj = iter->next() )
 	{
 		if( obj->isEffectivelyDead() )
@@ -2924,82 +3138,44 @@ void InGameUI::issueAttackCircle( void )
 		if( obj->getShroudedStatus( localIndex ) > OBJECTSHROUD_PARTIAL_CLEAR )
 			continue;
 
-		m_attackQueue.push_back( obj->getID() );
+		queueAttackWaypoint( obj->getPosition(), obj );
+		targetCount++;
 	}
 
-	DEBUG_LOG(("attack circle: radius %.0f, %d targets\n", radius, (Int)m_attackQueue.size()));
-	if( m_attackQueue.empty() )
-		return;
+	DEBUG_LOG(("attack circle: radius %.0f, %d targets, %d selected\n", radius, targetCount,
+						 getSelectCount()));
+	return TRUE;
+}
 
-	// who the queue belongs to.  The orders go to whatever is selected when each one is sent, so a
-	// changed selection has to end the queue rather than quietly redirect it
+//-------------------------------------------------------------------------------------------------
+/** Every selected object by id, sorted, which is how the shift queue recognises the group it was
+	* given to. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::collectSelectedObjectIDs( std::vector<ObjectID>& ids ) const
+{
+	ids.clear();
 	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
 			 it != m_selectedDrawables.end(); ++it )
 	{
 		Object *obj = (*it)->getObject();
 		if( obj )
-			m_attackQueueUnits.push_back( obj->getID() );
+			ids.push_back( obj->getID() );
 	}
-	std::sort( m_attackQueueUnits.begin(), m_attackQueueUnits.end() );
-
-	updateAttackQueue();
+	std::sort( ids.begin(), ids.end() );
 }
 
 //-------------------------------------------------------------------------------------------------
-void InGameUI::clearAttackQueue( void )
-{
-	m_attackQueue.clear();
-	m_attackQueueUnits.clear();
-	m_attackQueueTarget = INVALID_ID;
-}
-
+/** The queue belongs to the group that was told, and it has to survive that group being shot at:
+	* whatever is left of it carries on down the list.  Comparing the two lists for equality instead
+	* meant one tank dying threw away every target still owed, which is what the group stopping dead
+	* after its first kill was.  Selecting anything that was not told ends the queue, because those
+	* units never agreed to the list and the next order would land on them. */
 //-------------------------------------------------------------------------------------------------
-/** One order per target, sent when the target before it stops existing.  This is the player's own
-	* click repeated by the client, so it is an ordinary message on the stream and the logic learns
-	* nothing new: no queue lives in the simulation. */
-//-------------------------------------------------------------------------------------------------
-void InGameUI::updateAttackQueue( void )
+Bool InGameUI::selectionOwnsShiftAttackQueue( const std::vector<ObjectID>& selected ) const
 {
-	if( m_attackQueue.empty() && m_attackQueueTarget == INVALID_ID )
-		return;
-
-	// the selection is the queue's owner, so a different selection means the queue is over
-	std::vector<ObjectID> current;
-	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
-			 it != m_selectedDrawables.end(); ++it )
-	{
-		Object *obj = (*it)->getObject();
-		if( obj )
-			current.push_back( obj->getID() );
-	}
-	std::sort( current.begin(), current.end() );
-
-	if( current != m_attackQueueUnits )
-	{
-		clearAttackQueue();
-		return;
-	}
-
-	Object *target = TheGameLogic->findObjectByID( m_attackQueueTarget );
-	if( target && !target->isEffectivelyDead() )
-		return;
-
-	while( !m_attackQueue.empty() )
-	{
-		const ObjectID next = m_attackQueue.front();
-		m_attackQueue.erase( m_attackQueue.begin() );
-
-		Object *obj = TheGameLogic->findObjectByID( next );
-		if( obj == NULL || obj->isEffectivelyDead() )
-			continue;
-
-		GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
-		msg->appendObjectIDArgument( next );
-		m_attackQueueTarget = next;
-		return;
-	}
-
-	clearAttackQueue();
+	return !selected.empty() &&
+				 std::includes( m_shiftAttackQueueUnits.begin(), m_shiftAttackQueueUnits.end(),
+												selected.begin(), selected.end() );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3015,24 +3191,18 @@ void InGameUI::queueAttackWaypoint( const Coord3D *pos, Object *targetObj )
 	order.pos = *pos;
 	order.targetID = targetObj ? targetObj->getID() : INVALID_ID;
 
-	// who the queue belongs to.  A changed selection starts a fresh queue rather than adding to
-	// whatever the old selection was doing
+	// who the queue belongs to.  A selection that is not part of the group holding the queue starts
+	// a fresh one rather than adding to whatever the old selection was doing
 	std::vector<ObjectID> current;
-	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
-			 it != m_selectedDrawables.end(); ++it )
-	{
-		Object *obj = (*it)->getObject();
-		if( obj )
-			current.push_back( obj->getID() );
-	}
-	std::sort( current.begin(), current.end() );
+	collectSelectedObjectIDs( current );
 
-	if( !m_shiftAttackQueueRunning || current != m_shiftAttackQueueUnits )
+	if( !m_shiftAttackQueueRunning || !selectionOwnsShiftAttackQueue( current ) )
 	{
 		clearShiftAttackQueue();
 		m_shiftAttackQueueUnits = current;
 		m_shiftAttackQueueRunning = TRUE;
 		m_shiftAttackQueueActive = order;
+		m_shiftAttackQueueEngagedFrame = TheGameLogic->getFrame();
 
 		if( order.targetID != INVALID_ID )
 		{
@@ -3059,51 +3229,238 @@ void InGameUI::clearShiftAttackQueue( void )
 	m_shiftAttackQueueRunning = FALSE;
 	m_shiftAttackQueueActive.targetID = INVALID_ID;
 	m_shiftAttackQueueActive.pos.zero();
+	m_shiftAttackQueueEngagedFrame = 0;
+	m_shiftAttackQueueWaitingForRearm = FALSE;
+	m_shiftAttackQueueWaitingForSelection = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The order in flight ends when its target dies (an object target) or nobody selected is still
-	* chasing it down (an attack-move point); either way, the next queued order goes out then, same
-	* as updateAttackQueue(). */
+/** What the queue just did, and what every unit holding it was doing at that moment.  The queue is
+	* driven by the player, so no unattended run can reproduce a fault in it; this line is the whole
+	* instrument.  One per event, never one per frame. */
 //-------------------------------------------------------------------------------------------------
-void InGameUI::updateShiftAttackQueue( void )
+void InGameUI::logShiftAttackQueue( const char *why ) const
 {
-	if( !m_shiftAttackQueueRunning )
-		return;
-
-	// the selection is the queue's owner, so a different selection means the queue is over
-	std::vector<ObjectID> current;
+	AsciiString census;
 	for( DrawableList::const_iterator it = m_selectedDrawables.begin();
 			 it != m_selectedDrawables.end(); ++it )
 	{
 		Object *obj = (*it)->getObject();
-		if( obj )
-			current.push_back( obj->getID() );
-	}
-	std::sort( current.begin(), current.end() );
+		if( obj == NULL )
+			continue;
 
-	if( current != m_shiftAttackQueueUnits )
+		AIUpdateInterface *ai = obj->getAIUpdateInterface();
+		const JetAIUpdate *jet = ai ? ai->getJetAIUpdate() : NULL;
+
+		AsciiString one;
+		one.format( " [%d %s state %d goal %d%s%s%s]",
+								(Int)obj->getID(),
+								obj->getTemplate()->getName().str(),
+								ai ? (Int)ai->getCurrentStateID() : -1,
+								( ai && ai->getGoalObject() ) ? (Int)ai->getGoalObject()->getID() : 0,
+								obj->isOutOfAmmo() ? " dry" : "",
+								( jet && jet->friend_isRearming() ) ? " rearming" : "",
+								( ai && ai->isIdle() ) ? " idle" : "" );
+		census.concat( one );
+	}
+
+	DEBUG_LOG(("shift attack queue: frame %d, %s, active %d, %d owed, told %d:%s\n",
+						 TheGameLogic->getFrame(), why,
+						 (Int)m_shiftAttackQueueActive.targetID,
+						 (Int)m_shiftAttackQueue.size(),
+						 (Int)m_shiftAttackQueueUnits.size(),
+						 census.str()));
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Put one entry of the queue on the message stream, as the ordinary order it would have been if the
+	* player had clicked it by hand.  Sent again rather than remembered, so a flight that had to go
+	* home for ammo picks the same order back up. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::sendShiftAttackOrder( const AttackWaypoint& waypoint )
+{
+	if( waypoint.targetID != INVALID_ID )
 	{
+		GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
+		msg->appendObjectIDArgument( waypoint.targetID );
+	}
+	else
+	{
+		GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACKMOVETO );
+		msg->appendLocationArgument( waypoint.pos );
+		msg->appendBooleanArgument( isInForceAttackMode() );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The order in flight is over when the target is dead, or when the group has genuinely given up on
+	* it.  Dead was the only way the queue knew, and a target nobody selected could reach or hurt held
+	* the whole list behind it for the rest of the match - which is what "they only attacked the first
+	* one" was.
+	*
+	* Giving up is measured over time rather than on one frame.  A unit chasing something that is
+	* driving away drops its goal for a frame here and there while it repaths, and a target that runs
+	* must not fall out of the list because of it; the order is only abandoned after nobody has been
+	* on it for a couple of seconds, which is long enough that the target really is out of reach. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::updateShiftAttackQueue( void )
+{
+	// two seconds at the logic's own rate: longer than any repath, shorter than a stalled list
+	const UnsignedInt ABANDON_ORDER_FRAMES = 60;
+
+	if( !m_shiftAttackQueueRunning )
+		return;
+
+	std::vector<ObjectID> current;
+	collectSelectedObjectIDs( current );
+
+	//
+	// Nothing in hand does not mean the list is over.  An aircraft leaves the selection while it is
+	// on the ground at its airfield, and a flight that went home for ammo therefore stops being a
+	// group at all for a while - which used to throw the whole list away a second after the first
+	// target died, with the planes still in the air on their way back.  So an empty selection holds
+	// the list instead of ending it, and it only really ends when every unit that was told is gone.
+	//
+	if( current.empty() )
+	{
+		Int stillAlive = 0;
+		for( std::vector<ObjectID>::const_iterator id = m_shiftAttackQueueUnits.begin();
+				 id != m_shiftAttackQueueUnits.end(); ++id )
+		{
+			const Object *told = TheGameLogic->findObjectByID( *id );
+			if( told && !told->isEffectivelyDead() )
+				stillAlive++;
+		}
+
+		if( stillAlive == 0 )
+		{
+			logShiftAttackQueue( "over, every unit that was told is gone" );
+			clearShiftAttackQueue();
+			return;
+		}
+
+		if( !m_shiftAttackQueueWaitingForSelection )
+		{
+			m_shiftAttackQueueWaitingForSelection = TRUE;
+			DEBUG_LOG(("shift attack queue: frame %d, holding, nothing in hand but %d of the group is alive\n",
+								 TheGameLogic->getFrame(), stillAlive));
+		}
+
+		m_shiftAttackQueueEngagedFrame = TheGameLogic->getFrame();
+		return;
+	}
+
+	m_shiftAttackQueueWaitingForSelection = FALSE;
+
+	if( !selectionOwnsShiftAttackQueue( current ) )
+	{
+		logShiftAttackQueue( "dropped, the selection is not the group it was given to" );
 		clearShiftAttackQueue();
 		return;
 	}
 
-	if( m_shiftAttackQueueActive.targetID != INVALID_ID )
+	Object *target = m_shiftAttackQueueActive.targetID != INVALID_ID
+									 ? TheGameLogic->findObjectByID( m_shiftAttackQueueActive.targetID ) : NULL;
+
+	// a target with enough shots already in the air to kill it is finished as far as the queue is
+	// concerned.  Aircraft are the reason: a flight fires from range and the missiles take seconds to
+	// arrive, and without this every plane in the group keeps circling a corpse that has not fallen
+	// over yet instead of taking the next target on the list
+	if( target && ( target->isEffectivelyDead() || IncomingDamageTracker::isAlreadyDoomed( target ) ) )
+		target = NULL;
+
+	if( target || m_shiftAttackQueueActive.targetID == INVALID_ID )
 	{
-		Object *target = TheGameLogic->findObjectByID( m_shiftAttackQueueActive.targetID );
-		if( target && !target->isEffectivelyDead() )
-			return;
-	}
-	else
-	{
+		Bool anyEngaged = FALSE;
+		Bool anyRearming = FALSE;
+		Bool anyReadyToGoAgain = FALSE;
+
 		for( DrawableList::const_iterator it = m_selectedDrawables.begin();
 				 it != m_selectedDrawables.end(); ++it )
 		{
 			Object *obj = (*it)->getObject();
 			AIUpdateInterface *ai = obj ? obj->getAIUpdateInterface() : NULL;
-			if( ai && ai->getAIStateType() == AI_ATTACK_MOVE_TO )
-				return;
+			if( ai == NULL )
+				continue;
+
+			const JetAIUpdate *jet = ai->getJetAIUpdate();
+
+			// on the victim it was given, or walking the attack-move point it was given
+			Bool onOrder = target ? ( ai->getGoalObject() == target )
+													  : ( ai->getAIStateType() == AI_ATTACK_MOVE_TO );
+
+			//
+			// An aircraft that is taxiing or climbing is carrying the order in its pocket rather than
+			// in its goal - taking off clears the state machine - so for the length of every takeoff it
+			// read here as nobody being on the order at all.  Two seconds of that and the list moved on
+			// without it, which is how a flight that went home for ammo came back to an empty queue.
+			//
+			if( !onOrder && jet != NULL )
+			{
+				ObjectID heldTarget = INVALID_ID;
+				Coord3D heldPos;
+				if( jet->friend_getHeldOrder( heldTarget, heldPos ) != AICMD_NO_COMMAND )
+					onOrder = target ? ( heldTarget == target->getID() ) : TRUE;
+			}
+
+			if( onOrder )
+			{
+				anyEngaged = TRUE;
+				break;
+			}
+
+			if( jet == NULL )
+				continue;
+
+			if( jet->friend_isRearming() || obj->isOutOfAmmo() )
+				anyRearming = TRUE;
+			else if( ai->isIdle() )
+				anyReadyToGoAgain = TRUE;
 		}
+
+		if( anyEngaged )
+		{
+			m_shiftAttackQueueEngagedFrame = TheGameLogic->getFrame();
+			m_shiftAttackQueueWaitingForRearm = FALSE;
+			return;
+		}
+
+		//
+		// An aircraft that has run dry leaves the target, lands, fills its racks and comes back, and
+		// none of that is giving up on the order - but it looks exactly like it from here, and the
+		// whole list used to drain one entry every two seconds while the flight was away.  So the
+		// clock stops for the trip, and the order that was interrupted is sent again when a plane is
+		// back in the air with a full load.  A jet is not told to resume by itself: only hunting and
+		// attack moving survive a reload, an ordered attack on a particular target does not.
+		//
+		if( anyRearming )
+		{
+			m_shiftAttackQueueEngagedFrame = TheGameLogic->getFrame();
+			if( !m_shiftAttackQueueWaitingForRearm )
+			{
+				m_shiftAttackQueueWaitingForRearm = TRUE;
+				logShiftAttackQueue( "holding, the group has gone home for ammo" );
+			}
+			return;
+		}
+
+		if( m_shiftAttackQueueWaitingForRearm && anyReadyToGoAgain )
+		{
+			m_shiftAttackQueueWaitingForRearm = FALSE;
+			m_shiftAttackQueueEngagedFrame = TheGameLogic->getFrame();
+			logShiftAttackQueue( "rearmed, sending the order again" );
+			sendShiftAttackOrder( m_shiftAttackQueueActive );
+			return;
+		}
+
+		if( TheGameLogic->getFrame() - m_shiftAttackQueueEngagedFrame < ABANDON_ORDER_FRAMES )
+			return;
+
+		logShiftAttackQueue( "nobody on this order for two seconds, moving on" );
+	}
+	else
+	{
+		logShiftAttackQueue( "the order in flight is finished, moving on" );
 	}
 
 	while( !m_shiftAttackQueue.empty() )
@@ -3114,59 +3471,26 @@ void InGameUI::updateShiftAttackQueue( void )
 		if( next.targetID != INVALID_ID )
 		{
 			Object *obj = TheGameLogic->findObjectByID( next.targetID );
-			if( obj == NULL || obj->isEffectivelyDead() )
+			if( obj == NULL || obj->isEffectivelyDead() || IncomingDamageTracker::isAlreadyDoomed( obj ) )
+			{
+				DEBUG_LOG(("shift attack queue: frame %d, skipping target %d, %s\n",
+									 TheGameLogic->getFrame(), (Int)next.targetID,
+									 obj == NULL ? "gone" : ( obj->isEffectivelyDead() ? "dead" : "already covered" )));
 				continue;
+			}
+		}
 
-			GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
-			msg->appendObjectIDArgument( next.targetID );
-		}
-		else
-		{
-			GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACKMOVETO );
-			msg->appendLocationArgument( next.pos );
-			msg->appendBooleanArgument( isInForceAttackMode() );
-		}
+		sendShiftAttackOrder( next );
 
 		m_shiftAttackQueueActive = next;
+		m_shiftAttackQueueEngagedFrame = TheGameLogic->getFrame();
+		m_shiftAttackQueueWaitingForRearm = FALSE;
+		logShiftAttackQueue( "next order out" );
 		return;
 	}
 
+	logShiftAttackQueue( "list is empty, done" );
 	clearShiftAttackQueue();
-}
-
-//-------------------------------------------------------------------------------------------------
-/** A move command has occurred, start graphical "hint". */
-//-------------------------------------------------------------------------------------------------
-void InGameUI::createMoveHint( const GameMessage *msg )
-{
-	Int i;
-
-	// first, remove any existing move hint for this source if present
-	for( i = 0; i < MAX_MOVE_HINTS; i++ )
-		if( m_moveHint[ i ].sourceID == msg->getArgument( 0 )->objectID &&
-				m_moveHint[ i ].frame != 0 )
-			expireHint( MOVE_HINT, i );
-
-		
-	if( getSelectCount() == 1 )
-	{
-		Drawable *draw = getFirstSelectedDrawable();
-		Object *obj = draw ? draw->getObject() : NULL;
-		if( obj && obj->isKindOf( KINDOF_IMMOBILE ) )
-		{
-			//Don't allow move hints to be created if our selected object can't move!
-			return;
-		}
-	}
-
-	m_moveHint[ m_nextMoveHint ].frame = TheGameClient->getFrame();
-	m_moveHint[ m_nextMoveHint ].pos = msg->getArgument( 0 )->location;
-		
-	m_nextMoveHint++;
-
-	// wrap around
-	if (m_nextMoveHint == InGameUI::MAX_MOVE_HINTS)
-		m_nextMoveHint = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4535,6 +4859,12 @@ void InGameUI::deselectDrawable( Drawable *draw )
 
 	if( draw->isSelected() )
 	{
+		if( m_shiftAttackQueueRunning )
+		{
+			DEBUG_LOG(("shift attack queue: frame %d, %s is leaving the selection\n",
+								 TheGameLogic->getFrame(),
+								 draw->getObject() ? draw->getObject()->getTemplate()->getName().str() : "a drawable"));
+		}
 
 		m_frameSelectionChanged = TheGameLogic->getFrame();
 		// clear the selected bit out of the drawable
@@ -4571,6 +4901,12 @@ void InGameUI::deselectDrawable( Drawable *draw )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::deselectAllDrawables( Bool postMsg )
 {
+	if( m_shiftAttackQueueRunning && !m_selectedDrawables.empty() )
+	{
+		DEBUG_LOG(("shift attack queue: frame %d, the whole selection is being cleared at once\n",
+							 TheGameLogic->getFrame()));
+	}
+
 	const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
 
 	// loop through all the selected drawables
@@ -5093,34 +5429,6 @@ void InGameUI::postDraw( void )
 	TheControlBar->drawSpecialPowerShortcutMultiplierText();
 
 }  // end postDraw
-
-//-------------------------------------------------------------------------------------------------
-/** Expire a hint of the specified type with the corresponding hint index */
-//-------------------------------------------------------------------------------------------------
-void InGameUI::expireHint( HintType type, UnsignedInt hintIndex )
-{
-
-	if( type == MOVE_HINT )
-	{
-
-		// sanity
-		if( hintIndex < 0 || hintIndex >= MAX_MOVE_HINTS )
-			return;
-
-		m_moveHint[ hintIndex ].sourceID = 0;
-		m_moveHint[ hintIndex ].frame = 0;
-
-	}  // end if
-	else
-	{
-
-		// undefined hint type
-		DEBUG_CRASH(("undefined hint type"));
-		return;
-
-	}  // end else
-
-}  // end expireHint
 
 //-------------------------------------------------------------------------------------------------
 /** Create the control user interface GUI */
