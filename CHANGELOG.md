@@ -1023,6 +1023,18 @@ found and fixed â€” EA's own, not port damage.**
 - The maps are twice the size they were. A two-player map is a quarter of a million square feet of
   ground, an eight-player one nearly three times that, which is room to manoeuvre round a flank
   instead of running into the enemy on the way out of your own base.
+- There are towns on it. The civilian buildings used to stand about in the grass in loose clumps;
+  now they come in blocks with streets running between them, shops and apartments set back from the
+  kerb and all facing the road. A town is somewhere to fight through, and the roads are real roads,
+  so what drives down one drives faster.
+- Nothing stands on a slope. The ground under every building, every supply dock and every oil
+  derrick is levelled before it goes down and eased back into the hillside around it, so you do not
+  arrive at a dock sunk into a bank or a house hanging off a ledge.
+- The bunkers moved out of the towns and onto the ramps. A bunker now sits where the route between
+  two levels is, which is the ground worth holding, and it comes with room around it to fight over.
+- The water has a shore. The lake bed shelves away from the bank instead of dropping off it, so
+  there is shallow water at the edge with the light coming through it, and you can hear it from the
+  bank.
 - Everybody opens with the same money. One supply dock beside each base, a second one out between
   you and your nearest neighbour to fight over, and two oil derricks apiece within reach of home.
 - The number that made the map is in its name, so the same number always makes the same map, on

@@ -100,7 +100,10 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 // Below the terrace the base height sits on, so the water is in the bottom layer of the map.
 #define RMG_WATER_DROP			26.0f	///< height bytes: water surface below the base height
 #define RMG_LAKE_DEPTH			13.0f	///< and how far the bed sits below that surface
-#define RMG_LAKE_SHORE			5.0f	///< cells the basin eases out over
+// Wide, because the shore is what the renderer's soft water edge is drawn on: it looks for cells
+// whose corners straddle the water plane, and a bank that drops in one step gives it nothing.
+#define RMG_LAKE_SHORE			10.0f	///< cells the basin eases out over
+#define RMG_WAVE_SPACING		16.0f	///< cells of shoreline between two ambient wave emitters
 #define RMG_LAKE_RADIUS			0.055f	///< fraction of the playable size
 #define RMG_LAKE_MIN_CELLS		96
 #define RMG_LAKE_WOBBLE			0.45f	///< how far the outline wanders from a circle
@@ -121,6 +124,22 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 #define RMG_DERRICKS_PER_PLAYER	2
 #define RMG_SITE_CLEARANCE		7.0f	///< cells kept clear around anything placed
 
+/* Anything that stands on the ground gets the ground levelled under it first. A supply dock on a
+	terrace edge is a dock with one corner in the air, and the game will not let a player build
+	beside it either. The pad is flat to its radius and eases back into the terrain over the blend. */
+#define RMG_PAD_RADIUS			5.0f
+#define RMG_PAD_BLEND			10.0f
+
+// A town: streets on a grid, buildings in the blocks between them, all of it on one level.
+#define RMG_TOWN_BLOCK			26.0f	///< cells between two street centre lines
+#define RMG_TOWN_STREETS		4		///< streets each way, so three blocks by three
+#define RMG_TOWN_SET_BACK		6.0f	///< cells from the street centre to a building front
+#define RMG_TOWN_PLOT			11.0f	///< cells of frontage each building takes along a street
+#define RMG_TOWN_ROAD			"TwoLane"
+
+// Bunkers go on the ramps, which is the ground worth holding.
+#define RMG_BUNKER_CLEARANCE	10.0f
+
 // Scenery. Counted against the ground rather than the players: a map twice the size wants four
 // times the trees, or a wood is a hedge with a field around it.
 #define RMG_CELLS_PER_TREE		150.0f
@@ -128,8 +147,6 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 #define RMG_PROP_STRIDE			2
 #define RMG_FOREST_FEATURES		7.0f
 #define RMG_FOREST_THRESHOLD	0.10f	///< of the forest field; under it, open ground
-#define RMG_CIVILIANS_PER_CLUSTER	3
-#define RMG_CIVILIAN_SPACING	7.0f
 
 // What counts as a cliff. WorldHeightMap marks a cell impassable when its four
 // corners span more than this many world units (PATHFIND_CLIFF_SLOPE_LIMIT_F).
@@ -435,7 +452,15 @@ struct RMGObject
 	Real m_worldY;
 	Real m_angle;
 	Int m_waypointID;		///< 0 for anything that is not a waypoint
+	Int m_flags;			///< MapObject's own flags; the road ones are the only ones used here
 };
+
+/** A road is two objects in a row carrying MapObject's road flags, which W3DRoadBuffer pairs up as
+	it walks the list. The values are FLAG_ROAD_POINT1 and FLAG_ROAD_POINT2 from MapObject.h, which
+	lives in GameEngine and could be included - but the flags are the file format's, and the object
+	list here is written, never read back through MapObject. */
+#define RMG_FLAG_ROAD_POINT1	0x00000002
+#define RMG_FLAG_ROAD_POINT2	0x00000004
 
 /** A lake is a circle whose radius is a noise field of its own, sampled once per outline point and
 	interpolated in between, so the shore wanders the way a shore does and the polygon the engine
@@ -515,6 +540,7 @@ private:
 	void buildHeights( const UnsignedByte perm[512] );
 	void placeLakes( const UnsignedByte perm[512] );
 	void carveLakeBasins( void );
+	void buildLakeMask( void );
 	void chooseStarts( void );
 	void flattenBases( void );
 	void buildPassability( void );
@@ -524,8 +550,12 @@ private:
 	void buildBlends( void );
 	void buildObjects( const UnsignedByte perm[512] );
 	void placeSupplyAndDerricks( void );
-	void placeCivilians( void );
+	void placeTowns( void );
+	void placeBunkers( void );
+	void placeShoreWaves( void );
 	void placeScenery( const UnsignedByte perm[512] );
+	void flattenPad( Real cellX, Real cellY, Real radius, Real blend );
+	void addRoad( Real fromX, Real fromY, Real toX, Real toY );
 
 	Real cellSpanWorld( Int x, Int y ) const;
 	Real roughnessAt( Int cellX, Int cellY, Int radius ) const;
@@ -541,6 +571,8 @@ private:
 
 	std::map<Int, Short> m_blendLookup;	///< tile and shape to the table entry that holds them
 	std::vector<RMGSite> m_sites;		///< everything placed so far, with its elbow room
+	std::vector<RMGPoint> m_ramps;		///< where a carved route changed layer, for the bunkers
+	std::vector<char> m_inLake;			///< cells inside a lake outline, whatever the ground does
 	std::vector<char> m_visited;		///< scratch for the flood fill
 	Int m_startSearchStride;
 };
@@ -667,12 +699,28 @@ Bool RMGLayout::insideLake( Real cellX, Real cellY, Real *distanceOut ) const
 	return inside;
 }
 
+/** Which cells the lake outlines cover. The outlines never move once the lakes are placed, and the
+	point-in-lake test costs an ATan2 per lake, so it is answered once here rather than a few
+	million times over the passability passes and the route searches. */
+void RMGLayout::buildLakeMask( void )
+{
+	m_inLake.assign( m_width * m_height, 0 );
+
+	for( Int y = 0; y < m_height; y++ )
+	{
+		for( Int x = 0; x < m_width; x++ )
+		{
+			Real px = (Real)(x - RMG_BORDER_CELLS);
+			Real py = (Real)(y - RMG_BORDER_CELLS);
+			m_inLake[cellIndex( x, y )] = insideLake( px, py, NULL ) ? 1 : 0;
+		}
+	}
+}
+
 Bool RMGLayout::underwaterAtCell( Int x, Int y ) const
 {
-	Real px = (Real)(x - RMG_BORDER_CELLS);
-	Real py = (Real)(y - RMG_BORDER_CELLS);
-
-	return insideLake( px, py, NULL ) && (Real)m_heights[cellIndex( x, y )] < m_waterHeight;
+	return m_inLake[cellIndex( x, y )] != 0 &&
+		(Real)m_heights[cellIndex( x, y )] < m_waterHeight;
 }
 
 /** Lakes go where the map is already lowest, so the water sits in the hollows
@@ -768,13 +816,18 @@ void RMGLayout::placeLakes( const UnsignedByte perm[512] )
 	}
 }
 
-/// Drop the ground inside every lake outline to a bed, easing out over the shore.
+/** Cut the basin so that the water is shallow at the edge and deep in the middle, with a beach
+	rising out of it on the land side. The depth at the waterline is what the renderer's soft water
+	edge is drawn from - it looks for cells whose corners straddle the water plane and fades the
+	terrain into it over the first few feet of depth - so a basin dug to its full depth right up to
+	the outline gets a hard blue line round it instead of a shore. */
 void RMGLayout::carveLakeBasins( void )
 {
 	if( m_lakes.empty() )
 		return;
 
 	Real bed = RMG_BASE_HEIGHT - RMG_WATER_DROP - RMG_LAKE_DEPTH;
+	Real atTheWaterline = m_waterHeight - 1.0f;
 
 	for( Int y = 0; y < m_height; y++ )
 	{
@@ -788,12 +841,26 @@ void RMGLayout::carveLakeBasins( void )
 			if( distanceToShore >= RMG_LAKE_SHORE )
 				continue;
 
-			Real t = 0.0f;
-			if( distanceToShore > 0.0f )
-				t = distanceToShore / RMG_LAKE_SHORE;
+			Real h;
+			if( distanceToShore < 0.0f )
+			{
+				// Inside the water: just under the surface at the rim, on the bed by the middle.
+				Real t = -distanceToShore / RMG_LAKE_SHORE;
+				if( t > 1.0f )
+					t = 1.0f;
 
-			Real h = lerpReal( bed, (Real)m_heights[cellIndex( x, y )], fadeCurve( t ) );
+				h = lerpReal( atTheWaterline, bed, fadeCurve( t ) );
+			}
+			else
+			{
+				// The beach: out of the water at the rim, back into whatever the land was doing.
+				Real t = distanceToShore / RMG_LAKE_SHORE;
+				h = lerpReal( atTheWaterline + 2.0f, (Real)m_heights[cellIndex( x, y )],
+											fadeCurve( t ) );
+			}
+
 			if( h < 1.0f ) h = 1.0f;
+			if( h > 254.0f ) h = 254.0f;
 
 			m_heights[cellIndex( x, y )] = (UnsignedByte)(h + 0.5f);
 		}
@@ -1170,6 +1237,30 @@ Bool RMGLayout::carvePass( Int fromStart, Int toStart )
 		}
 	}
 
+	/* Where the cut is deepest is where the route came off one terrace and onto another: that is
+		the ramp, and it is the ground worth standing a bunker on. One per route, so a map has as
+		many of these as it has carved routes. */
+	Real deepestCut = 6.0f;
+	Int rampAt = -1;
+
+	for( UnsignedInt i = 0; i < route.size(); i++ )
+	{
+		Real cut = fabsf( profile[i] - (Real)m_heights[route[i]] );
+		if( cut > deepestCut )
+		{
+			deepestCut = cut;
+			rampAt = (Int)i;
+		}
+	}
+
+	if( rampAt >= 0 )
+	{
+		RMGPoint ramp;
+		ramp.m_cellX = (Real)(route[rampAt] % m_width - RMG_BORDER_CELLS);
+		ramp.m_cellY = (Real)(route[rampAt] / m_width - RMG_BORDER_CELLS);
+		m_ramps.push_back( ramp );
+	}
+
 	for( UnsignedInt i = 0; i < route.size(); i++ )
 	{
 		Int x = route[i] % m_width;
@@ -1533,7 +1624,72 @@ void RMGLayout::addObject( const char *templateName, const char *uniqueID, Real 
 	object.m_worldY = cellY * MAP_XY_FACTOR;
 	object.m_angle = angle;
 	object.m_waypointID = 0;
+	object.m_flags = 0;
 	m_objects.push_back( object );
+}
+
+/** Level the ground under something that is about to stand on it. A supply dock across a terrace
+	edge has one corner in the air and nothing can be built beside it, which on a map made of
+	terraces is most of the places a search would otherwise call flat enough. */
+void RMGLayout::flattenPad( Real cellX, Real cellY, Real radius, Real blend )
+{
+	Int centreX = (Int)(cellX + 0.5f) + RMG_BORDER_CELLS;
+	Int centreY = (Int)(cellY + 0.5f) + RMG_BORDER_CELLS;
+	if( centreX < 1 || centreY < 1 || centreX >= m_width - 1 || centreY >= m_height - 1 )
+		return;
+
+	Real level = (Real)m_heights[cellIndex( centreX, centreY )];
+	Int reach = (Int)blend + 1;
+
+	for( Int dy = -reach; dy <= reach; dy++ )
+	{
+		for( Int dx = -reach; dx <= reach; dx++ )
+		{
+			Int x = centreX + dx;
+			Int y = centreY + dy;
+			if( x < 0 || y < 0 || x >= m_width || y >= m_height )
+				continue;
+
+			// Never fill a lake in to make room for a building.
+			if( underwaterAtCell( x, y ) )
+				continue;
+
+			Real distance = sqrtf( (Real)(dx * dx + dy * dy) );
+			if( distance >= blend )
+				continue;
+
+			Real t = 0.0f;
+			if( distance > radius )
+				t = (distance - radius) / (blend - radius);
+
+			Real h = lerpReal( level, (Real)m_heights[cellIndex( x, y )], fadeCurve( t ) );
+			if( h < 1.0f ) h = 1.0f;
+			if( h > 254.0f ) h = 254.0f;
+
+			m_heights[cellIndex( x, y )] = (UnsignedByte)(h + 0.5f);
+		}
+	}
+}
+
+/** One road segment, as the two objects W3DRoadBuffer pairs up. They have to stay next to each
+	other in the object list, which is why this writes both and nothing goes between them. */
+void RMGLayout::addRoad( Real fromX, Real fromY, Real toX, Real toY )
+{
+	RMGObject point;
+	point.m_templateName = RMG_TOWN_ROAD;
+	point.m_uniqueID = AsciiString::TheEmptyString;
+	point.m_angle = 0.0f;
+	point.m_waypointID = 0;
+
+	point.m_worldX = fromX * MAP_XY_FACTOR;
+	point.m_worldY = fromY * MAP_XY_FACTOR;
+	point.m_flags = RMG_FLAG_ROAD_POINT1;
+	m_objects.push_back( point );
+
+	point.m_worldX = toX * MAP_XY_FACTOR;
+	point.m_worldY = toY * MAP_XY_FACTOR;
+	point.m_flags = RMG_FLAG_ROAD_POINT2;
+	m_objects.push_back( point );
 }
 
 /** The flattest buildable spot in a ring around a point, whatever else is on the map. This is how
@@ -1558,9 +1714,11 @@ Bool RMGLayout::findSiteNear( Real centreX, Real centreY, Real minRadius, Real m
 			Real x = centreX + radius * dirX;
 			Real y = centreY + radius * dirY;
 
-			// Inside the playable area, not merely inside the height field: the border is ground
-			// the camera looks across, and a supply dock out there is a dock nobody can reach.
-			Real edge = 4.0f;
+			/* Inside the playable area, not merely inside the height field: the border is ground
+				the camera looks across, and a supply dock out there is a dock nobody can reach.
+				The clearance counts towards the edge as well, so a town whose streets are forty
+				cells across is not centred four cells from the corner. */
+			Real edge = 4.0f + clearance;
 			if( x < edge || y < edge || x > (Real)m_settings.m_playableCells - edge ||
 					y > (Real)m_settings.m_playableCells - edge )
 				continue;
@@ -1622,6 +1780,7 @@ void RMGLayout::placeSupplyAndDerricks( void )
 		AsciiString uniqueID;
 		uniqueID.format( "SupplyDock %d", supplyID++ );
 		addObject( "SupplyDock", uniqueID.str(), best.m_cellX, best.m_cellY, angle );
+		flattenPad( best.m_cellX, best.m_cellY, RMG_PAD_RADIUS, RMG_PAD_BLEND );
 		reserveSite( best.m_cellX, best.m_cellY, RMG_SITE_CLEARANCE );
 	}
 
@@ -1665,6 +1824,7 @@ void RMGLayout::placeSupplyAndDerricks( void )
 		AsciiString uniqueID;
 		uniqueID.format( "SupplyDock %d", supplyID++ );
 		addObject( "SupplyDock", uniqueID.str(), site.m_cellX, site.m_cellY, angle );
+		flattenPad( site.m_cellX, site.m_cellY, RMG_PAD_RADIUS, RMG_PAD_BLEND );
 		reserveSite( site.m_cellX, site.m_cellY, RMG_SITE_CLEARANCE );
 	}
 
@@ -1690,6 +1850,7 @@ void RMGLayout::placeSupplyAndDerricks( void )
 			AsciiString uniqueID;
 			uniqueID.format( "Derrick %d", derrickID++ );
 			addObject( "TechOilDerrick", uniqueID.str(), site.m_cellX, site.m_cellY, angle );
+			flattenPad( site.m_cellX, site.m_cellY, RMG_PAD_RADIUS, RMG_PAD_BLEND );
 			reserveSite( site.m_cellX, site.m_cellY, RMG_SITE_CLEARANCE );
 		}
 	}
@@ -1697,44 +1858,164 @@ void RMGLayout::placeSupplyAndDerricks( void )
 
 /** Civilian buildings come in small clusters facing the same way, the way a
 	hamlet does, rather than one at a time wherever there is room. */
-void RMGLayout::placeCivilians( void )
+void RMGLayout::placeTowns( void )
 {
-	static const char *theCivilianNames[] = { "CivilianHighrise01", "CivilianHighrise02" };
-	const Int numCivilianNames = sizeof(theCivilianNames) / sizeof(theCivilianNames[0]);
+	/* Two rows of frontage, because a street has two sides and a town where every building is the
+		same one is a warehouse estate. The list is walked in order along a street so neighbours
+		differ, and each town starts at a different place in it. */
+	static const char *theStreetNames[] =
+	{
+		"StanApartment01", "StanSmallRetail01", "StanHotel01", "StanConvenienceStore01",
+		"StanApartment02", "StanSmallRetail02", "StanRestaurant01", "StanSmallRetail03",
+		"AsianRetailStore01", "AsianOffice01", "AsianHotel01", "AsianBank",
+		"AsianRetailStore02", "CivilianHighrise01", "AsianArcade", "CivilianHighrise02"
+	};
+	const Int numStreetNames = sizeof(theStreetNames) / sizeof(theStreetNames[0]);
 
 	Int buildingID = 1;
-	Real inner = RMG_BLEND_RADIUS + 12.0f;
-	Real outer = inner + (Real)m_settings.m_playableCells * 0.25f;
+	Int towns = m_settings.m_numPlayers / 2;
+	if( towns < 1 )
+		towns = 1;
 
-	for( UnsignedInt cluster = 0; cluster < m_starts.size(); cluster++ )
+	Real half = (Real)(RMG_TOWN_STREETS - 1) * RMG_TOWN_BLOCK * 0.5f;
+	Real townRadius = half + RMG_TOWN_SET_BACK + 4.0f;
+
+	// Out of everybody's base, in the ground between them, which is where a town is worth fighting
+	// through rather than one more thing in somebody's back garden.
+	Real inner = RMG_BLEND_RADIUS + townRadius + 6.0f;
+	Real outer = inner + (Real)m_settings.m_playableCells * 0.22f;
+
+	for( Int town = 0; town < towns; town++ )
 	{
+		UnsignedInt which = (UnsignedInt)town % (UnsignedInt)m_starts.size();
+
 		RMGPoint site;
-		if( !findSiteNear( m_starts[cluster].m_cellX, m_starts[cluster].m_cellY, inner, outer,
-											 RMG_CIVILIAN_SPACING * 2.5f, &site ) )
+		if( !findSiteNear( m_starts[which].m_cellX, m_starts[which].m_cellY, inner, outer,
+											 townRadius, &site ) )
 			continue;
 
-		UnsignedInt hash = hashCell( m_settings.m_seed + 613, (Int)site.m_cellX, (Int)site.m_cellY );
-		Real facing = (Real)(hash % 1024U) * (2.0f * PI / 1024.0f);
+		// The whole town sits on one level: streets that run downhill through a terrace edge are
+		// streets with a cliff across them.
+		flattenPad( site.m_cellX, site.m_cellY, townRadius, townRadius + 12.0f );
 
-		for( Int i = 0; i < RMG_CIVILIANS_PER_CLUSTER; i++ )
+		UnsignedInt hash = hashCell( m_settings.m_seed + 613, (Int)site.m_cellX, (Int)site.m_cellY );
+		Int nameOffset = (Int)(hash % (UnsignedInt)numStreetNames);
+
+		Int line;
+		for( line = 0; line < RMG_TOWN_STREETS; line++ )
 		{
-			Real along = ((Real)i - (Real)(RMG_CIVILIANS_PER_CLUSTER - 1) * 0.5f) * RMG_CIVILIAN_SPACING;
-			Real x = site.m_cellX + along * Cos( facing + PI * 0.5f );
-			Real y = site.m_cellY + along * Sin( facing + PI * 0.5f );
+			Real offset = (Real)line * RMG_TOWN_BLOCK - half;
+
+			addRoad( site.m_cellX + offset, site.m_cellY - half - RMG_TOWN_SET_BACK,
+							 site.m_cellX + offset, site.m_cellY + half + RMG_TOWN_SET_BACK );
+			addRoad( site.m_cellX - half - RMG_TOWN_SET_BACK, site.m_cellY + offset,
+							 site.m_cellX + half + RMG_TOWN_SET_BACK, site.m_cellY + offset );
+		}
+
+		/* Buildings stand back from a street on both sides, facing it, in a row down its whole
+			length. The plots either side of a crossing are left empty so the junction is a
+			junction rather than a building with a road through it, and that gap is what makes the
+			grid read as blocks with frontage instead of a field of buildings. */
+		for( line = 0; line < RMG_TOWN_STREETS; line++ )
+		{
+			Real offset = (Real)line * RMG_TOWN_BLOCK - half;
+
+			for( Real down = -half; down <= half + 0.5f; down += RMG_TOWN_PLOT )
+			{
+				// How far this plot is from the nearest crossing street.
+				Real fromCrossing = fabsf( fmodf( down + half, RMG_TOWN_BLOCK ) );
+				if( fromCrossing > RMG_TOWN_BLOCK * 0.5f )
+					fromCrossing = RMG_TOWN_BLOCK - fromCrossing;
+				if( fromCrossing < RMG_TOWN_PLOT * 0.75f )
+					continue;
+
+				for( Int side = 0; side < 2; side++ )
+				{
+					Real back = (side == 0) ? -RMG_TOWN_SET_BACK : RMG_TOWN_SET_BACK;
+					Real facing = (side == 0) ? 0.0f : PI;
+
+					AsciiString uniqueID;
+					uniqueID.format( "Civilian %d", buildingID++ );
+					addObject( theStreetNames[(nameOffset + buildingID) % numStreetNames],
+										 uniqueID.str(), site.m_cellX + offset + back,
+										 site.m_cellY + down, facing );
+
+					uniqueID.format( "Civilian %d", buildingID++ );
+					addObject( theStreetNames[(nameOffset + buildingID) % numStreetNames],
+										 uniqueID.str(), site.m_cellX + down,
+										 site.m_cellY + offset + back, facing + PI * 0.5f );
+				}
+			}
+		}
+
+		reserveSite( site.m_cellX, site.m_cellY, townRadius + 4.0f );
+	}
+}
+
+/** Bunkers go where the carved routes changed layer. A ramp is the one place on a terraced map
+	that has to be walked through rather than round, so a garrisoned bunker looking down one is
+	worth taking, and nothing else on the map is worth putting there. */
+void RMGLayout::placeBunkers( void )
+{
+	Int bunkerID = 1;
+
+	for( UnsignedInt i = 0; i < m_ramps.size(); i++ )
+	{
+		RMGPoint site;
+		if( !findSiteNear( m_ramps[i].m_cellX, m_ramps[i].m_cellY, 6.0f, 18.0f,
+											 RMG_BUNKER_CLEARANCE, &site ) )
+			continue;
+
+		if( distanceToNearestStart( site.m_cellX, site.m_cellY ) < RMG_BLEND_RADIUS + 8.0f )
+			continue;
+
+		UnsignedInt hash = hashCell( m_settings.m_seed + 5309, (Int)site.m_cellX, (Int)site.m_cellY );
+		Real angle = (Real)(hash % 1024U) * (2.0f * PI / 1024.0f);
+
+		AsciiString uniqueID;
+		uniqueID.format( "Bunker %d", bunkerID++ );
+		addObject( "CivilianBunker01", uniqueID.str(), site.m_cellX, site.m_cellY, angle );
+		flattenPad( site.m_cellX, site.m_cellY, 3.0f, 7.0f );
+		reserveSite( site.m_cellX, site.m_cellY, RMG_BUNKER_CLEARANCE );
+	}
+}
+
+/** The sound of water on a shore, spaced round every lake. These are ambient emitters rather than
+	anything drawn - what is drawn at the water's edge is the renderer's own soft edge, which is why
+	the basin eases out over ten cells instead of dropping like a kerb. */
+void RMGLayout::placeShoreWaves( void )
+{
+	Int waveID = 1;
+
+	for( UnsignedInt i = 0; i < m_lakes.size(); i++ )
+	{
+		Real walked = RMG_WAVE_SPACING;		// so the first point of the outline gets one
+
+		for( Int point = 0; point < RMG_LAKE_POINTS; point++ )
+		{
+			Real angle = 2.0f * PI * (Real)point / (Real)RMG_LAKE_POINTS;
+			Real radius = m_lakes[i].m_outline[point];
+
+			// Arc length from the last emitter, at this lake's own radius.
+			walked += radius * (2.0f * PI / (Real)RMG_LAKE_POINTS);
+			if( walked < RMG_WAVE_SPACING )
+				continue;
+
+			walked = 0.0f;
+
+			// Just inside the waterline, where the wash would be.
+			Real x = m_lakes[i].m_cellX + (radius - 1.5f) * Cos( angle );
+			Real y = m_lakes[i].m_cellY + (radius - 1.5f) * Sin( angle );
 
 			Int mapX = (Int)(x + 0.5f) + RMG_BORDER_CELLS;
 			Int mapY = (Int)(y + 0.5f) + RMG_BORDER_CELLS;
-			if( mapX < 2 || mapY < 2 || mapX >= m_width - 2 || mapY >= m_height - 2 )
-				continue;
-			if( !passableAtCell( mapX, mapY ) )
+			if( mapX < 1 || mapY < 1 || mapX >= m_width - 1 || mapY >= m_height - 1 )
 				continue;
 
 			AsciiString uniqueID;
-			uniqueID.format( "Civilian %d", buildingID++ );
-			addObject( theCivilianNames[i % numCivilianNames], uniqueID.str(), x, y, facing );
+			uniqueID.format( "Waves %d", waveID++ );
+			addObject( "AmbientWavesLake", uniqueID.str(), x, y, angle + PI );
 		}
-
-		reserveSite( site.m_cellX, site.m_cellY, RMG_CIVILIAN_SPACING * 2.5f );
 	}
 }
 
@@ -1792,7 +2073,10 @@ void RMGLayout::placeScenery( const UnsignedByte perm[512] )
 			Real jitterY = (Real)((hash >> 7) % 100U) / 100.0f - 0.5f;
 			Real angle = (Real)((hash >> 14) % 1024U) * (2.0f * PI / 1024.0f);
 
-			Bool rocky = m_terrain[cellIndex( mapX, mapY )] == RMG_TERRAIN_ROCK;
+			/* Steep ground, by the same rule that paints it as rock. Asking the texture classes
+				would be reading a field that is not built yet: they are worked out after the
+				objects, because every pad an object levels moves the slopes they come from. */
+			Bool rocky = cellSpanWorld( mapX, mapY ) > RMG_CLIFF_WORLD_SPAN * 0.45f;
 			if( rocky )
 			{
 				if( rockBudget <= 0 )
@@ -1858,13 +2142,16 @@ void RMGLayout::buildObjects( const UnsignedByte perm[512] )
 		waypoint.m_worldY = m_starts[i].m_cellY * MAP_XY_FACTOR;
 		waypoint.m_angle = 0.0f;
 		waypoint.m_waypointID = waypointID++;
+		waypoint.m_flags = 0;
 		m_objects.push_back( waypoint );
 
 		reserveSite( m_starts[i].m_cellX, m_starts[i].m_cellY, RMG_FLAT_RADIUS );
 	}
 
 	placeSupplyAndDerricks();
-	placeCivilians();
+	placeTowns();
+	placeBunkers();
+	placeShoreWaves();
 	placeScenery( perm );
 }
 
@@ -1896,16 +2183,23 @@ void RMGLayout::build( const RandomMapSettings& settings )
 
 	buildHeights( perm );
 	placeLakes( perm );
+	buildLakeMask();
 	carveLakeBasins();
 
 	chooseStarts();
 	flattenBases();
 
+	m_ramps.clear();
 	connectStarts();
+
+	/* Objects before textures, because placing them changes the ground: every dock, derrick,
+		bunker and town levels a pad under itself, and a pad moves the cliffs and the shore lines
+		that the passability and the texture classes are read from. */
+	buildObjects( perm );
+	buildPassability();
 
 	buildTerrainClasses( perm );
 	buildBlends();
-	buildObjects( perm );
 
 	_controlfp( callersFPMode, _MCW_PC | _MCW_RC );
 }
@@ -1941,6 +2235,25 @@ static void writeWaypoint( MapChunkWriter& w, const RMGObject& object )
 	w.closeChunk();
 }
 
+/** A road point. It is not an object the game builds: the renderer walks the map object list, and
+	a pair of these with the road flags on them becomes a road segment of whatever type the name
+	says. The dictionary is what every map object carries, minus everything that only means
+	something to a thing that exists in the world. */
+static void writeRoadPoint( MapChunkWriter& w, const RMGObject& object )
+{
+	w.openChunk( "Object", K_OBJECTS_VERSION_3 );
+		w.writeReal( object.m_worldX );
+		w.writeReal( object.m_worldY );
+		w.writeReal( 0.0f );
+		w.writeReal( 0.0f );
+		w.writeInt( object.m_flags );
+		w.writeAsciiString( object.m_templateName.str() );
+
+		w.beginDict( 1 );
+		w.dictAsciiString( "objectLayer", "" );
+	w.closeChunk();
+}
+
 static void writeNeutralObject( MapChunkWriter& w, const RMGObject& object )
 {
 	w.openChunk( "Object", K_OBJECTS_VERSION_3 );
@@ -1948,7 +2261,7 @@ static void writeNeutralObject( MapChunkWriter& w, const RMGObject& object )
 		w.writeReal( object.m_worldY );
 		w.writeReal( 0.0f );
 		w.writeReal( object.m_angle );
-		w.writeInt( 0 );
+		w.writeInt( object.m_flags );
 		w.writeAsciiString( object.m_templateName.str() );
 
 		w.beginDict( 11 );
@@ -2284,6 +2597,8 @@ void RandomMapGenerator::generate( const RandomMapSettings& settings, std::vecto
 		{
 			if( layout.m_objects[i].m_waypointID > 0 )
 				writeWaypoint( w, layout.m_objects[i] );
+			else if( layout.m_objects[i].m_flags != 0 )
+				writeRoadPoint( w, layout.m_objects[i] );
 			else
 				writeNeutralObject( w, layout.m_objects[i] );
 		}

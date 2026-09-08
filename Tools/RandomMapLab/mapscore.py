@@ -146,6 +146,7 @@ class GeneratedMap:
         self.supplies = []
         self.derricks = []
         self.water_areas = []
+        self.objects = []                           # every object, as (template, cell x, cell y)
 
         reader = ChunkReader(data)
         for name, version, body_end in reader.chunks():
@@ -188,6 +189,8 @@ class GeneratedMap:
             reader.read_int()                       # flags
             template = reader.read_ascii()
             entries = reader.read_dict()
+
+            self.objects.append((template, x / MAP_XY_FACTOR, y / MAP_XY_FACTOR))
 
             if "waypointID" in entries and entries.get("waypointName", "").endswith("_Start"):
                 self.starts.append((x / MAP_XY_FACTOR, y / MAP_XY_FACTOR))

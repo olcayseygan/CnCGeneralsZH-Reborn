@@ -7182,9 +7182,9 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0x478CA657 },
-		{ 12345, 4, 96, 0xE94E9D6B },
-		{ 7, 8, 128, 0x1BBC3622 },
+		{ 0, 2, 64, 0x91026C19 },
+		{ 12345, 4, 96, 0xC248EEA9 },
+		{ 7, 8, 128, 0x38E6A48E },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
@@ -7302,7 +7302,15 @@ TEST(the_ground_is_textured_by_what_the_ground_is_doing)
 	for( Int i = 0; i < 4; i++ )
 		CHECK( cellsPerClass[i] > 0 );
 
-	CHECK( cellsPerClass[0] > total / 3 );				// grass still carries the map
+	/* Which class covers the most ground is the seed's business - a map whose terraces mostly sit
+		high is a dirt map and one that sits low is a sand map - but no single texture may cover
+		the whole thing, and the two the fighting happens on have to carry most of it. Rock is the
+		cliff faces, so a map that is mostly rock is a map nobody can drive across. */
+	for( Int i = 0; i < 4; i++ )
+		CHECK( cellsPerClass[i] < (total * 3) / 4 );
+
+	CHECK( cellsPerClass[0] + cellsPerClass[2] > total / 2 );
+	CHECK( cellsPerClass[3] < total / 5 );
 }
 
 //////////////////////////////////////////////////////////////////////////////
