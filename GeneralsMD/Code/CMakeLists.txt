@@ -263,6 +263,14 @@ target_include_directories(dx8_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Librari
 target_link_directories(dx8_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Lib)
 target_link_libraries(dx8_smoke PRIVATE d3d8 user32)
 
+# RENDERER-ROADMAP.md phase 1 checkpoint: the same proof without the translating
+# dll.  d3d9.h and d3d9.lib come from the Windows SDK, so this target must not see
+# Libraries/DirectX/Include - d3d8.h would shadow nothing here, but keeping the two
+# header sets apart is what makes the native path native.
+add_executable(dx9_smoke ${WW}/WW3D2/test_dx9_smoke.cpp ${WW}/WW3D2/d3dx9runtime.cpp)
+target_include_directories(dx9_smoke PRIVATE ${WW}/WW3D2)
+target_link_libraries(dx9_smoke PRIVATE d3d9 user32)
+
 # ===========================================================================
 # Phase 2 - remaining support libs.  None of these touch DX8.
 # ===========================================================================
@@ -631,6 +639,9 @@ add_custom_command(TARGET dx8_smoke POST_BUILD
 add_dependencies(dx8_smoke d3d8to9)
 add_test(NAME dx8_smoke COMMAND dx8_smoke)
 add_test(NAME dx8_smoke_d3d12 COMMAND dx8_smoke -d3d12)
+# dx9_smoke deliberately does not get d3d8.dll copied next to it: it calls
+# Direct3DCreate9 itself and a translating dll would hide whether that worked.
+add_test(NAME dx9_smoke COMMAND dx9_smoke)
 
 # bink_smoke validates the hand-reconstructed Bink ABI against the real
 # BINKW32.DLL the game ships - it loads that DLL by path, so it does not link
