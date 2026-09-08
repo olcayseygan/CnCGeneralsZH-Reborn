@@ -428,7 +428,12 @@ void GameLogic::reset( void )
 	m_objVector.clear();
 	m_objVector.resize(OBJ_HASH_SIZE, NULL);
 
-	m_gamePaused = FALSE;
+	/* Unpause properly rather than just clearing the flag.  Loading a save from the in-game menu
+		 resets while the game is paused, and setGamePaused is where the mouse comes back, the audio
+		 restarts and input is handed back to the player - clearing the flag by hand skips all of it,
+		 which is why the camera would not scroll at the screen edge after such a load. */
+	setGamePaused( FALSE );
+
 	m_inputEnabledMemory = TRUE;
 	m_mouseVisibleMemory = TRUE;
 	setFPMode();

@@ -558,7 +558,18 @@ void SpecialPowerModule::aboutToDoSpecialPower( const Coord3D *location )
 	// Let EVA do her thing
 	SpecialPowerType type = getSpecialPowerModuleData()->m_specialPowerTemplate->getSpecialPowerType();
 
+  /* An observer is not an active player, so every one of the tests below fell through to "enemy"
+	   and an observer heard the enemy warning for everything anybody launched.  Watch whoever is
+	   being watched, the way the audio manager already does for the same reason. */
   Player *localPlayer = ThePlayerList->getLocalPlayer();
+  if( localPlayer && !localPlayer->isPlayerActive() )
+  {
+    Player *observed = TheControlBar ? TheControlBar->getObserverLookAtPlayer() : NULL;
+    if( observed )
+      localPlayer = observed;
+  }
+  if( localPlayer == NULL )
+    return;
 
   // Only play the EVA sounds if this is not the local player, and the local player doesn't consider the 
 	// person an enemy.

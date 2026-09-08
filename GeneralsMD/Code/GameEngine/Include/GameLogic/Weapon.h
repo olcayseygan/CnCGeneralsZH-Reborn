@@ -325,9 +325,10 @@ struct HistoricWeaponDamageInfo
 	// The time and location this weapon was fired
 	UnsignedInt						frame;
 	Coord3D								location;
+	UnsignedInt						triggerId;	///< which firing of the bonus weapon this entry was counted towards
 
 	HistoricWeaponDamageInfo(UnsignedInt f, const Coord3D& l) :
-		frame(f), location(l)
+		frame(f), location(l), triggerId(0)
 	{
 	}
 };
@@ -474,6 +475,8 @@ protected:
 	// actually deal out the damage.
 	void dealDamageInternal(ObjectID sourceID, ObjectID victimID, const Coord3D *pos, const WeaponBonus& bonus, Bool isProjectileDetonation) const;
 	void trimOldHistoricDamage() const;
+	void trimTriggeredHistoricDamage() const;
+	void processHistoricDamage(const Object* source, const Coord3D* pos) const;
 
 private:
 	
@@ -558,6 +561,7 @@ private:
 	Bool m_dieOnDetonate;
 
 	mutable HistoricWeaponDamageList m_historicDamage;
+	mutable UnsignedInt m_historicDamageTriggerId;	///< bumped every time the bonus weapon is considered
 };  
 
 // ---------------------------------------------------------

@@ -329,6 +329,7 @@ WeaponTemplate::WeaponTemplate() : m_nextTemplate(NULL)
 	m_damageStatusType							= OBJECT_STATUS_NONE;
 	m_suspendFXDelay								= 0;
 	m_dieOnDetonate						= FALSE;
+	m_historicDamageTriggerId	= 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1221,24 +1222,87 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate
 }
 
 //-------------------------------------------------------------------------------------------------
+static Bool is2DDistSquaredLessThan(const Coord3D& a, const Coord3D& b, Real distSqr);
+
+//-------------------------------------------------------------------------------------------------
+/** Drop the hits that are too old to count towards this weapon's bonus.
+	*
+	* The window is this weapon's own HistoricBonusTime, not the global historic damage limit: the
+	* global one is longer, so hits that could never contribute were kept and counted, and a second
+	* volley landing near the wreckage of the first set the bonus off again. */
 void WeaponTemplate::trimOldHistoricDamage() const
 {
-	UnsignedInt expirationDate = TheGameLogic->getFrame() - TheGlobalData->m_historicDamageLimit;
-	while (m_historicDamage.size() > 0)
+	if (m_historicDamage.empty())
+		return;
+
+	const UnsignedInt expirationFrame = TheGameLogic->getFrame() - m_historicBonusTime;
+
+	HistoricWeaponDamageList::iterator it = m_historicDamage.begin();
+	while (it != m_historicDamage.end())
 	{
-		HistoricWeaponDamageInfo& h = m_historicDamage.front();
-		if (h.frame <= expirationDate)
-		{
-			m_historicDamage.pop_front();
-			continue;
-		}
+		if (it->frame <= expirationFrame)
+			it = m_historicDamage.erase(it);
 		else
+			break;		// they are in strict chronological order, so the rest are younger still
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Drop only the hits that were counted towards the firing that just happened.
+	*
+	* This replaces an old "E3 hack" that emptied the whole list on success, with a comment saying it
+	* was a plug and not a fix.  Emptying it threw away hits from other places on the map that had
+	* nothing to do with this bonus, so the next one needed a full count again from nothing. */
+void WeaponTemplate::trimTriggeredHistoricDamage() const
+{
+	HistoricWeaponDamageList::iterator it = m_historicDamage.begin();
+	while (it != m_historicDamage.end())
+	{
+		if (it->triggerId == m_historicDamageTriggerId)
+			it = m_historicDamage.erase(it);
+		else
+			++it;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Count the recent hits near this one and fire the bonus weapon when there are enough. */
+void WeaponTemplate::processHistoricDamage(const Object *source, const Coord3D *pos) const
+{
+	if (m_historicBonusCount <= 0 || m_historicBonusWeapon == this)
+		return;
+
+	trimOldHistoricDamage();
+
+	++m_historicDamageTriggerId;
+
+	const Int requiredCount = m_historicBonusCount - 1;	// minus 1 since we include ourselves implicitly
+	if ((Int)m_historicDamage.size() >= requiredCount)
+	{
+		const Real radSqr = m_historicBonusRadius * m_historicBonusRadius;
+		Int count = 0;
+
+		for (HistoricWeaponDamageList::iterator it = m_historicDamage.begin();
+				 it != m_historicDamage.end(); ++it)
 		{
-			// since they are in strict chronological order,
-			// stop as soon as we get to a nonexpired one
-			break;
+			if (is2DDistSquaredLessThan( *pos, it->location, radSqr ))
+			{
+				// close enough in time (the trim above saw to that) and in distance, so mark it as
+				// having gone towards this firing
+				it->triggerId = m_historicDamageTriggerId;
+
+				if (++count == requiredCount)
+				{
+					TheWeaponStore->createAndFireTempWeapon( m_historicBonusWeapon, source, pos );
+					trimTriggeredHistoricDamage();
+					return;
+				}
+			}
 		}
 	}
+
+	// add AFTER checking for historic stuff
+	m_historicDamage.push_back( HistoricWeaponDamageInfo( TheGameLogic->getFrame(), *pos ) );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1266,44 +1330,7 @@ void WeaponTemplate::dealDamageInternal(ObjectID sourceID, ObjectID victimID, co
 	// firestorms (CBD) */
 	//
 
-	trimOldHistoricDamage();
-
-	if( m_historicBonusCount > 0 && m_historicBonusWeapon != this )
-	{
-		Real radSqr = m_historicBonusRadius * m_historicBonusRadius;
-		Int count = 0;
-		UnsignedInt frameNow = TheGameLogic->getFrame();
-		UnsignedInt oldestThatWillCount = frameNow - m_historicBonusTime; // Anything before this frame is "more than two seconds ago" eg
-		for( HistoricWeaponDamageList::const_iterator it = m_historicDamage.begin(); it != m_historicDamage.end(); ++it )
-		{
-			if( it->frame >= oldestThatWillCount && 
-					is2DDistSquaredLessThan( *pos, it->location, radSqr ) )
-			{
-				// This one is close enough in time and distance, so count it. This is tracked by template since it applies
-				// across units, so don't try to clear historicDamage on success in here.
-				++count;
-			}
-		}
-		
-		if( count >= m_historicBonusCount - 1 )	// minus 1 since we include ourselves implicitly
-		{
-		  TheWeaponStore->createAndFireTempWeapon(m_historicBonusWeapon, source, pos);
-
-			/** @todo E3 hack! Clear the list for now to make sure we don't have multiple firestorms
-				* remove this when the branches merge back into one.  What is causing the
-				* multiple firestorms, who is to say ... this is a plug, not a fix! */
-			m_historicDamage.clear();
-
-		}
-		else
-		{
-			
-			// add AFTER checking for historic stuff
-			m_historicDamage.push_back( HistoricWeaponDamageInfo(frameNow, *pos) );
-
-		}  // end else
-
-	} // if historic bonuses
+	processHistoricDamage( source, pos );
 
 //DEBUG_LOG(("WeaponTemplate::dealDamageInternal: dealing damage %s at frame %d\n",m_name.str(),TheGameLogic->getFrame()));
 

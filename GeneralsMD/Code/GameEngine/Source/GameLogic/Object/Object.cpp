@@ -705,6 +705,12 @@ void Object::onContainedBy( Object *containedBy )
 	m_containedBy = containedBy;
 	m_containedByFrame = TheGameLogic->getFrame();
 
+	// Going into something that is already on its way out leaves this object holding a pointer that
+	// is about to be freed, and onDestroy then walks a contain list that no longer exists.  That is
+	// the shape of the Reinforcement Pad crash; say so loudly while there is still a stack to read.
+	DEBUG_ASSERTCRASH( containedBy == NULL || !containedBy->isDestroyed(),
+										 ("Object::onContainedBy - going into a container that is already destroyed") );
+
   handlePartitionCellMaintenance(); // which should unlook me now that I am contained
   
 }
