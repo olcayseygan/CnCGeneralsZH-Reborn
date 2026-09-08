@@ -4618,10 +4618,9 @@ void InGameUI::deselectAllDrawables( Bool postMsg )
 	the order of operations of things happening in the code (CBD) */
 	if( postMsg )
 	{
-		GameMessage *groupMsg = TheMessageStream->appendMessage( GameMessage::MSG_DESTROY_SELECTED_GROUP );
-
-		//True deletes entire group.
-		groupMsg->appendBooleanArgument( true );
+		// The message carried one boolean that nothing on the receiving side ever read: the handler
+		// deselects the whole group and always did.
+		TheMessageStream->appendMessage( GameMessage::MSG_DESTROY_SELECTED_GROUP );
 	}
 }
 

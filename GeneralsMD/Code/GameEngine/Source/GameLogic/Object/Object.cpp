@@ -2044,28 +2044,16 @@ Bool Object::isNonFactionStructure(void) const
 	return isStructure() && !isFactionStructure();
 }
 
-void localIsHero( Object *obj, void* userData )
-{
-	Bool *hero = (Bool*)userData;
-	
-	if( obj && obj->isKindOf( KINDOF_HERO ) )
-	{
-		*hero = TRUE;
-	}
-}
-
 //-------------------------------------------------------------------------------------------------
+/** A transport counts as a hero while it is carrying one, which is what puts the hero's marker on
+	  the radar.  This used to walk the whole contained list on every ask, and the radar asks about
+	  every object it draws; the container keeps a count now, so the answer costs a comparison. */
 Bool Object::isHero(void) const
 {
 	ContainModuleInterface *contain = getContain();
-	if( contain )
+	if( contain && contain->getHeroUnitsContained() > 0 )
 	{
-		Bool heroInside = FALSE;
-		contain->iterateContained( localIsHero, (void*)(&heroInside), FALSE );
-		if( heroInside )
-		{
-			return TRUE;
-		}
+		return TRUE;
 	}
 	return isKindOf( KINDOF_HERO );
 }
@@ -2972,14 +2960,38 @@ void Object::scoreTheKill( const Object *victim )
 		controller->doBountyForKill(this, victim);
 	}
 
-	// Now handle experience, if we can gain any
-	if (m_experienceTracker && m_experienceTracker->isAcceptingExperiencePoints())
+	/* Now handle experience, if we can gain any.
+
+		 A thing made by an ObjectCreationList - the explosion a bomb leaves behind, the fire a molotov
+		 starts, the wreck a vehicle throws - takes no experience itself, so a kill it made used to be
+		 worth nothing to anybody.  It knows who made it, because ObjectCreationList::create writes the
+		 source in as the producer, so walk up to whoever can take the points and give them there.
+
+		 The walk is a chain and not a single step: a transport makes a payload which makes the thing
+		 that does the killing.  It stops at a fixed depth rather than trusting the data not to contain
+		 a loop, and it stops at the first owner who can accept points, which is the one that fired. */
+	const Int MAX_PRODUCER_HOPS = 4;
+	Object *earner = this;
+	for( Int hop = 0; hop < MAX_PRODUCER_HOPS; ++hop )
+	{
+		ExperienceTracker *tracker = earner->getExperienceTracker();
+		if (tracker && tracker->isAcceptingExperiencePoints())
+			break;
+
+		Object *producer = TheGameLogic->findObjectByID( earner->getProducerID() );
+		if (producer == NULL || producer == earner)
+			break;
+		earner = producer;
+	}
+
+	ExperienceTracker *earnerTracker = earner->getExperienceTracker();
+	if (earnerTracker && earnerTracker->isAcceptingExperiencePoints())
 	{
 		// srj sez: per dustin, no experience (et al) for killing things under construction.
 		if (!victim->testStatus(OBJECT_STATUS_UNDER_CONSTRUCTION))
 		{
-			Int experienceValue = victim->getExperienceTracker()->getExperienceValue( this );
-			getExperienceTracker()->addExperiencePoints( experienceValue );
+			Int experienceValue = victim->getExperienceTracker()->getExperienceValue( earner );
+			earnerTracker->addExperiencePoints( experienceValue );
 		}
 	}
 }

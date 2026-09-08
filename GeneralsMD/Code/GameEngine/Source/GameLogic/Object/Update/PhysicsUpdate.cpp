@@ -1400,7 +1400,27 @@ void PhysicsBehavior::onCollide( Object *other, const Coord3D *loc, const Coord3
 					// fall into a building. if a vehicle, blow up. then destroy ourself (not die), regardless.
 					if (obj->isKindOf(KINDOF_VEHICLE))
 					{
-						TheWeaponStore->createAndFireTempWeapon(getPhysicsBehaviorModuleData()->m_vehicleCrashesIntoBuildingWeaponTemplate, obj, obj->getPosition());
+						/* The crash weapon used to be fired where the vehicle landed, which gave it the
+							 weapon's whole blast radius: everything parked near the building took the hit as
+							 well.  A vehicle falling on a building damages that building.  Same numbers, same
+							 fire effect, one target. */
+						const WeaponTemplate *crashWeapon =
+							getPhysicsBehaviorModuleData()->m_vehicleCrashesIntoBuildingWeaponTemplate;
+						if (crashWeapon != NULL)
+						{
+							WeaponBonus nullBonus;
+
+							DamageInfo damageInfo;
+							damageInfo.in.m_damageType = crashWeapon->getDamageType();
+							damageInfo.in.m_deathType = crashWeapon->getDeathType();
+							damageInfo.in.m_sourceID = obj->getID();
+							damageInfo.in.m_sourcePlayerMask =
+								obj->getControllingPlayer() ? obj->getControllingPlayer()->getPlayerMask() : 0;
+							damageInfo.in.m_amount = crashWeapon->getPrimaryDamage( nullBonus );
+
+							other->attemptDamage( &damageInfo );
+							FXList::doFXObj( crashWeapon->getFireFX( obj->getVeterancyLevel() ), obj );
+						}
 					}
 					TheGameLogic->destroyObject(obj);
 					return;

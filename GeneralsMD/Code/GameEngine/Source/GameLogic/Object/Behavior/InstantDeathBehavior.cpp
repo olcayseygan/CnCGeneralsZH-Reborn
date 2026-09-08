@@ -158,8 +158,12 @@ void InstantDeathBehavior::onDie( const DamageInfo *damageInfo )
 		ObjectCreationList::create(ocl, getObject(), NULL);
 	}
 
+	/* A building killed while it is still a scaffold has not been paid for and was never armed, so
+		 the death weapon does not go off.  Otherwise cancelling a half-built structure sets off the
+		 explosion it would have made as a finished one, which damages whatever is standing next to a
+		 construction site - free artillery, aimed by the dozer. */
 	listSize = d->m_weapons.size();
-	if (listSize > 0)
+	if (listSize > 0 && !getObject()->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION ))
 	{
 		idx = GameLogicRandomValue(0, listSize-1);
 		const WeaponTemplateVec& v = d->m_weapons;

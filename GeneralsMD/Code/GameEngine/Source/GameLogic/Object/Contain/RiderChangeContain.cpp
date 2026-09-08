@@ -248,11 +248,17 @@ void RiderChangeContain::onContaining( Object *rider, Bool wasSelected )
 				}
 			}
 
-			//Transfer experience from the rider to the bike.
+			/* Transfer experience from the rider to the bike, but only onto something the data says
+				 can hold a rank.  A tracker that is not trainable is one whose object was never meant to
+				 wear a chevron, and handing it a veterancy level does exactly that - and then the level
+				 comes back to the next rider on the way out. */
 			ExperienceTracker *riderTracker = rider->getExperienceTracker();
 			ExperienceTracker *bikeTracker = obj->getExperienceTracker();
-			bikeTracker->setVeterancyLevel( riderTracker->getVeterancyLevel(), FALSE );
-			riderTracker->setExperienceAndLevel( 0, FALSE );
+			if( bikeTracker->isTrainable() )
+			{
+				bikeTracker->setVeterancyLevel( riderTracker->getVeterancyLevel(), FALSE );
+				riderTracker->setExperienceAndLevel( 0, FALSE );
+			}
 
 			break;
 		}
@@ -303,11 +309,14 @@ void RiderChangeContain::onRemoving( Object *rider )
 				//Wow, completely unforseeable game teardown order crash.  SetVeterancyLevel results in a call to player
 				//about upgrade masks.  So if we have a null player, it is game teardown, so don't worry about transfering exp.
 
-				//Transfer experience from the bike to the rider.
+				// Transfer experience from the bike to the rider - same rule as on the way in.
 				ExperienceTracker *riderTracker = rider->getExperienceTracker();
 				ExperienceTracker *bikeTracker = bike->getExperienceTracker();
-				riderTracker->setVeterancyLevel( bikeTracker->getVeterancyLevel(), FALSE );
-				bikeTracker->setExperienceAndLevel( 0, FALSE );
+				if( riderTracker->isTrainable() )
+				{
+					riderTracker->setVeterancyLevel( bikeTracker->getVeterancyLevel(), FALSE );
+					bikeTracker->setExperienceAndLevel( 0, FALSE );
+				}
 			}
 
 			break;
