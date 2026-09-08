@@ -884,8 +884,10 @@ found and fixed â€” EA's own, not port damage.**
 - The audio and video libraries travel in the zip now. An install that was missing `mss32.dll` died
   in a Windows dialog naming the file, before the game ran a single line of its own and with nothing
   written to any log; the exe asks Windows for that library by name at load, so there was no way to
-  read the error as anything other than a broken download. Both libraries are the retail ones, and
-  the old copies are backed up like everything else the installer writes over.
+  read the error as anything other than a broken download. The audio library's own output drivers go
+  with it, since it looks those up in a folder while it is running rather than at load, and an
+  install short of them starts and then plays nothing at all. All of it is the retail files, and the
+  old copies are backed up like everything else the installer writes over.
 - Over a build that is already there it updates rather than installs, and says which number it is
   moving you from and to. Running an older package over a newer install stops instead, since the
   usual reason for doing that by accident is having two zips in the downloads folder; the word
