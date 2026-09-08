@@ -111,8 +111,34 @@ protected:
 
 
 	UnsignedInt doTheDynamicLight(VERTEX_FORMAT *vb, VERTEX_FORMAT *vbMirror, Vector3*light, Vector3*normal, W3DDynamicLight *pLights[], Int numLights);
-	Int getXWithOrigin(Int x);
-	Int getYWithOrigin(Int x);
+	//
+	// Gets the index that corresponds to the data.  For example, if the columns are shifted by 3,
+	// index 3 is actually the first row of polygons, or 0.  Yes it is confusing, but it makes
+	// sliding the map 10x faster.
+	//
+	// Inline because the vertex fill loops call these eight or more times per vertex, on a whole
+	// tile at a time.  Out of line they were real calls, and the compiler could not see that the
+	// repeated calls with the same argument all return the same thing.
+	//
+	Int getXWithOrigin(Int x) const
+	{
+		x -= m_originX;
+		if (x<0) x+= m_x-1;
+		if (x>= m_x-1) x-=m_x-1;
+		if (x<0) x = 0;
+		if (x>= m_x-1) x=m_x-1;
+		return x;
+	}
+
+	Int getYWithOrigin(Int y) const
+	{
+		y -= m_originY;
+		if (y<0) y+= m_y-1;
+		if (y>= m_y-1) y-=m_y-1;
+		if (y<0) y = 0;
+		if (y>= m_y-1) y=m_y-1;
+		return y;
+	}
 	///update vertex diffuse color for dynamic lights inside given rectangle
 	Int updateVBForLight(DX8VertexBufferClass *pVB, char *data, Int x0, Int y0, Int x1, Int y1, Int originX, Int originY, W3DDynamicLight *pLights[], Int numLights);
 	Int updateVBForLightOptimized(DX8VertexBufferClass	*pVB, char *data, Int x0, Int y0, Int x1, Int y1, Int originX, Int originY, W3DDynamicLight *pLights[], Int numLights);

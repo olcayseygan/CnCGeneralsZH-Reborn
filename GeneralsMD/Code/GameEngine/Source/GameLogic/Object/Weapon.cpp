@@ -1583,6 +1583,7 @@ WeaponStore::~WeaponStore()
 			wt->deleteInstance();
 	}
 	m_weaponTemplateVector.clear();
+	m_weaponTemplateHashMap.clear();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1630,10 +1631,9 @@ const WeaponTemplate *WeaponStore::findWeaponTemplate( AsciiString name ) const
 //-------------------------------------------------------------------------------------------------
 WeaponTemplate *WeaponStore::findWeaponTemplatePrivate( NameKeyType key ) const
 {
-	// search weapon list for name
-	for (Int i = 0; i < m_weaponTemplateVector.size(); i++)
-		if( m_weaponTemplateVector[ i ]->getNameKey() == key )
-			return m_weaponTemplateVector[i];
+	WeaponTemplateMap::const_iterator it = m_weaponTemplateHashMap.find( key );
+	if( it != m_weaponTemplateHashMap.end() )
+		return it->second;
 
 	return NULL;
 
@@ -1652,6 +1652,9 @@ WeaponTemplate *WeaponStore::newWeaponTemplate(AsciiString name)
 	wt->m_name = name;
 	wt->m_nameKey = TheNameKeyGenerator->nameToKey( name );
 	m_weaponTemplateVector.push_back(wt);
+
+	// insert, never overwrite: the linear scan this replaces answered with the first match
+	m_weaponTemplateHashMap.insert( WeaponTemplateMap::value_type( wt->m_nameKey, wt ) );
 
 	return wt;
 } 

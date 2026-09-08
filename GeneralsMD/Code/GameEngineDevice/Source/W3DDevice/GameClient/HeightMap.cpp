@@ -263,48 +263,6 @@ UnsignedInt HeightMapRenderObjClass::doTheDynamicLight(VERTEX_FORMAT *vb, VERTEX
 }
 
 //=============================================================================
-// HeightMapRenderObjClass::getXWithOrigin
-//=============================================================================
-/** Gets the x index that corresponds to the data.  For example, if the columns
-are shifted by 3, index 3 is actually the first row of polygons, or 0.  Yes it
-is confusing, but it makes sliding the map 10x faster.  */
-//=============================================================================
-Int HeightMapRenderObjClass::getXWithOrigin(Int x)
-{
-	x -= m_originX;
-	if (x<0) x+= m_x-1;
-	if (x>= m_x-1) x-=m_x-1;
-#ifdef _DEBUG
-	DEBUG_ASSERTCRASH (x>=0, ("X out of range."));
-	DEBUG_ASSERTCRASH (x<m_x-1, ("X out of range."));
-#endif
-	if (x<0) x = 0;
-	if (x>= m_x-1) x=m_x-1;
-	return x;
-}
-
-//=============================================================================
-// HeightMapRenderObjClass::getYWithOrigin
-//=============================================================================
-/** Gets the y index that corresponds to the data.  For example, if the rows
-are shifted by 3, index 3 is actually the first row of polygons, or 0.  Yes it
-is confusing, but it makes sliding the map 10x faster.  */
-//=============================================================================
-Int HeightMapRenderObjClass::getYWithOrigin(Int y)
-{
-	y -= m_originY;
-	if (y<0) y+= m_y-1;
-	if (y>= m_y-1) y-=m_y-1;
-#ifdef _DEBUG
-	DEBUG_ASSERTCRASH (y>=0, ("Y out of range."));
-	DEBUG_ASSERTCRASH (y<m_y-1, ("Y out of range."));
-#endif
-	if (y<0) y = 0;
-	if (y>= m_y-1) y=m_y-1;
-	return y;
-}
-
-//=============================================================================
 // HeightMapRenderObjClass::updateVB
 //=============================================================================
 /** Update a rectangular block of the given Vertex Buffer. 
@@ -1864,7 +1822,10 @@ void HeightMapRenderObjClass::updateCenter(CameraClass *camera , RefRenderObjLis
 		}
 
 		if (abs(deltaX)>CENTER_LIMIT || abs(deltaY)>CENTER_LIMIT) {
-			if (abs(deltaY) >= CENTER_LIMIT) {
+			// The row test was >= where the guard above and the column test below are both >, so a
+			// sideways scroll of exactly CENTER_LIMIT rows also rebuilt the rows - and then took
+			// the early return below and left the columns for the next frame.
+			if (abs(deltaY) > CENTER_LIMIT) {
 				if (m_map->setDrawOrg(m_map->getDrawOrgX(), newOrgY)) {
 					Int minY = 0;
 					Int maxY = 0;

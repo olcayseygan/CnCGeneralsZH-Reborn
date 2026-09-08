@@ -883,6 +883,11 @@ private:
 	};
 
 	std::vector<WeaponTemplate*> m_weaponTemplateVector;
+
+	// Looking a weapon up by name walked that whole vector.  The same templates are indexed here
+	// by name key; the vector stays because load order is what iterates it.
+	typedef std::hash_map<NameKeyType, WeaponTemplate*, rts::hash<NameKeyType>, rts::equal_to<NameKeyType> > WeaponTemplateMap;
+	WeaponTemplateMap m_weaponTemplateHashMap;
 	std::list<WeaponDelayedDamageInfo> m_weaponDDI;
 };
 
