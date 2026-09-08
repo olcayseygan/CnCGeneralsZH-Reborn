@@ -831,13 +831,8 @@ void ScriptActions::doPitchCamera(Real pitch, Real sec, Real easeIn, Real easeOu
 void ScriptActions::doOversizeTheTerrain(Int amount)
 {
 	oversizeTheTerrain(amount);
-	Coord2D offset;
-	offset.x = 0.0001f;
-	offset.y = 0.0001f;
-	TheTacticalView->scrollBy(&offset);
-	offset.x = -0.0001f;
-	offset.y = -0.0001f;
-	TheTacticalView->scrollBy(&offset);
+	// The two cancelling scrolls were only here to make the view notice it was dirty.
+	TheTacticalView->forceRedraw();
 }
 
 //-------------------------------------------------------------------------------------------------

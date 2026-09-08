@@ -424,7 +424,8 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 
 				Real angle = FACTOR * (m_currentPos.y - m_anchor.y);
 
-				TheTacticalView->setPitch( TheTacticalView->getPitch() + angle );
+				// Dragging down tips the camera down.  The sign used to be the other way round.
+				TheTacticalView->setPitch( TheTacticalView->getPitch() - angle );
 				m_anchor = msg->getArgument( 0 )->pixel;
 			}
 
@@ -448,14 +449,17 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 		{
 			m_lastMouseMoveFrame = TheGameLogic->getFrame();
 
-			Int spin = msg->getArgument( 1 )->integer;
+			// Notches, and a touchpad sends fractions of one.
+			Real spin = msg->getArgument( 1 )->real;
 
 			//
 			// Ctrl+wheel turns the structure on the cursor by 45 degrees a notch instead of zooming.
 			// The wheel is otherwise wasted while placing, and the drag-to-aim interface it replaces
 			// cannot hit an exact eighth of a turn.  Eaten so the same notch does not also zoom.
 			//
-			if (TheKeyboard->isCtrl() && TheInGameUI->rotatePendingPlacement( spin ))
+			// Whole notches only: half a touchpad swipe is not a 45 degree turn.
+			const Int rotateSteps = (Int)spin;
+			if (TheKeyboard->isCtrl() && rotateSteps != 0 && TheInGameUI->rotatePendingPlacement( rotateSteps ))
 				return DESTROY_MESSAGE;
 
 			//
@@ -478,16 +482,10 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 				m_zoomAnchorValid = TRUE;
 			}
 
-			if (spin > 0)
-			{
-				for ( ; spin > 0; spin--)
-					TheTacticalView->zoomIn();
-			}
-			else
-			{
-				for ( ;spin < 0; spin++ )
-					TheTacticalView->zoomOut();
-			}
+			if (spin > 0.0f)
+				TheTacticalView->zoomIn( spin );
+			else if (spin < 0.0f)
+				TheTacticalView->zoomOut( -spin );
 
 			break;	// without this the case fell into MSG_META_OPTIONS below and every wheel
 					// notch called stopScrolling(), killing zoom-while-panning and leaving
@@ -631,6 +629,9 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 		{
 			DEBUG_ASSERTCRASH(!m_isPitching, ("hmm, mismatched m_isPitching"));
 			m_isPitching = true;
+			// Anchor where the drag starts, or the first frame measures against wherever the last
+			// rotate or scroll left the anchor and the camera snaps.
+			m_anchor = m_currentPos;
 			disp = DESTROY_MESSAGE;
 			break;
 		}

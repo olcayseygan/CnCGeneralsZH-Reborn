@@ -821,7 +821,9 @@ void Mouse::createStreamMessages( void )
 		{
 			msg = TheMessageStream->appendMessage( GameMessage::MSG_RAW_MOUSE_WHEEL );
 			msg->appendPixelArgument( m_currMouse.pos );
-			msg->appendIntegerArgument( m_currMouse.wheelPos / 120 );  // wheel delta
+			// A notch is 120.  A touchpad sends less than that per event, and integer division threw
+			// those away: the argument came out zero and every small scroll read as a downward one.
+			msg->appendRealArgument( (Real)m_currMouse.wheelPos / 120.0f );  // wheel delta, in notches
 			msg->appendIntegerArgument( TheKeyboard->getModifierFlags() );
 		}  // end if
 	
