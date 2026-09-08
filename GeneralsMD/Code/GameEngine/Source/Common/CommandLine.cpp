@@ -1842,6 +1842,18 @@ Int parseSkirmishLobby(char *args[], int num)
 	return 1;
 }
 
+/* -randommaps puts the generated maps back in the skirmish map list.  They are off by default
+   because the generator is not finished - a seed can still leave a supply dock behind a cliff, and
+   a map list is not the place to find that out.  Everything else about them works from the command
+   line, where -randommap says exactly which map is being played. */
+Int parseRandomMapsInMenus(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_randomMapsInMenus = TRUE;
+
+	return 1;
+}
+
 Int parseNetSlot(char *args[], int num)
 {
 	if (TheWritableGlobalData && num > 1)
@@ -2072,6 +2084,7 @@ static CommandLineParam params[] =
 		 match itself is simulated - the command-line twin of the skirmish menu's game speed slider. */
 	{ "-map", parseMapName },
 	{ "-randommap", parseRandomMap },
+	{ "-randommaps", parseRandomMapsInMenus },
 	{ "-seed", parseSeed },
 	{ "-noFPSLimit", parseNoFPSLimit },
 	{ "-fps", parseFPSLimit },

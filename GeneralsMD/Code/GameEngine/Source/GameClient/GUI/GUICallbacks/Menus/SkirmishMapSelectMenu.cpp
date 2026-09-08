@@ -88,9 +88,14 @@ static Bool isRandomMapRow( const char *itemData )
 	return randomMapSizeOfRow( itemData ) != RANDOM_MAP_SIZE_COUNT;
 }
 
+/** The three generated map rows, which are only offered when -randommaps asks for them.  The
+	generator still hands out seeds a match should not be played on - a supply dock behind a cliff,
+	a start with one way out - and the map list is the wrong place to meet one, so until it is
+	finished the maps are reached from the command line, where -randommap names the seed being
+	played and a bad one can simply be dropped. */
 static void addRandomMapRows( GameWindow *listbox )
 {
-	if( listbox == NULL )
+	if( listbox == NULL || TheGlobalData == NULL || !TheGlobalData->m_randomMapsInMenus )
 		return;
 
 	// Spelled out here rather than fetched: the string tables live in the shipped

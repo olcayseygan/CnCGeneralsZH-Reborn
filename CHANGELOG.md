@@ -1060,6 +1060,10 @@ found and fixed â€” EA's own, not port damage.**
   entry in the map cache. The name still says which map it is, so the replay of a generated match
   plays back on any machine: it rebuilds the same ground from the same name, and so does anybody
   who joins.
+- The generated maps are out of the skirmish map list for now. The generator still deals a seed a
+  match should not be played on - a supply dock behind a cliff, a start with one way out - and a
+  map list is the wrong place to meet one. They are still there on the command line, where
+  `-randommap` names the seed being played, and `-randommaps` puts the rows back in the list.
 
 ---
 
