@@ -45,6 +45,7 @@
 #include "GameClient/GameWindow.h"
 #include "GameClient/Image.h"
 #include "GameClient/Line2D.h"
+#include "GameClient/MapUtil.h"
 #include "GameClient/PlayerColorScheme.h"
 #include "GameClient/TerrainVisual.h"
 #include "GameClient/Water.h"
@@ -63,6 +64,29 @@
 
 // PRIVATE DATA ///////////////////////////////////////////////////////////////////////////////////
 enum { OVERLAY_REFRESH_RATE = 6 };  ///< over updates once this many frames
+
+//
+// The lobby map preview has marked the money with a dollar coin and the tech buildings with a star
+// since 2003 (`W3DControlBar.cpp`, "Cash" and "TecBuilding"), so the radar marks them with the same
+// two images and a player who has read the preview needs to learn nothing.
+//
+static const char *const LANDMARK_SUPPLY_IMAGE_NAME = "Cash";
+static const char *const LANDMARK_CAPTURE_IMAGE_NAME = "TecBuilding";
+
+//
+// The preview draws them at SUPPLY_TECH_SIZE, in a window several times the size of the radar.
+// Scaled to the radar, the same icon covers a fifth of the map, so it is sized against the radar
+// and clamped: below the minimum a dollar sign is a smudge, above the preview's own size there is
+// no more detail in the image to show.
+//
+enum { LANDMARK_ICON_RADAR_DIVISOR = 20 };
+enum { LANDMARK_ICON_MIN_SIZE = 9 };
+
+//
+// A supply dock is eight piles standing together and an icon is about six radar cells across, so
+// landmarks of one kind within this many cells of each other are drawn as the one place they are.
+//
+enum { LANDMARK_MERGE_CELLS = 6 };
 
 //-------------------------------------------------------------------------------------------------
 /** Is the point legal, that is, inside the resolution of the radar cells */
@@ -269,6 +293,120 @@ void W3DRadar::drawHeroIcon( Int pixelX, Int pixelY, Int width, Int height, cons
 		TheDisplay->drawImage( image, offsetScreen.x , offsetScreen.y, offsetScreen.x + iconWidth, offsetScreen.y + iconHeight );
 	}
 }
+
+//-------------------------------------------------------------------------------------------------
+/** Draw one landmark marker with the lobby preview's own icon: the dollar over the money, the star
+	* over a building somebody can walk into and take.  This runs after the shroud image, so the
+	* marker stays readable over ground the player has never been to. */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::drawLandmarkIcon( Int pixelX, Int pixelY, Int width, Int height,
+																 const RadarLandmark& landmark )
+{
+	static const Image *supplyImage =
+		TheMappedImageCollection->findImageByName( LANDMARK_SUPPLY_IMAGE_NAME );
+	static const Image *captureImage =
+		TheMappedImageCollection->findImageByName( LANDMARK_CAPTURE_IMAGE_NAME );
+
+	const Image *image = (landmark.type == RADAR_LANDMARK_SUPPLY) ? supplyImage : captureImage;
+	if( image == NULL )
+		return;
+
+	Int iconSize = width / LANDMARK_ICON_RADAR_DIVISOR;
+	if( iconSize < LANDMARK_ICON_MIN_SIZE )
+		iconSize = LANDMARK_ICON_MIN_SIZE;
+	if( iconSize > SUPPLY_TECH_SIZE )
+		iconSize = SUPPLY_TECH_SIZE;
+
+	// convert world to radar coords, then radar coords to the screen
+	ICoord2D radarPoint;
+	radarPoint.x = landmark.position.x / (m_mapExtent.width() / RADAR_CELL_WIDTH);
+	radarPoint.y = landmark.position.y / (m_mapExtent.height() / RADAR_CELL_HEIGHT);
+
+	ICoord2D screenPoint;
+	radarToPixel( &radarPoint, &screenPoint, pixelX, pixelY, width, height );
+
+	//
+	// centre the icon on the blip and keep the whole of it inside the radar image, so one standing
+	// at the edge of the map does not spill onto the HUD frame around it
+	//
+	Int left = screenPoint.x - (iconSize / 2);
+	Int top = screenPoint.y - (iconSize / 2);
+	const Int rightLimit = pixelX + width - iconSize;
+	const Int bottomLimit = pixelY + height - iconSize;
+
+	if( left < pixelX )
+		left = pixelX;
+	if( left > rightLimit )
+		left = rightLimit;
+	if( top < pixelY )
+		top = pixelY;
+	if( top > bottomLimit )
+		top = bottomLimit;
+
+	TheDisplay->drawImage( image, left, top, left + iconSize, top + iconSize );
+
+}  // end drawLandmarkIcon
+
+//-------------------------------------------------------------------------------------------------
+/** Collect the landmarks out of one radar object list.  The shroud is deliberately not read here:
+	* a supply pile and an oil derrick stand where the map maker put them, and the lobby map preview
+	* has already shown where the money is. */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::collectLandmarks( const RadarObject *listHead )
+{
+
+	for( const RadarObject *rObj = listHead; rObj; rObj = rObj->friend_getNext() )
+	{
+
+		const Object *obj = rObj->friend_getObject();
+		const RadarLandmarkType type = Radar::landmarkTypeOf( obj );
+		if( type == RADAR_LANDMARK_NONE )
+			continue;
+
+		RadarLandmark landmark;
+		landmark.position = *obj->getPosition();
+		landmark.type = type;
+
+		//
+		// A supply dock is eight piles standing together, and eight dollar signs on top of each
+		// other is a smear rather than a place.  One marker per spot: anything of the same kind
+		// this close is the same spot, and the radar has no room to say otherwise.
+		//
+		const Real mergeX = m_xSample * LANDMARK_MERGE_CELLS;
+		const Real mergeY = m_ySample * LANDMARK_MERGE_CELLS;
+		Bool alreadyMarked = FALSE;
+		for( std::list<RadarLandmark>::const_iterator marked = m_cachedLandmarkList.begin();
+				 marked != m_cachedLandmarkList.end(); ++marked )
+		{
+
+			if( marked->type == landmark.type &&
+					fabs( marked->position.x - landmark.position.x ) < mergeX &&
+					fabs( marked->position.y - landmark.position.y ) < mergeY )
+			{
+				alreadyMarked = TRUE;
+				break;
+			}
+
+		}  // end for
+
+		if( alreadyMarked == FALSE )
+			m_cachedLandmarkList.push_back( landmark );
+
+	}  // end for
+
+}  // end collectLandmarks
+
+//-------------------------------------------------------------------------------------------------
+/** Rebuild the landmark cache from both object lists */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::cacheLandmarks( void )
+{
+
+	m_cachedLandmarkList.clear();
+	collectLandmarks( getObjectList() );
+	collectLandmarks( getLocalObjectList() );
+
+}  // end cacheLandmarks
 
 //-------------------------------------------------------------------------------------------------
 /** Draw a "box" into the texture passed in that represents the viewable area for
@@ -598,6 +736,14 @@ void W3DRadar::drawEvents( Int pixelX, Int pixelY, Int width, Int height )
 //-------------------------------------------------------------------------------------------------
 void W3DRadar::drawIcons( Int pixelX, Int pixelY, Int width, Int height )
 {
+	// draw the money and the buildings worth capturing, under the heroes and over the shroud
+	std::list<RadarLandmark>::const_iterator landmark = m_cachedLandmarkList.begin();
+	while (landmark != m_cachedLandmarkList.end())
+	{
+		drawLandmarkIcon( pixelX, pixelY, width, height, *landmark );
+		++landmark;
+	}
+
 	// draw the hero icons
 	std::list<Coord3D>::const_iterator iter = m_cachedHeroPosList.begin();
 	while (iter != m_cachedHeroPosList.end())
@@ -979,10 +1125,14 @@ void W3DRadar::reset( void )
 		REF_PTR_RELEASE(surface);
 	}
 
+	// the objects those positions belonged to are gone with the match that had them
+	m_cachedLandmarkList.clear();
+	m_cachedHeroPosList.clear();
+
 	// don't call Clear(); that wips to transparent. do this instead.
 	//gs Dude, it's called CLEARshroud.  It needs to clear the shroud.
 	clearShroud();
-	
+
 }  // end reset
 
 //-------------------------------------------------------------------------------------------------
@@ -1403,7 +1553,10 @@ void W3DRadar::draw( Int pixelX, Int pixelY, Int width, Int height )
 		// rebuild the object overlay
 		renderObjectList( getObjectList(), m_overlayTexture );
 		renderObjectList( getLocalObjectList(), m_overlayTexture, TRUE );
-		
+
+		// and the landmarks the icon pass draws on top of the shroud
+		cacheLandmarks();
+
 	}  // end if
 
 	// draw the overlay image

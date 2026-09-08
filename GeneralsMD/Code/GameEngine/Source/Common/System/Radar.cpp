@@ -278,6 +278,28 @@ void Radar::clearAllEvents( void )
 }  // end clearAllEvents
 
 //-------------------------------------------------------------------------------------------------
+/** Which landmark this object is, if it is one at all.  Supply sources and the neutral tech
+	* buildings decide who can afford an army, and both of them stand where the map maker put them
+	* for the whole match, so the radar treats them as terrain rather than as contacts. */
+//-------------------------------------------------------------------------------------------------
+RadarLandmarkType Radar::landmarkTypeOf( const Object *obj )
+{
+
+	if( obj->isKindOf( KINDOF_SUPPLY_SOURCE ) )
+		return RADAR_LANDMARK_SUPPLY;
+
+	//
+	// KINDOF_CAPTURABLE is on every faction structure as well, because Black Lotus takes those,
+	// so it is the tech building kind that names the neutral ones a rifleman walks into.
+	//
+	if( obj->isKindOf( KINDOF_TECH_BUILDING ) )
+		return RADAR_LANDMARK_CAPTURABLE;
+
+	return RADAR_LANDMARK_NONE;
+
+}  // end landmarkTypeOf
+
+//-------------------------------------------------------------------------------------------------
 /** Reset radar data */
 //-------------------------------------------------------------------------------------------------
 void Radar::reset( void )
@@ -404,7 +426,20 @@ void Radar::addObject( Object *obj )
 	// get the radar priority for this object
 	RadarPriorityType newPriority = obj->getRadarPriority();
 	if( isPriorityVisible( newPriority ) == FALSE )
-		return;
+	{
+
+		//
+		// TechOilDerrick and TechHospital name no RadarPriority at all, so the template default
+		// leaves them off the radar entirely and the buildings the match is fought over are the
+		// one thing the minimap never showed.  A landmark whose template said nothing joins the
+		// list at structure priority; NOT_ON_RADAR is a decision and is still obeyed.
+		//
+		if( newPriority != RADAR_PRIORITY_INVALID || landmarkTypeOf( obj ) == RADAR_LANDMARK_NONE )
+			return;
+
+		newPriority = RADAR_PRIORITY_STRUCTURE;
+
+	}  // end if
 
 	// if this object is on the radar, remove it in favor of the new add
 	RadarObject **list;

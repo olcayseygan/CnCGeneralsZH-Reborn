@@ -150,6 +150,18 @@ static const char *RadarPriorityNames[] =
 #endif  // DEFINE_RADAR_PRIOTITY_NAMES
 
 //-------------------------------------------------------------------------------------------------
+/** The map furniture the radar marks out with an icon of its own: the money, and the buildings a
+	* single infantryman takes rather than destroys.  Neither of them moves and the lobby map
+	* preview has already shown where the money is, so the icons are drawn over the shroud. */
+//-------------------------------------------------------------------------------------------------
+enum RadarLandmarkType
+{
+	RADAR_LANDMARK_NONE,				///< nothing the radar marks out
+	RADAR_LANDMARK_SUPPLY,			///< a supply source: warehouse, dock or pile
+	RADAR_LANDMARK_CAPTURABLE		///< a neutral tech building: derrick, hospital, refinery, pad
+};
+
+//-------------------------------------------------------------------------------------------------
 /** Interface for the radar */
 //-------------------------------------------------------------------------------------------------
 class Radar : public Snapshot,
@@ -179,6 +191,9 @@ public:
 
 	// priority inquiry
 	Bool isPriorityVisible( RadarPriorityType priority ) const;		///< is the priority passed in a "visible" one on the radar
+
+	/// which landmark, if any, this object is on the radar
+	static RadarLandmarkType landmarkTypeOf( const Object *obj );
 
 	// radar events
 	void createEvent( const Coord3D *world, RadarEventType type, Real secondsToLive = 4.0f );	///< create radar event at location in world

@@ -73,6 +73,15 @@ public:
 
 protected:
 
+	/** One map landmark for the icon pass.  Held by value for the same reason the hero positions
+		* are: the list is rebuilt every OVERLAY_REFRESH_RATE frames and read on every one of them,
+		* so a pointer into an object destroyed in between is a pointer into freed memory. */
+	struct RadarLandmark
+	{
+		Coord3D position;						///< where it stands in the world
+		RadarLandmarkType type;			///< which of the preview's two icons to draw
+	};
+
 	void drawSingleBeaconEvent( Int pixelX, Int pixelY, Int width, Int height, Int index );
 	void drawSingleGenericEvent( Int pixelX, Int pixelY, Int width, Int height, Int index );
 
@@ -80,6 +89,10 @@ protected:
 	void deleteResources( void );									///< delete resources used
 	void drawEvents( Int pixelX, Int pixelY, Int width, Int height);		///< draw all of the radar events
 	void drawHeroIcon( Int pixelX, Int pixelY, Int width, Int height, const Coord3D *pos );	//< draw a hero icon
+	void drawLandmarkIcon( Int pixelX, Int pixelY, Int width, Int height,
+												 const RadarLandmark& landmark );		///< draw one landmark marker
+	void cacheLandmarks( void );													///< rebuild the landmark list from both object lists
+	void collectLandmarks( const RadarObject *listHead );	///< add the landmarks of one list to the cache
 	void drawViewBox( Int pixelX, Int pixelY, Int width, Int height );  ///< draw view box
 	void buildTerrainTexture( TerrainLogic *terrain );	 ///< create the terrain texture of the radar
 	void drawIcons( Int pixelX, Int pixelY, Int width, Int height );	///< draw all of the radar icons
@@ -124,6 +137,10 @@ protected:
 	// frames and read on every one of them, so a hero killed in between left a pointer into a
 	// deleted Object for the icon pass to read.
 	std::list<Coord3D> m_cachedHeroPosList;					//< cache of hero positions for drawing icons in radar overlay
+
+	// the supply sources and neutral tech buildings, rebuilt on the same beat as the overlay and
+	// drawn after the shroud image so a pile nobody has scouted is still on the map
+	std::list<RadarLandmark> m_cachedLandmarkList;
 };
 
 

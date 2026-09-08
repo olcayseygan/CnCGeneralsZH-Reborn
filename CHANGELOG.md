@@ -383,6 +383,8 @@ found and fixed â€” EA's own, not port damage.**
   four brutal computers at 7,777 a minute, three of the four spent between 3,400 and 6,200 more in
   the first three minutes and put the difference on the map.
 
+- The minimap says where the money and the capturable buildings are, with the dollar and the star from the lobby map preview. Oil derricks, hospitals and repair pads never showed on it at all, and supply piles vanished with the rest of the map under the fog, so the two things worth walking a rifleman across the map for were the two things the minimap would not tell you about. They are marked from the first second now, on ground you have scouted and ground you have not, one mark per place rather than one per pile; a pile that runs dry drops off it.
+
 ## Health bars
 
 - You pick who wears one. `HealthBars` in `Options.ini` takes 0 for everyone, 1 for smart, 2 for the selection only and 3 for nobody. Smart is the one worth trying: a bar over a unit at full health tells you what its absence would have told you, so healthy units go bare and anything that has been hit stays marked, with whatever you have selected or are pointing at readable either way. 2 is what the original game did. The default is 0, so nothing changes until you change it.
