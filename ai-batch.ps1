@@ -64,12 +64,7 @@ param(
 	# (e.g. -ExtraArgs "-aislice",'4') without a rebuild between batches
 	[string[]] $ExtraArgs = @(),
 	# minutes before a wedged run is killed rather than waited on forever
-	[int] $TimeoutMinutes = 20,
-	# keep the generated maps after the batch. Every -randommap run leaves a directory in the user
-	# data folder that the map cache re-reads on the next launch, so a few hundred batches is a few
-	# hundred directories and a slower start. They are deleted at the end unless this is set, or
-	# unless a fixed -Map was used, in which case none were made.
-	[switch] $KeepMaps
+	[int] $TimeoutMinutes = 20
 )
 
 $ErrorActionPreference = "Stop"
@@ -83,12 +78,6 @@ if (-not (Test-Path $exePath)) {
 
 # One row per match. Slot results are kept as a hashtable per row so the summary can pivot on them.
 $rows = @()
-
-# The map directories this batch generates, so they can be taken away again at the end. Two batches
-# can run at once, so only the ones this batch asked for are ever removed.
-$generatedMapDirs = @()
-$userMapsDir = Join-Path ([Environment]::GetFolderPath("MyDocuments")) `
-	"Command and Conquer Generals Zero Hour Data\Maps"
 
 for ($i = 0; $i -lt $Runs; $i++) {
 
@@ -116,10 +105,8 @@ for ($i = 0; $i -lt $Runs; $i++) {
 		$args += "-map"
 		$args += ('"Maps\{0}\{0}.map"' -f $Map)
 	} else {
+		# a generated map is built in memory and written nowhere, so there is nothing to tidy up
 		$args += @("-randommap", $seed, $Players, $cells)
-		# the generator names the directory after its own version as well as the settings, so this
-		# matches whichever version the exe under test was built from
-		$generatedMapDirs += ("RMG_v*_{0}_{1}p_{2}c" -f $seed, $Players, $cells)
 	}
 	$args += @(
 		"-autoskirmish", $Players,
@@ -383,16 +370,3 @@ $rows | Select-Object Seed, Cells, Why, Frames, Wall,
 	@{n="Repaths";e={ if ($_.Pf) { $_.Pf.Repaths } }},
 	@{n="Dithers";e={ if ($_.Pf) { $_.Pf.Dithers } }} | Export-Csv -Path $csv -NoTypeInformation
 Write-Host "per-match rows: $csv"
-
-# Take the generated maps away again. The seed is the map, so nothing is lost: the same command
-# line rebuilds any of them byte for byte.
-if ($generatedMapDirs.Count -and -not $KeepMaps) {
-	$removed = 0
-	foreach ($pattern in ($generatedMapDirs | Sort-Object -Unique)) {
-		foreach ($dir in @(Get-ChildItem -Path $userMapsDir -Directory -Filter $pattern -ErrorAction SilentlyContinue)) {
-			Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
-			$removed++
-		}
-	}
-	Write-Host "removed $removed generated map directories (use -KeepMaps to leave them)"
-}
