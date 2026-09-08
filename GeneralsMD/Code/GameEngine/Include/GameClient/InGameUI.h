@@ -858,15 +858,21 @@ public:  // ********************************************************************
 	void setForceAttackMode( Bool enabled )		{ m_forceAttackMode = enabled; }
 	void setPreferSelectionMode( Bool enabled )		{ m_preferSelection = enabled; }
 	
-	void toggleAttackMoveToMode( void )				{ m_attackMoveToMode = !m_attackMoveToMode; m_forceAttackArmed = FALSE; }
+	void toggleAttackMoveToMode( void )				{ m_attackMoveToMode = !m_attackMoveToMode; m_forceAttackArmed = FALSE; m_guardArmed = FALSE; }
 	Bool isInAttackMoveToMode( void ) const		{ return m_attackMoveToMode; }
-	void clearAttackMoveToMode( void )				{ m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; }
+	void clearAttackMoveToMode( void )				{ m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; m_guardArmed = FALSE; }
 
 	// the attack key arms force fire the way the attack move key arms an attack move: the next
 	// order click shoots whatever is under it, ground included, and the mode drops again with the
 	// same call that drops attack move
-	void toggleForceAttackArmed( void )				{ m_forceAttackArmed = !m_forceAttackArmed; m_attackMoveToMode = FALSE; }
+	void toggleForceAttackArmed( void )				{ m_forceAttackArmed = !m_forceAttackArmed; m_attackMoveToMode = FALSE; m_guardArmed = FALSE; }
 	Bool isForceAttackArmed( void ) const			{ return m_forceAttackArmed; }
+
+	// and the guard key arms guard the same way: the next order click posts the selection on that
+	// spot, or on that object, and a drag posts them along the line instead of stacking them all
+	// on one point.  All three modes are one mode at a time
+	void toggleGuardArmed( void )							{ m_guardArmed = !m_guardArmed; m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; }
+	Bool isGuardArmed( void ) const						{ return m_guardArmed; }
 	
 	// zeroing the repeat clock makes the first quantized step happen on the very next update, so a
 	// tap of the key is one eighth and a hold is one eighth every CAMERA_SNAP_REPEAT_MS.
@@ -1311,6 +1317,7 @@ protected:
 	Bool												m_forceMoveToMode;		///< are we in force move mode?
 	Bool												m_attackMoveToMode;	///< are we in attack move mode?
 	Bool												m_forceAttackArmed;	///< is the attack key holding force fire for the next click?
+	Bool												m_guardArmed;				///< is the guard key holding a guard order for the next click?
 	Bool												m_preferSelection;		///< the shift key has been depressed.
 
 	// wall clock of the previous update(), so a held camera key can be stepped by elapsed

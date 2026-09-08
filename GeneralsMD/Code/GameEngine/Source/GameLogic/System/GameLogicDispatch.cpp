@@ -982,12 +982,14 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 		case GameMessage::MSG_DO_FORMATION_MOVETO:
 		case GameMessage::MSG_DO_FORMATION_ATTACKMOVETO:
 		case GameMessage::MSG_DO_FORMATION_FORCEATTACK:
+		case GameMessage::MSG_DO_FORMATION_GUARD:
 		{
 			if (currentlySelectedGroup == NULL)
 				break;
 
 			const Bool attackAlong = (msg->getType() == GameMessage::MSG_DO_FORMATION_ATTACKMOVETO);
 			const Bool fireAlong = (msg->getType() == GameMessage::MSG_DO_FORMATION_FORCEATTACK);
+			const Bool guardAlong = (msg->getType() == GameMessage::MSG_DO_FORMATION_GUARD);
 
 			// the curve the cursor traced, however many corners the player's hand put in it
 			std::vector<Coord3D> path;
@@ -1036,7 +1038,9 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 				pointAlongPath( path, arc, span * t, &station );
 				station.z = TheTerrainLogic->getGroundHeight( station.x, station.y );
 
-				if (fireAlong)
+				if (guardAlong)
+					movers[ i ]->getAIUpdateInterface()->aiGuardPosition( &station, GUARDMODE_GUARD_WITHOUT_PURSUIT, CMD_FROM_PLAYER );
+				else if (fireAlong)
 					movers[ i ]->getAIUpdateInterface()->aiAttackPosition( &station, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );
 				else if (attackAlong)
 					movers[ i ]->getAIUpdateInterface()->aiAttackMoveToPosition( &station, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );

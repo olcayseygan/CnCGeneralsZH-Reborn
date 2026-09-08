@@ -169,6 +169,14 @@ GUI:ToggleForceAttackDescription
 "Arms force fire: the next order click is an attack on whatever is under it, your own units and bare ground included."
 END
 
+GUI:ToggleGuard
+"Guard"
+END
+
+GUI:ToggleGuardDescription
+"Arms guard: the next order click posts the selected units on that spot, and a right drag posts them along the line you draw."
+END
+
 GUI:HoldPosition
 "Hold Position"
 END

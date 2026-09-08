@@ -862,6 +862,7 @@ void W3DInGameUI::drawFormationLine( void )
 	// the line says which order it is about to be, in the colours the order hints already use
 	const UnsignedInt color = isInAttackMoveToMode() ? 0xCCFF66CC
 											: isForceAttackArmed() ? 0xCCFF5555
+											: isGuardArmed() ? 0xCC55CCFF
 											: 0xCC33FF33;  //0xAARRGGBB
 	const std::vector<ICoord2D>& curve = m_formationDragPoints;
 	const Int points = (Int)curve.size();
@@ -937,8 +938,9 @@ void W3DInGameUI::drawAttackCircle( void )
 	* and a group given four different jobs reads as four different markers rather than four arrows. */
 //-------------------------------------------------------------------------------------------------
 /** The thread is coloured by what it is for: anything that ends in a shot is red, an attack move
-	* is pink, everything else is green.  The marker on the end of it is the plain pointer in the same
-	* colour - one shape for every order, so the colour is the whole message. */
+	* is pink, a post to be held is blue, everything else is green.  The marker on the end of it is
+	* the plain pointer in the same colour - one shape for every order, so the colour is the whole
+	* message. */
 //-------------------------------------------------------------------------------------------------
 static UnsignedInt orderHintLineColor( InGameUI::OrderHintKind kind )
 {
@@ -950,6 +952,8 @@ static UnsignedInt orderHintLineColor( InGameUI::OrderHintKind kind )
 		case InGameUI::ORDER_HINT_FORCE_ATTACK:
 		case InGameUI::ORDER_HINT_ATTACK_GROUND:
 			return 0x66FF5555;
+		case InGameUI::ORDER_HINT_GUARD:
+			return 0x6655CCFF;
 		default:
 			return 0x6655FF55;
 	}

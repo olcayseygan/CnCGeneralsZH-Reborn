@@ -1009,6 +1009,21 @@ TEST(formation_drag_takes_the_right_button_only_when_it_is_asked_for)
 	CHECK( !Command_formationDragArmed( true, true,  true ) );
 }
 
+/* CommandXlat.cpp: the line carries whichever mode the player armed before drawing it. */
+extern GameMessage::Type Command_formationMessage( Bool attackMoveArmed, Bool forceAttackArmed,
+																									 Bool guardArmed );
+
+TEST(a_formation_line_carries_the_armed_order)
+{
+	/* nothing armed: the line is a move. */
+	CHECK( Command_formationMessage( false, false, false ) == GameMessage::MSG_DO_FORMATION_MOVETO );
+
+	/* one mode at a time is all the UI can arm, and each names its own message. */
+	CHECK( Command_formationMessage( true,  false, false ) == GameMessage::MSG_DO_FORMATION_ATTACKMOVETO );
+	CHECK( Command_formationMessage( false, true,  false ) == GameMessage::MSG_DO_FORMATION_FORCEATTACK );
+	CHECK( Command_formationMessage( false, false, true  ) == GameMessage::MSG_DO_FORMATION_GUARD );
+}
+
 /* DrawnPath.cpp: the drawn curve is measured by arc length, not by segment, so the stations divide
    the whole line however uneven the hand that drew it was. */
 #include "Common/DrawnPath.h"

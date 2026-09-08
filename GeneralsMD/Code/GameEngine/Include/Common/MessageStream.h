@@ -295,6 +295,7 @@ public:
 		MSG_META_TOGGLE_ATTACKMOVE,									///< enter attack-move mode
 		MSG_META_TOGGLE_FORCEATTACK,								///< arm force fire for the next order click (fork)
 		MSG_META_HOLD_POSITION,											///< hold position: guard in place, no pursuit (fork)
+		MSG_META_TOGGLE_GUARD,											///< arm guard for the next order click or drag (fork)
 		MSG_META_TOGGLE_PAUSE,											///< pause/unpause, single player and replay only (fork)
 		MSG_META_GAME_SPEED_UP,											///< raise the logic rate (fork)
 		MSG_META_GAME_SPEED_DOWN,										///< lower the logic rate (fork)
@@ -641,6 +642,7 @@ public:
 		MSG_DO_FORMATION_MOVETO,										///< (location...) spread the selection along a drawn curve (fork)
 		MSG_DO_FORMATION_ATTACKMOVETO,							///< (location...) the same curve, taken as an attack move (fork)
 		MSG_DO_FORMATION_FORCEATTACK,								///< (location...) the same curve, each unit force firing its own point (fork)
+		MSG_DO_FORMATION_GUARD,											///< (location...) the same curve, each unit guarding its own point (fork)
 
 		MSG_BEGIN_DEBUG_NETWORK_MESSAGES = 1900,		///< network messages that exist only in debug/internal builds. all grouped separately.
 

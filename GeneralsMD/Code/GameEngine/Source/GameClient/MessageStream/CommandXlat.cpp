@@ -142,6 +142,24 @@ Bool Command_formationDragArmed( Bool setting, Bool haveMovableSelection, Bool g
 	return setting && !guiCommandPending && haveMovableSelection;
 }
 
+//-------------------------------------------------------------------------------------------------
+/**
+ * Which order a finished formation line carries.
+ * The armed modes turn each other off as they are armed, so at most one of these is ever set; the
+ * order they are read in only decides what a line drawn out of a state nobody can reach would do.
+ */
+GameMessage::Type Command_formationMessage( Bool attackMoveArmed, Bool forceAttackArmed,
+																					 Bool guardArmed )
+{
+	if( attackMoveArmed )
+		return GameMessage::MSG_DO_FORMATION_ATTACKMOVETO;
+	if( forceAttackArmed )
+		return GameMessage::MSG_DO_FORMATION_FORCEATTACK;
+	if( guardArmed )
+		return GameMessage::MSG_DO_FORMATION_GUARD;
+	return GameMessage::MSG_DO_FORMATION_MOVETO;
+}
+
 static Bool isFormationDragArmed( void )
 {
 	return Command_formationDragArmed( TheGlobalData->m_formationDrag,
@@ -936,7 +954,13 @@ GameMessage::Type CommandTranslator::issueMoveToLocationCommand( const Coord3D *
 		Bool queuedAttack = TheInGameUI->isInWaypointMode()
 												 && ( TheInGameUI->isInAttackMoveToMode() || forceAttackHere );
 
-		if( queuedAttack )
+		// the guard key posts the selection where it is pointed.  It outranks the queue: a guard has
+		// no next point to walk to, so there is nothing for shift to add it to
+		if( TheInGameUI->isGuardArmed() )
+		{
+			msgType = GameMessage::MSG_DO_GUARD_POSITION;
+		}
+		else if( queuedAttack )
 		{
 			msgType = forceAttackHere ? GameMessage::MSG_DO_ATTACK_OBJECT : GameMessage::MSG_DO_ATTACKMOVETO;
 			if( commandType == DO_COMMAND )
@@ -974,6 +998,11 @@ GameMessage::Type CommandTranslator::issueMoveToLocationCommand( const Coord3D *
 			// the ctrl key, and it means nothing else while the attack move cursor is up
 			if (msgType == GameMessage::MSG_DO_ATTACKMOVETO)
 				movemsg->appendBooleanArgument( TheInGameUI->isInForceAttackMode() );
+
+			// a posted unit holds its spot and shoots what walks into range, rather than chasing it
+			// off the post the player put it on
+			if (msgType == GameMessage::MSG_DO_GUARD_POSITION)
+				movemsg->appendIntegerArgument( GUARDMODE_GUARD_WITHOUT_PURSUIT );
 
 		}  // end if
 	}
@@ -3403,6 +3432,13 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			break;
 
 		//-----------------------------------------------------------------------------------------
+		// the guard key, armed the same way again: the next order click posts the selection where it
+		// is pointed instead of walking them there and leaving them idle
+		case GameMessage::MSG_META_TOGGLE_GUARD:
+			TheInGameUI->toggleGuardArmed( );
+			break;
+
+		//-----------------------------------------------------------------------------------------
 		// the general's promotion screen. It is one click away on the stars button and nowhere on
 		// the keyboard, which is the wrong way round for something you open the moment a promotion
 		// lands - and the star only flashes until you look at it.
@@ -3974,11 +4010,10 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 					// the same curve means "attack along this" while one of the attack modes is armed, which
 					// is the artillery gesture: a line of fire instead of a line of tanks.  Attack move
 					// walks it and shoots what it meets; the attack key fires on the line where it stands
-					GameMessage::Type formationType = GameMessage::MSG_DO_FORMATION_MOVETO;
-					if( TheInGameUI->isInAttackMoveToMode() )
-						formationType = GameMessage::MSG_DO_FORMATION_ATTACKMOVETO;
-					else if( TheInGameUI->isForceAttackArmed() )
-						formationType = GameMessage::MSG_DO_FORMATION_FORCEATTACK;
+					const GameMessage::Type formationType =
+						Command_formationMessage( TheInGameUI->isInAttackMoveToMode(),
+																			TheInGameUI->isForceAttackArmed(),
+																			TheInGameUI->isGuardArmed() );
 
 					// the traced curve becomes world points; who stands where along it is decided on
 					// the logic side, where every machine decides it the same way

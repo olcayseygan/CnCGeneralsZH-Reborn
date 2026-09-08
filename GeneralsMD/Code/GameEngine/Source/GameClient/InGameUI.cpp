@@ -1218,6 +1218,7 @@ InGameUI::InGameUI()
 	m_forceMoveToMode		= false;
 	m_attackMoveToMode	= false;
 	m_forceAttackArmed	= false;
+	m_guardArmed				= false;
 	m_preferSelection		= false;
 	m_isAttackCircling	= FALSE;
 	m_shiftAttackQueueRunning = FALSE;
@@ -2436,6 +2437,7 @@ void InGameUI::reset( void )
 	m_forceMoveToMode		= false;
 	m_attackMoveToMode	= false;
 	m_forceAttackArmed	= false;
+	m_guardArmed				= false;
 	m_preferSelection		= false;
 	m_isAttackCircling	= FALSE;
 	m_shiftAttackQueue.clear();
@@ -2960,6 +2962,7 @@ void InGameUI::updateFormationHints( void )
 		OrderHint hint;
 		hint.kind = isInAttackMoveToMode() ? ORDER_HINT_ATTACK_MOVE
 							: isForceAttackArmed() ? ORDER_HINT_ATTACK
+							: isGuardArmed() ? ORDER_HINT_GUARD
 							: ORDER_HINT_MOVE;
 		hint.owner = movers[ i ]->getID();
 		hint.from = *movers[ i ]->getPosition();
