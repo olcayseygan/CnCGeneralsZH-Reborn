@@ -588,15 +588,13 @@ public:
 				Object* rappeller = getPotentialRappeller(obj);
 				if (rappeller != NULL)
 				{
-					ExitInterface *exitInterface = obj->getObjectExitInterface();
-					ExitDoorType exitDoor = exitInterface ? exitInterface->reserveDoorForExit(rappeller->getTemplate(), rappeller) : DOOR_NONE_AVAILABLE;
-					if(exitDoor != DOOR_NONE_AVAILABLE)
+					/* A rappeller on a combat drop goes out of the door, full stop - it does not queue for
+						 one.  Reserving a door meant asking getAiFreeToExit, and that answered yes for any
+						 rappeller while the drop state was running, which is what let a player order a
+						 rappeller out of a Chinook in mid-air and have it simply fall. */
+					if (ExitInterface *exitInterface = obj->getObjectExitInterface())
 					{
-						exitInterface->exitObjectViaDoor(rappeller, exitDoor);
-					}
-					else
-					{
-						DEBUG_CRASH(("rappeller is not free to exit... what?"));
+						exitInterface->exitObjectViaDoor(rappeller, DOOR_1);
 					}
 
 					rappeller->setTransformMatrix(&it->dropStartMtx);
@@ -1045,8 +1043,9 @@ ObjectID ChinookAIUpdate::getBuildingToNotPathAround() const
 //-------------------------------------------------------------------------------------------------
 AIFreeToExitType ChinookAIUpdate::getAiFreeToExit(const Object* exiter) const 
 { 
-	 if (m_flightStatus == CHINOOK_LANDED 
-				|| (m_flightStatus == CHINOOK_DOING_COMBAT_DROP && exiter->isKindOf(KINDOF_CAN_RAPPEL)))
+	// Only a landed Chinook lets anybody out.  The combat drop puts its rappellers out itself, so
+	// the exception here was doing nothing but letting a player eject one manually in mid-air.
+	if (m_flightStatus == CHINOOK_LANDED)
 		return FREE_TO_EXIT;
 	
 	return WAIT_TO_EXIT; 

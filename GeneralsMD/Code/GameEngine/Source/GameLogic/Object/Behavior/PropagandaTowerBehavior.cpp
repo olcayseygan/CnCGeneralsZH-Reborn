@@ -40,6 +40,7 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/Weapon.h"
+#include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/PropagandaTowerBehavior.h"
 #include "GameLogic/Module/BodyModule.h"
 
@@ -212,11 +213,13 @@ UpdateSleepTime PropagandaTowerBehavior::update( void )
 		}
 	}
 	
-	if( self->getContainedBy()  &&  self->getContainedBy()->getContainedBy() )
+	/* Turn off inside anything that encloses us.  The old test counted containers - one is allowed,
+		 two is not - which is not the question.  A unit riding a bike is contained but not hidden, and
+		 a unit with its own Propaganda Tower behaviour was influencing the whole map from inside a
+		 transport that was itself inside nothing.  Whether a container encloses what it holds is a
+		 thing the container knows, so ask it. */
+	if( self->getEnclosingContainedBy() )
 	{
-		// If our container is contained, we turn the heck off.  Seems like a weird specific check, but all of 
-		// attacking is guarded by the same check in isPassengersAllowedToFire.  We similarly work in a container,
-		// but not in a double container.
 		removeAllInfluence();
 		return UPDATE_SLEEP_NONE;
 	}

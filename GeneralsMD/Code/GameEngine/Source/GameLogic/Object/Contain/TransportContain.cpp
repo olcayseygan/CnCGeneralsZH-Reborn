@@ -659,8 +659,11 @@ void TransportContain::onCapture( Player *oldOwner, Player *newOwner )
 		}
 		else
 		{
-			//Use standard
-			orderAllPassengersToExit( CMD_FROM_AI, FALSE );
+			// Handing a transport to an ally is not a capture the passengers need to escape from -
+			// they are on the same side afterwards.  Emptying it made a scripted or a voluntary
+			// transfer dump everybody on the ground.
+			if( oldOwner->getRelationship( newOwner->getDefaultTeam() ) != ALLIES )
+				orderAllPassengersToExit( CMD_FROM_AI, FALSE );
 		}
 	}
 }
