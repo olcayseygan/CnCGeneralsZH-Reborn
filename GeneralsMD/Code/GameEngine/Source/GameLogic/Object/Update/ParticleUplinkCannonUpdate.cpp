@@ -62,6 +62,10 @@
 // cannot see over the top of the beam where it leaves the sky.
 static const Real ORBITAL_BEAM_Z_OFFSET = 3500.0f;
 
+// The annihilation sound hangs off the beam drawable, so raising the beam's sky end took the
+// emitter up with it and the sound went faint.  The audio keeps the height it always had.
+static const Real ORBITAL_BEAM_AUDIO_Z_OFFSET = 500.0f;
+
 #ifdef _INTERNAL
 // for occasional debugging...
 //#pragma optimize("", off)
@@ -622,6 +626,11 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 				damageRadius = update->getCurrentLaserRadius() * data->m_damageRadiusScalar;
 			}
 
+			// Keep the emitter where it used to be, near the ground the beam is hitting.
+			Coord3D audioPos = m_currentTargetPosition;
+			audioPos.z += ORBITAL_BEAM_AUDIO_Z_OFFSET;
+			beam->setPosition( &audioPos );
+
 			//Create scorch marks periodically
 			if( m_nextScorchMarkFrame <= now )
 			{
@@ -1004,6 +1013,10 @@ void ParticleUplinkCannonUpdate::createOrbitToTargetLaser( UnsignedInt growthFra
 					orbitPosition.z += ORBITAL_BEAM_Z_OFFSET;
 					update->initLaser( NULL, NULL, &orbitPosition, &m_initialTargetPosition, "", growthFrames );
 				}
+
+				Coord3D audioPos = m_initialTargetPosition;
+				audioPos.z += ORBITAL_BEAM_AUDIO_Z_OFFSET;
+				beam->setPosition( &audioPos );
 			}
 		}
 		if( m_annihilationSound.getEventName().isNotEmpty() )
@@ -1474,5 +1487,45 @@ void ParticleUplinkCannonUpdate::loadPostProcess( void )
 
 	// extend base class
 	UpdateModule::loadPostProcess();
+
+	//
+	// The looping sounds are started when the cannon changes state, and a save carries the state
+	// but not the playing handles, so a game loaded mid-charge or mid-fire ran the cannon in
+	// silence for the rest of the match.  Start whichever loops the saved state implies.
+	//
+	if( m_status == STATUS_CHARGING || m_status == STATUS_PREPARING || m_status == STATUS_ALMOST_READY )
+	{
+		if( m_powerupSound.getEventName().isNotEmpty() )
+		{
+			m_powerupSound.setObjectID( getObject()->getID() );
+			m_powerupSound.setPlayingHandle( TheAudio->addAudioEvent( &m_powerupSound ) );
+		}
+	}
+
+	if( m_status == STATUS_PREPARING || m_status == STATUS_ALMOST_READY ||
+			m_status == STATUS_READY_TO_FIRE || m_status == STATUS_PREFIRE )
+	{
+		if( m_unpackToReadySound.getEventName().isNotEmpty() )
+		{
+			m_unpackToReadySound.setObjectID( getObject()->getID() );
+			m_unpackToReadySound.setPlayingHandle( TheAudio->addAudioEvent( &m_unpackToReadySound ) );
+		}
+	}
+
+	if( m_status == STATUS_FIRING || m_status == STATUS_POSTFIRE ||
+			( m_status == STATUS_PACKING && ( m_laserStatus == LASERSTATUS_DECAYING || m_laserStatus == LASERSTATUS_DEAD ) ) )
+	{
+		if( m_firingToIdleSound.getEventName().isNotEmpty() )
+		{
+			m_firingToIdleSound.setObjectID( getObject()->getID() );
+			m_firingToIdleSound.setPlayingHandle( TheAudio->addAudioEvent( &m_firingToIdleSound ) );
+		}
+
+		if( m_orbitToTargetBeamID != INVALID_DRAWABLE_ID && m_annihilationSound.getEventName().isNotEmpty() )
+		{
+			m_annihilationSound.setDrawableID( m_orbitToTargetBeamID );
+			m_annihilationSound.setPlayingHandle( TheAudio->addAudioEvent( &m_annihilationSound ) );
+		}
+	}
 
 }  // end loadPostProcess
