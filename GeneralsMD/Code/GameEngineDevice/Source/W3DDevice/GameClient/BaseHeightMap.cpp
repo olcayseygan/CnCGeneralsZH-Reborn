@@ -721,6 +721,8 @@ bool BaseHeightMapRenderObjClass::Cast_Ray(RayCollisionTestClass & raytest)
 	Bool hit = false;
 	Int X,Y;
 	Vector3 normal,P0,P1,P2,P3;
+	Bool hasP0 = false;
+	Bool hasP1 = false;
 
 	if (!m_map)
 		return false;	//need valid pointer to heightmap samples
@@ -752,10 +754,17 @@ bool BaseHeightMapRenderObjClass::Cast_Ray(RayCollisionTestClass & raytest)
 		//find intersection point of ray and terrain bounding box
 		result.Reset();
 		result.ComputeContactPoint=true;
+		Bool newP0 = false;
+		Bool newP1 = false;
+
 		if (CollisionMath::Collide(lineseg,hbox,&result))
 		{	//ray intersects terrain or starts inside the terrain.
 			if (!result.StartBad)	//check if start point inside terrain
+			{
+				newP0 = P0 != result.ContactPoint;
+				hasP0 = true;
 				P0 = result.ContactPoint;			//make intersection point the new start of the ray.
+			}
 
 			//reverse direction of original ray and clip again to extent of
 			//heightmap
@@ -764,12 +773,19 @@ bool BaseHeightMapRenderObjClass::Cast_Ray(RayCollisionTestClass & raytest)
 			lineseg2.Set(lineseg.Get_P1(),lineseg.Get_P0());	//reverse line segment
 			if (CollisionMath::Collide(lineseg2,hbox,&result))
 			{	if (!result.StartBad)	//check if end point inside terrain
+				{
+					newP1 = P1 != result.ContactPoint;
+					hasP1 = true;
 					P1 = result.ContactPoint;	//make intersection point the new end pont of ray
+				}
 			}
-		} else {
-			if (p==0) return(false);
-			break;
 		}
+
+		// Narrowing has stopped moving the ends, so another pass would search the same box.  The
+		// old test broke on the box missing instead, which let a first pass that hit nothing on
+		// p>0 carry the previous pass's cell range into the triangle search below.
+		if (!newP0 || !newP1)
+			break;
 
 		// Take the 2D bounding box of ray and check heights
 		// inside this box for intersection.
@@ -805,6 +821,10 @@ bool BaseHeightMapRenderObjClass::Cast_Ray(RayCollisionTestClass & raytest)
 		MinMaxAABoxClass mmbox(minPt, maxPt);
 		hbox.Init(mmbox);
 	}
+
+	// Neither end was ever placed on the terrain box, so there is nothing to search.
+	if (!hasP0 || !hasP1)
+		return false;
 
 	raytest.Result->ComputeContactPoint=true;	//tell CollisionMath that we need point.
 

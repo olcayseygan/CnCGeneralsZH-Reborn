@@ -18,6 +18,7 @@
 
 // 08/06/02 KM Added cube map and volume texture support
 #include "ddsfile.h"
+#include "stringex.h"
 #include "ffactory.h"
 #include "bufffile.h"
 #include "formconv.h"
@@ -47,7 +48,9 @@ DDSFileClass::DDSFileClass(const char* name,unsigned reduction_factor)
 	DateTime(0),
 	CubeFaceSize(0)
 {
-	strncpy(Name,name,sizeof(Name));
+	// strncpy leaves no terminator when the name fills the buffer, and strlen runs on the very
+	// next line.  A 256 character asset path walked off the end of this.
+	strlcpy(Name,name,ARRAY_SIZE(Name));
 	// The name could be given in .tga or .dds format, so ensure we're opening .dds...
 	int len=strlen(Name);
 	Name[len-3]='d';
@@ -100,8 +103,11 @@ DDSFileClass::DDSFileClass(const char* name,unsigned reduction_factor)
 
 	if (MipLevels>ReductionFactor) MipLevels-=ReductionFactor;
 	else {
-		MipLevels=1;
+		// The leftover reduction is what the file could not supply as mip levels.  This used to
+		// assign MipLevels=1 first and then subtract that 1, so it always came out one short of
+		// the reduction asked for.
 		ReductionFactor=ReductionFactor-MipLevels;
+		MipLevels=1;
 	}
 
 	// Drop the two lowest miplevels!
@@ -122,6 +128,8 @@ DDSFileClass::DDSFileClass(const char* name,unsigned reduction_factor)
 	FullWidth=SurfaceDesc.Width;
 	FullHeight=SurfaceDesc.Height;
 	FullDepth=SurfaceDesc.Depth;
+	// These two are private and only ever read through Get_Width and Get_Height, which already
+	// hold the answer at four, so the reduction is allowed to take them below a DXT block here.
 	Width=SurfaceDesc.Width>>ReductionFactor;
 	Height=SurfaceDesc.Height>>ReductionFactor;
 	Depth=SurfaceDesc.Depth;
