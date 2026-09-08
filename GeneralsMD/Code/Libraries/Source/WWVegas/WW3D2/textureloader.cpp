@@ -69,6 +69,14 @@
 bool TextureLoader::TextureLoadSuspended;
 int TextureLoader::TextureInactiveOverrideTime = 0;
 
+//
+// The smallest texture the reduction is allowed to produce.  A DXT block is 4x4, so anything under
+// that is not a texture the device can be handed, and the reduction clamp below is free to go to
+// one pixel: Get_Texture_Min_Dimension defaults to 1, and the loop that clamps it stops when the
+// width reaches that, so a 64x64 asked to reduce six levels came out 1x1.
+//
+static const unsigned int MIN_TEXTURE_DIM = 4;
+
 #define USE_MANAGED_TEXTURES
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1059,7 +1067,7 @@ TextureLoadTaskClass::TextureLoadTaskClass()
 	Format			(WW3D_FORMAT_UNKNOWN),
 	Width				(0),
 	Height			(0),
-	MipLevelCount	(0),
+	MipLevelCount	(MIP_LEVELS_ALL),	// same value as 0, but this is what the zero means here
 	Reduction		(0),
 	Type				(TASK_NONE),
 	Priority			(PRIORITY_LOW),
@@ -1412,6 +1420,8 @@ static bool	Get_Texture_Information
 			int curWidth=w;
 			int curHeight=h;
 			int minDim=WW3D::Get_Texture_Min_Dimension();
+			if (minDim < (int)MIN_TEXTURE_DIM)
+				minDim = MIN_TEXTURE_DIM;
 
 			while (curReduction < reqReduction && curWidth > minDim && curHeight > minDim)
 			{	curWidth >>=1;	//keep dividing
@@ -1449,6 +1459,8 @@ static bool	Get_Texture_Information
 		int curWidth=targa.Header.Width;
 		int curHeight=targa.Header.Height;
 		int minDim=WW3D::Get_Texture_Min_Dimension();
+		if (minDim < (int)MIN_TEXTURE_DIM)
+			minDim = MIN_TEXTURE_DIM;
 
 		while (curReduction < reqReduction && curWidth > minDim && curHeight > minDim)
 		{	curWidth >>=1;	//keep dividing
@@ -1557,8 +1569,8 @@ bool TextureLoadTaskClass::Begin_Compressed_Load(void)
 	// Otherwise take as many mip levels as the texture wants, not to exceed the count in file...
 	if (!mip_level_count) 
 	{
-		reducedWidth >>= Reduction;
-		reducedHeight >>= Reduction;
+		reducedWidth = max(reducedWidth >> Reduction, (int)MIN_TEXTURE_DIM);
+		reducedHeight = max(reducedHeight >> Reduction, (int)MIN_TEXTURE_DIM);
 		mip_level_count = orig_mip_count-Reduction;//dds_file.Get_Mip_Level_Count();
 		if (mip_level_count < 1)
 			mip_level_count = 1;	//sanity check to make sure something gets loaded.
@@ -1571,8 +1583,8 @@ bool TextureLoadTaskClass::Begin_Compressed_Load(void)
 		}
 
 		if (Reduction)
-		{	reducedWidth >>= Reduction;
-			reducedHeight >>= Reduction;
+		{	reducedWidth = max(reducedWidth >> Reduction, (int)MIN_TEXTURE_DIM);
+			reducedHeight = max(reducedHeight >> Reduction, (int)MIN_TEXTURE_DIM);
 			mip_level_count -= Reduction;	//reduced requested number by those removed.
 		}
 	}
@@ -1684,8 +1696,8 @@ bool TextureLoadTaskClass::Begin_Uncompressed_Load(void)
 
 	if (Reduction)
 	{	//we don't care about specific levels so reduce them if needed.
-		reducedWidth >>= Reduction;
-		reducedHeight >>= Reduction;
+		reducedWidth = max(reducedWidth >> Reduction, (int)MIN_TEXTURE_DIM);
+		reducedHeight = max(reducedHeight >> Reduction, (int)MIN_TEXTURE_DIM);
 		if (reducedMipCount != MIP_LEVELS_ALL)
 			reducedMipCount -= Reduction;
 	}
