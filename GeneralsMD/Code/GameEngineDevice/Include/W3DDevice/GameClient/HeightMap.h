@@ -90,7 +90,7 @@ public:
 	virtual void doPartialUpdate(const IRegion2D &partialRange, WorldHeightMap *htMap, RefRenderObjListIterator *pLightsIterator);
 
 	virtual void oversizeTerrain(Int tilesToOversize);
-  
+
 	virtual int updateBlock(Int x0, Int y0, Int x1, Int y1, WorldHeightMap *pMap, RefRenderObjListIterator *pLightsIterator);
 
 protected:

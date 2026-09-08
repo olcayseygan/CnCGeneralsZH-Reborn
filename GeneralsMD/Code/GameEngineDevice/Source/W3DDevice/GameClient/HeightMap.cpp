@@ -1194,38 +1194,12 @@ void HeightMapRenderObjClass::reset(void)
 //=============================================================================
 /** Sets the terrain oversize amount. */
 //=============================================================================
-void HeightMapRenderObjClass::oversizeTerrain(Int tilesToOversize) 
+void HeightMapRenderObjClass::oversizeTerrain(Int tilesToOversize)
 {
-	Int width = WorldHeightMap::NORMAL_DRAW_WIDTH;
-	Int height = WorldHeightMap::NORMAL_DRAW_HEIGHT;
-	if (tilesToOversize>0 && tilesToOversize<5) 
-	{
-		width += 32*tilesToOversize;
-		height += 32*tilesToOversize;
-		if (width>m_map->getXExtent()) 
-			width = m_map->getXExtent();
-		if (height>m_map->getYExtent()) 
-			height = m_map->getYExtent();
-	}
-	Int dx = width-m_map->getDrawWidth();
-	Int dy = height-m_map->getDrawHeight();
- 	m_map->setDrawWidth(width);
-	m_map->setDrawHeight(height);
-	dx /= 2;
-	dy /= 2;
-	Int newOrgX = m_map->getDrawOrgX()-dx;
-	Int newOrgy = m_map->getDrawOrgY()-dy;
-	if (newOrgX<0) newOrgX=0;
-	if (newOrgy<0) newOrgy=0;
-	m_map->setDrawOrg(newOrgX,newOrgy);
-	m_originX = 0;
-	m_originY = 0;
-	if (m_shroud)
-		m_shroud->reset();
-	//delete m_shroud;
-	//m_shroud = NULL;
-	initHeightData(m_map->getDrawWidth(), m_map->getDrawHeight(), m_map, NULL, FALSE);		 
-	m_needFullUpdate = true;
+	// Nothing left to widen: WorldHeightMap now draws the whole map on every map, so the 129x129
+	// window this used to push out to 129+32n no longer exists.  Running the old arithmetic
+	// anyway set the draw size to 161..257 vertices, which on any map bigger than that took
+	// terrain away from the script that asked for more of it.
 }
 
 
@@ -1404,10 +1378,16 @@ void HeightMapRenderObjClass::On_Frame_Update(void)
 	Int numDynaLights=0;
 	W3DDynamicLight *enabledLights[MAX_ENABLED_DYNAMIC_LIGHTS];
 
-	Int yCoordMin = m_map->getDrawOrgY();
-	Int yCoordMax = m_y+m_map->getDrawOrgY();
-	Int xCoordMin = m_map->getDrawOrgX();
-	Int xCoordMax = m_x+m_map->getDrawOrgX();
+	// A light's min/max come from its world position over MAP_XY_FACTOR, which is the map's
+	// non-playable border already subtracted.  This rectangle used to be built without doing the
+	// same, so it sat a whole border away from the lights it was testing: a light within that
+	// distance of the low edge was dropped and never lit anything, and one that far past the high
+	// edge was processed for nothing.  The per-tile tests further down (getYWithOrigin(...) -
+	// getBorderSizeInline()) always had it right, which is what the two disagreed about.
+	const Int xCoordMin = m_map->getDrawOrgX() - m_map->getBorderSizeInline();
+	const Int yCoordMin = m_map->getDrawOrgY() - m_map->getBorderSizeInline();
+	const Int xCoordMax = xCoordMin + m_map->getDrawWidth();
+	const Int yCoordMax = yCoordMin + m_map->getDrawHeight();
 
 	for (pDynamicLightsIterator.First(); !pDynamicLightsIterator.Is_Done(); pDynamicLightsIterator.Next())
 	{		
