@@ -341,9 +341,11 @@ GameMessageDisposition WindowTranslator::translateGameMessage(const GameMessage 
 				returnCode = WIN_INPUT_USED;
 			}
 
-			if(returnCode != WIN_INPUT_USED 
-				&& (key == KEY_ESC) 
-				&& (BitTest( state, KEY_STATE_UP ))
+			// With input disabled - a scripted camera scene - swallow every key but Escape.  This
+			// read the other way round: it ate Escape, the one key meant to get through, and let
+			// everything else past to move the camera out from under the scene.
+			if(returnCode != WIN_INPUT_USED
+				&& (key != KEY_ESC)
 				&& (TheInGameUI && (TheInGameUI->getInputEnabled() == FALSE)) )
 			{
 				returnCode = WIN_INPUT_USED;

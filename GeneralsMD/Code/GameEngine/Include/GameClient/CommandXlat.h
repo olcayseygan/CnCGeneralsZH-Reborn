@@ -58,8 +58,9 @@ private:
 	ICoord2D m_mouseRightDragLift;			// the location of a possible mouse drag end
 	UnsignedInt m_mouseRightDown;	// when the mouse down happened
 	UnsignedInt m_mouseRightUp;		// when the mouse up happened
-	Coord3D m_mouseRightDragAnchorCamera;	// where the camera was at the press
-	Coord3D m_mouseRightDragLiftCamera;		// where the camera was at the release
+	// No camera term here on purpose: a right click issued while the map is edge-scrolling is
+	// still an order, and weighing the camera's travel turned those into drags and lost them.
+	// The deselect path in SelectionXlat does weigh it, which is where it belongs.
 
 	// latched the moment the right button goes down: whether this drag is drawing a formation line.
 	// Latched rather than asked again, so a selection that changes mid-drag cannot abandon a line

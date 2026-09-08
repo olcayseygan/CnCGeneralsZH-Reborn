@@ -99,7 +99,26 @@ extern void Reset_D3D_Device(bool active);
 
 static Bool gInitializing = false;
 static Bool gDoPaint = true;
-static Bool isWinMainActive = false; 
+static Bool isWinMainActive = false;
+
+// Whether the cursor is currently clipped to the window.  Activating the game by clicking the
+// taskbar leaves the pointer wherever it was, and clipping right then snatched it into the window
+// from across the desktop; the clip waits for the pointer to arrive on its own now.
+static Bool isCursorClippedToWindow = false;
+
+//-------------------------------------------------------------------------------------------------
+/** True when the OS cursor is over our client area right now. */
+//-------------------------------------------------------------------------------------------------
+static Bool isCursorOverWindow( void )
+{
+	POINT cursor;
+	RECT windowRect;
+
+	if( ApplicationHWnd == NULL || !GetCursorPos( &cursor ) || !GetWindowRect( ApplicationHWnd, &windowRect ) )
+		return false;
+
+	return PtInRect( &windowRect, cursor ) != 0;
+}
 
 static HBITMAP gLoadScreenBitmap = NULL;
 
@@ -518,13 +537,18 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message,
 				{
 
 					ClipCursor( NULL );
+					isCursorClippedToWindow = false;
 					if (TheAudio)
 						TheAudio->loseFocus();
 				}  // end if
 				else
 				{
-					if( TheMouse )
+					// Only take the cursor if it is already over us.  See isCursorOverWindow.
+					if( TheMouse && isCursorOverWindow() )
+					{
 						TheMouse->setMouseLimits();
+						isCursorClippedToWindow = true;
+					}
 
 					if (TheAudio)
 						TheAudio->regainFocus();
@@ -611,6 +635,13 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message,
 				GetClientRect( ApplicationHWnd, &rect );
 				if( x < rect.left || x > rect.right || y < rect.top || y > rect.bottom )
 					return 0;
+
+				// The pointer has walked in of its own accord, so it is fair to hold it now.
+				if( isWinMainActive && !isCursorClippedToWindow && TheMouse )
+				{
+					TheMouse->setMouseLimits();
+					isCursorClippedToWindow = true;
+				}
 
 				if( TheWin32Mouse )
 					TheWin32Mouse->addWin32Event( message, wParam, lParam, TheMessageTime );
