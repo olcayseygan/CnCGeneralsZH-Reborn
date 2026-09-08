@@ -44,6 +44,7 @@
 #include "GameClient/GadgetStaticText.h"
 #include "GameNetwork/LANAPICallbacks.h"
 #include "GameClient/MapUtil.h"
+#include "Common/RandomMapGenerator.h"
 
 // PRIVATE DATA ///////////////////////////////////////////////////////////////////////////////////
 static NameKeyType buttonBack = NAMEKEY_INVALID;
@@ -54,6 +55,53 @@ static GameWindow *mapList = NULL;
 
 static NameKeyType radioButtonSystemMapsID = NAMEKEY_INVALID;
 static NameKeyType radioButtonUserMapsID = NAMEKEY_INVALID;
+
+/** The random map row.  There is no window layout file in this fork to add a button to - every
+	.wnd lives inside the shipped archives - so the reroll is a row in the map list instead of a
+	control beside it.  It is not a map in the cache, so it carries this tag where every other row
+	carries its file name, and choosing it generates a new map and picks that. */
+static const char *theRandomMapRowTag = "**random**";
+#define RMG_MENU_CELLS 160
+
+static Bool isRandomMapRow( const char *itemData )
+{
+	return itemData != NULL && strcmp( itemData, theRandomMapRowTag ) == 0;
+}
+
+static void addRandomMapRow( GameWindow *listbox )
+{
+	if( listbox == NULL )
+		return;
+
+	Color color = GameMakeColor( 255, 255, 255, 255 );
+	Int numColumns = GadgetListBoxGetNumColumns( listbox );
+	// Spelled out here rather than fetched: the string tables live in the shipped
+	// archives, and a missing label would read "MISSING: GUI:RandomMap" on screen.
+	UnicodeString label( L"Random map - new seed every time (8)" );
+	Int index = GadgetListBoxAddEntryText( listbox, label, color, -1, numColumns - 1 );
+	GadgetListBoxSetItemData( listbox, (void *)theRandomMapRowTag, index );
+}
+
+/** Generate a map, write it where the map cache looks, and hand back its path.  The seed comes off
+	the clock: this is the client picking a map, not the simulation, so it may be as random as the
+	player expects a reroll to be. */
+static Bool generateRandomMapForSkirmish( AsciiString& mapPathOut )
+{
+	RandomMapSettings settings;
+	settings.m_seed = (Int)GetTickCount();
+	settings.m_numPlayers = RandomMapGenerator::MAX_PLAYERS;
+	settings.m_playableCells = RMG_MENU_CELLS;
+
+	if( !writeRandomMap( settings, mapPathOut ) )
+		return FALSE;
+
+	mapPathOut.toLower();
+
+	if( TheMapCache )
+		TheMapCache->updateCache();
+
+	return TRUE;
+}
 
 static GameWindow *buttonMapStartPosition[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 																								NULL,NULL,NULL,NULL };
@@ -310,6 +358,7 @@ void SkirmishMapSelectMenuInit( WindowLayout *layout, void *userData )
 			populateMapListbox( mapList, FALSE, FALSE, TheSkirmishGameInfo->getMap() );
 			populateMapListboxNoReset( mapList, FALSE, TRUE, TheSkirmishGameInfo->getMap() );
 		}
+		addRandomMapRow( mapList );
 		mapList->winSetTooltipFunc(mapListTooltipFunc);
 	}
 
@@ -473,6 +522,16 @@ WindowMsgHandledType SkirmishMapSelectMenuSystem( GameWindow *window, UnsignedIn
 					// set the map name in the global data map name
 					AsciiString asciiMap;
 					const char *mapFname = (const char *)GadgetListBoxGetItemData( mapWindow, rowSelected );
+
+					// The random map row has no map behind it until it is chosen, so there is
+					// nothing to preview and no start positions to lay out yet.
+					if( isRandomMapRow( mapFname ) )
+					{
+						winMapPreview->winClearStatus(WIN_STATUS_IMAGE);
+						positionStartSpots( AsciiString::TheEmptyString, buttonMapStartPosition, winMapPreview);
+						break;
+					}
+
 					DEBUG_ASSERTCRASH(mapFname, ("No map item data"));
 					if (mapFname)
 						asciiMap = mapFname;
@@ -506,6 +565,7 @@ WindowMsgHandledType SkirmishMapSelectMenuSystem( GameWindow *window, UnsignedIn
 				if (TheMapCache)
 					TheMapCache->updateCache();
 				populateMapListbox( mapList, TRUE, TRUE, TheSkirmishGameInfo->getMap() );
+				addRandomMapRow( mapList );
 				//LANPreferences pref;
 				//pref["UseSystemMapDir"] = "yes";
 				//pref.write();
@@ -516,6 +576,7 @@ WindowMsgHandledType SkirmishMapSelectMenuSystem( GameWindow *window, UnsignedIn
 					TheMapCache->updateCache();
 				populateMapListbox( mapList, FALSE, FALSE, TheSkirmishGameInfo->getMap() );
 				populateMapListboxNoReset( mapList, FALSE, TRUE, TheSkirmishGameInfo->getMap() );
+				addRandomMapRow( mapList );
 				//LANPreferences pref;
 				//pref["UseSystemMapDir"] = "no";
 				//pref.write();
@@ -549,7 +610,18 @@ WindowMsgHandledType SkirmishMapSelectMenuSystem( GameWindow *window, UnsignedIn
 					AsciiString asciiMap;
 					const char *mapFname = (const char *)GadgetListBoxGetItemData( mapWindow, selected );
 					DEBUG_ASSERTCRASH(mapFname, ("No map item data"));
-					if (mapFname)
+
+					// Choosing the random map row is the reroll: a fresh seed, a fresh map on
+					// disk, and the map cache reloaded so the rest of this runs unchanged.
+					if( isRandomMapRow( mapFname ) )
+					{
+						AsciiString generatedMap;
+						if( !generateRandomMapForSkirmish( generatedMap ) )
+							break;
+
+						asciiMap = generatedMap;
+					}
+					else if (mapFname)
 						asciiMap = mapFname;
 					else
 						asciiMap.translate( map );

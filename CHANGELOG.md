@@ -1002,9 +1002,25 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
-## Not there yet
+## A new map whenever you want one
 
-- Random maps generate and can be played â€” a number picks the map and the match starts on it â€”
-  but there is still no menu entry and no reroll button.
+- The skirmish map list ends with a random map. Pick it and the game builds one, then starts the
+  match on it; pick it again and you get a different one. There is nothing to install and nothing
+  to download, and the map shows up in the list with a picture like any other.
+- Every player gets the same ground. The layout is drawn once and turned into each player's corner,
+  so nobody starts on the hill while somebody else starts in the hollow - the buildable ground
+  around each base and the walk to each player's supply are identical, cell for cell.
+- It is a map, not a field. A ridge runs between one player and the next, too steep to drive up,
+  with one crossing cut through it that both of them have to use. There are lakes off to the side
+  of the lanes, sand where the ground drops, rock where it turns steep, trees and boulders in
+  drifts across the open ground, and neutral buildings to fight over: an oil derrick on every
+  crossing, a pair of civilian blocks in each corner and a hospital in the middle of a big map.
+- The number that made the map is in its name, so the same number always makes the same map, on
+  every machine. Two people who type it get the same ground, and a map worth keeping can be found
+  again.
+
+---
+
+## Not there yet
 - Online and LAN play are untested.
 - You need to own the game; no game data ships here.

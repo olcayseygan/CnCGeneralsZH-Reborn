@@ -444,7 +444,10 @@ Int parseMapName(char *args[], int num)
 
 // parseRandomMap =============================================================
 /** -randommap <seed> [players] [cells]: generate a skirmish map from the seed and write it into
-	the user map directory as "RMG_<seed>", then point -map at it.  Nothing downstream has to know
+	the user map directory as "RMG_v<generator version>_<seed>_<players>p_<cells>c", then point
+	-map at it.  The version is in the name because it is in the bytes: a build that generates a
+	different map from the same seed writes a different file rather than a confusing one.
+	Nothing downstream has to know
 	it was generated: the map cache walks that directory on startup, so it shows up in the skirmish
 	map list like any hand-made map, and -autoskirmish starts on it.  The same seed gives the same
 	map on every machine, so both sides of a network game can be handed the same command line. */
@@ -467,29 +470,11 @@ Int parseRandomMap(char *args[], int num)
 	if (num > eaten && isdigit((UnsignedByte)args[eaten][0]))
 		settings.m_playableCells = atoi( args[eaten++] );
 
-	std::vector<char> mapBytes;
-	RandomMapGenerator::generate( settings, mapBytes );
-
-	// The map cache expects "<user maps>\<name>\<name>.map" - the directory carries the name.
-	AsciiString mapsDir, dir, path;
-	mapsDir.format( "%sMaps", TheGlobalData->getPath_UserData().str() );
-	dir.format( "%s\\RMG_%d", mapsDir.str(), settings.m_seed );
-	path.format( "%s\\RMG_%d.map", dir.str(), settings.m_seed );
-	TheFileSystem->createDirectory( mapsDir );		// createDirectory is one level at a time
-	TheFileSystem->createDirectory( dir );
-
-	FILE *fp = fopen( path.str(), "wb" );
-	if (fp == NULL)
-	{
-		DEBUG_LOG(("-randommap: could not write '%s'\n", path.str()));
+	AsciiString path;
+	if (!writeRandomMap( settings, path ))
 		return eaten;
-	}
-	fwrite( &mapBytes[0], 1, mapBytes.size(), fp );
-	fclose( fp );
 
 	TheWritableGlobalData->m_mapName = path;
-	DEBUG_LOG(("-randommap: wrote '%s' - %d players, %d cells, %d bytes\n",
-		path.str(), settings.m_numPlayers, settings.m_playableCells, mapBytes.size()));
 	return eaten;
 }
 
