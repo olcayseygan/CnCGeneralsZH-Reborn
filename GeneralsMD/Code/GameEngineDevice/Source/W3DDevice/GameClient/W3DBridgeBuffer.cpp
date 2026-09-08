@@ -49,6 +49,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include "stringex.h"
 #include "W3DDevice/GameClient/W3DAssetManager.h"
 #include <texture.h>
 #include "common/GlobalData.h"
@@ -241,12 +242,13 @@ Bool W3DBridge::load(enum BodyDamageType curDamageState)
 	char section[_MAX_PATH];
 	char right[_MAX_PATH];
 
-	strcpy(left, modelName);
-	strcat(left, ".BRIDGE_LEFT");
-	strcpy(section, modelName);
-	strcat(section, ".BRIDGE_SPAN");
-	strcpy(right, modelName);
-	strcat(right, ".BRIDGE_RIGHT");
+	// modelName comes out of the map, so its length is not ours to assume.
+	strlcpy(left, modelName, ARRAY_SIZE(left));
+	strlcat(left, ".BRIDGE_LEFT", ARRAY_SIZE(left));
+	strlcpy(section, modelName, ARRAY_SIZE(section));
+	strlcat(section, ".BRIDGE_SPAN", ARRAY_SIZE(section));
+	strlcpy(right, modelName, ARRAY_SIZE(right));
+	strlcat(right, ".BRIDGE_RIGHT", ARRAY_SIZE(right));
 
 	m_bridgeTexture = pMgr->Get_Texture(textureFile,  MIP_LEVELS_3); 
 	m_leftMtx.Make_Identity();

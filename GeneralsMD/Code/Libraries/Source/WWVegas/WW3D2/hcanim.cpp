@@ -50,6 +50,7 @@
 
 
 #include "hcanim.h"
+#include "stringex.h"
 #include "assetmgr.h"
 #include "htree.h"
 #include "motchan.h"
@@ -257,9 +258,11 @@ int HCompressedAnimClass::Load_W3D(ChunkLoadClass & cload)
 
 	cload.Close_Chunk();
 
-	strcpy(Name,aheader.HierarchyName);
-	strcat(Name,".");
-	strcat(Name,aheader.Name);
+	// The two halves come straight out of the .w3d header, where nothing guarantees a terminator
+	// inside the fixed field, so the joined name could run past the end of this one.
+	strlcpy(Name,aheader.HierarchyName,ARRAY_SIZE(Name));
+	strlcat(Name,".",ARRAY_SIZE(Name));
+	strlcat(Name,aheader.Name,ARRAY_SIZE(Name));
 
 	// TSS chasing crash bug 05/26/99
    WWASSERT(HierarchyName != NULL);

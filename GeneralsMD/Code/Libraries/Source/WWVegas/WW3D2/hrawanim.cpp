@@ -51,6 +51,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "hrawanim.h"
+#include "stringex.h"
 #include "motchan.h"
 #include "chunkio.h"
 #include "assetmgr.h"
@@ -229,9 +230,9 @@ int HRawAnimClass::Load_W3D(ChunkLoadClass & cload)
 		pre30 = true;
 	}
 
-	strcpy(Name,aheader.HierarchyName);
-	strcat(Name,".");
-	strcat(Name,aheader.Name);
+	strlcpy(Name,aheader.HierarchyName,ARRAY_SIZE(Name));
+	strlcat(Name,".",ARRAY_SIZE(Name));
+	strlcat(Name,aheader.Name,ARRAY_SIZE(Name));
 
 	// TSS chasing crash bug 05/26/99
    WWASSERT(HierarchyName != NULL);

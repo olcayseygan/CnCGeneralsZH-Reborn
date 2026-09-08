@@ -32,6 +32,7 @@
 #define DEFINE_DEATH_NAMES
 
 #include "Common/INI.h"
+#include "stringex.h"
 #include "Common/INIException.h"
 
 #include "Common/DamageFX.h"
@@ -397,7 +398,7 @@ void INI::load( AsciiString filename, INILoadType loadType, Xfer *pXfer )
 							 thing it read is usually the answer.  Without it a report of this reads "one of
 							 these nine fields", and the only way on is to guess. */
 						char buff[1024];
-						sprintf(buff, "Error parsing INI file '%s' (Line: '%s', reached line %d: '%s')\n",
+						snprintf(buff, ARRAY_SIZE(buff), "Error parsing INI file '%s' (Line: '%s', reached line %d: '%s')\n",
 							m_filename.str(), currentLine.str(), m_lineNum, m_buffer);
 
 						throw INIException(buff);
@@ -759,8 +760,8 @@ AsciiString INI::getNextQuotedAsciiString()
 				
 				if (strlen(token) > 1 && token[1] != '\t')
 				{
-					strcat(buff, " ");
-					strcat(buff, token);
+					strlcat(buff, " ", ARRAY_SIZE(buff));
+					strlcat(buff, token, ARRAY_SIZE(buff));
 				}
 				else
 				{	Int buflen=strlen(buff);
@@ -794,16 +795,16 @@ AsciiString INI::getNextAsciiString()
 			buff[0] = 0;
 			if (strlen(token) > 1)
 			{
-				strcpy(buff, &token[1]);
-			} 
+				strlcpy(buff, &token[1], ARRAY_SIZE(buff));
+			}
 
 			token = getNextTokenOrNull(getSepsQuote());
 			if (token) {
 				if (strlen(token) > 1 && token[1] != '\t')
 				{
-					strcat(buff, " ");
+					strlcat(buff, " ", ARRAY_SIZE(buff));
 				}
-				strcat(buff, token);
+				strlcat(buff, token, ARRAY_SIZE(buff));
 				result.set(buff);
 			} else {
 				Int len = strlen(buff);
@@ -1536,7 +1537,7 @@ void INI::initFromINIMulti( void *what, const MultiIniFieldParse& parseTableList
 
 
 							char buff[1024];
-							sprintf(buff, "[LINE: %d - FILE: '%s'] Error reading field '%s'\n", INI::getLineNum(), INI::getFilename().str(), field);
+							snprintf(buff, ARRAY_SIZE(buff), "[LINE: %d - FILE: '%s'] Error reading field '%s'\n", INI::getLineNum(), INI::getFilename().str(), field);
 							throw INIException(buff);
 						}
 						

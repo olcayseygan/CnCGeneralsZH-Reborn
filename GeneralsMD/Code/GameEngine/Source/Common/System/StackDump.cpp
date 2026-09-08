@@ -40,7 +40,7 @@
 BOOL InitSymbolInfo(void);
 void UninitSymbolInfo(void);
 void MakeStackTrace(DWORD myeip,DWORD myesp,DWORD myebp, int skipFrames, void (*callback)(const char*));
-void GetFunctionDetails(void *pointer, char*name, char*filename, unsigned int* linenumber, unsigned int* address);
+void GetFunctionDetails(void *pointer, char*name, size_t nameSize, char*filename, size_t filenameSize, unsigned int* linenumber, unsigned int* address);
 void WriteStackLine(void*address, void (*callback)(const char*));
 
 //*****************************************************************************
@@ -236,16 +236,19 @@ stack_frame.AddrFrame.Offset = myebp;
 
 //*****************************************************************************
 //*****************************************************************************
-void GetFunctionDetails(void *pointer, char*name, char*filename, unsigned int* linenumber, unsigned int* address)
+// The symbol name can be up to 512 characters and the source path up to MAX_PATH, and both used to
+// be written with unbounded calls into buffers of exactly those sizes - a long symbol plus "();"
+// walked off the end while the process was already reporting a crash.
+void GetFunctionDetails(void *pointer, char*name, size_t nameSize, char*filename, size_t filenameSize, unsigned int* linenumber, unsigned int* address)
 {
 	InitSymbolInfo();
 	if (name)
 	{
-		strcpy(name, "<Unknown>");
+		strlcpy(name, "<Unknown>", nameSize);
 	}
 	if (filename)
 	{
-		strcpy(filename, "<Unknown>");
+		strlcpy(filename, "<Unknown>", filenameSize);
 	}
 	if (linenumber)
 	{
@@ -271,8 +274,8 @@ void GetFunctionDetails(void *pointer, char*name, char*filename, unsigned int* l
     {
 		if (name)
 		{
-			strcpy(name, psymbol->Name);
-			strcat(name, "();");
+			strlcpy(name, psymbol->Name, nameSize);
+			strlcat(name, "();", nameSize);
 		}
 
 		// Get line now
@@ -289,7 +292,7 @@ void GetFunctionDetails(void *pointer, char*name, char*filename, unsigned int* l
 			{
 				if (filename)
 				{
-					strcpy(filename, line.FileName);
+					strlcpy(filename, line.FileName, filenameSize);
 				}
 				if (linenumber)
 				{
@@ -320,7 +323,7 @@ void GetFunctionDetails(void *pointer, char*name, char*filename, unsigned int* l
 			{
 				const char *leaf = strrchr( modulePath, '\\' );
 				leaf = leaf ? leaf + 1 : modulePath;
-				sprintf( name, "%s+0x%X;", leaf, (unsigned int)((char *)pointer - (char *)module) );
+				snprintf( name, nameSize, "%s+0x%X;", leaf, (unsigned int)((char *)pointer - (char *)module) );
 			}
 		}
 	}
@@ -370,14 +373,18 @@ AsciiString g_LastErrorDump;
 //*****************************************************************************
 void WriteStackLine(void*address, void (*callback)(const char*))
 {
-	static char line[MAX_PATH];
+	// Big enough for the longest thing that can be formatted into it: a path, a symbol, and the
+	// punctuation between them.  It used to be MAX_PATH and could not hold its own contents.
+	static char line[MAX_PATH + 512 + 64];
 	static char function_name[512];
 	static char filename[MAX_PATH];
 	unsigned int linenumber;
 	unsigned int addr;
 
-	GetFunctionDetails(address, function_name, filename, &linenumber, &addr);
-    sprintf(line, "  %s(%d) : %s 0x%08p", filename, linenumber, function_name, address);
+	GetFunctionDetails(address, function_name, ARRAY_SIZE(function_name), filename, ARRAY_SIZE(filename), &linenumber, &addr);
+	// A path of MAX_PATH plus a symbol of 512 does not fit in MAX_PATH, so this line always could
+	// overrun; it just needed a deep enough source tree and a long enough C++ name to do it.
+    snprintf(line, ARRAY_SIZE(line), "  %s(%d) : %s 0x%08p", filename, linenumber, function_name, address);
 		if (g_LastErrorDump.isNotEmpty()) {
 			g_LastErrorDump.concat(line);
 			g_LastErrorDump.concat("\n");
@@ -545,13 +552,13 @@ void DumpExceptionInfo( unsigned int u, EXCEPTION_POINTERS* e_info )
 		}
 		else
 		{
-			sprintf (bytestr, "%02X ", *eip_ptr);
-			strcat (scrap, bytestr);
+			snprintf (bytestr, ARRAY_SIZE(bytestr), "%02X ", *eip_ptr);
+			strlcat (scrap, bytestr, ARRAY_SIZE(scrap));
 		}
 		eip_ptr++;
 	}
 
-	strcat (scrap, "\n");
+	strlcat (scrap, "\n", ARRAY_SIZE(scrap));
 	DOUBLE_DEBUG ( ( (scrap)));
 
 	/*

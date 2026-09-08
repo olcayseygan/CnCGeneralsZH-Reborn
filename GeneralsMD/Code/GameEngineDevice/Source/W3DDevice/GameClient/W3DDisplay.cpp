@@ -38,6 +38,7 @@ static void drawFramerateBar(void);
 #include <windows.h>
 #include <io.h>
 #include <time.h>
+#include "stringex.h"
 
 // USER INCLUDES //////////////////////////////////////////////////////////////
 #include "Common/ThingFactory.h"
@@ -3455,12 +3456,12 @@ static void saveScreenShot(void)
 	Bool done = false;
 	while (!done) {
 #ifdef CAPTURE_TO_TARGA
-		sprintf( leafname, "%s%.3d.tga", "sshot", frame_number++);
+		snprintf( leafname, ARRAY_SIZE(leafname), "%s%.3d.tga", "sshot", frame_number++);
 #else
-		sprintf( leafname, "%s%.3d.bmp", "sshot", frame_number++);
+		snprintf( leafname, ARRAY_SIZE(leafname), "%s%.3d.bmp", "sshot", frame_number++);
 #endif
-		strcpy(pathname, TheGlobalData->getPath_UserData().str());
-		strcat(pathname, leafname);
+		strlcpy(pathname, TheGlobalData->getPath_UserData().str(), ARRAY_SIZE(pathname));
+		strlcat(pathname, leafname, ARRAY_SIZE(pathname));
 		if (_access( pathname, 0 ) == -1)
 			done = true;
 	}

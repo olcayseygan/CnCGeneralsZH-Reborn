@@ -37,6 +37,7 @@
 
 
 #include "hmdldef.h"
+#include "stringex.h"
 #include <assert.h>
 #include <string.h>
 #include "w3d_file.h"
@@ -237,9 +238,9 @@ bool HModelDefClass::read_connection(ChunkLoadClass & cload,HmdlNodeDefStruct * 
 		return false;
 	}
 
-	strcpy(node->RenderObjName,ModelName);
-	strcat(node->RenderObjName,".");
-	strcat(node->RenderObjName,con.RenderObjName);
+	strlcpy(node->RenderObjName,ModelName,ARRAY_SIZE(node->RenderObjName));
+	strlcat(node->RenderObjName,".",ARRAY_SIZE(node->RenderObjName));
+	strlcat(node->RenderObjName,con.RenderObjName,ARRAY_SIZE(node->RenderObjName));
 
 	if (pre30) {
 		if (con.PivotIdx == 65535) {

@@ -53,6 +53,7 @@
 #endif
 #include "Common/Debug.h"
 #include "Common/EarlyCommandLine.h"
+#include "stringex.h"
 #include "Common/SystemInfo.h"
 #include "Common/UnicodeString.h"
 #include "GameClient/GameText.h"
@@ -117,7 +118,7 @@ char* TheCurrentIgnoreCrashPtr = NULL;
 // ----------------------------------------------------------------------------
 static const char *getCurrentTimeString(void);
 static const char *getCurrentTickString(void);
-static const char *prepBuffer(const char* format, char *buffer);
+static const char *prepBuffer(const char* format, char *buffer, size_t bufferSize);
 #ifdef DEBUG_LOGGING
 static void doLogOutput(const char *buffer);
 #endif
@@ -200,7 +201,7 @@ static const char *getCurrentTimeString(void)
 static const char *getCurrentTickString(void)
 {
 	static char TheTickString[32];
-	sprintf(TheTickString, "(T=%08lx)",::GetTickCount());
+	snprintf(TheTickString, ARRAY_SIZE(TheTickString), "(T=%08lx)",::GetTickCount());
 	return TheTickString;
 }
 
@@ -212,14 +213,14 @@ static const char *getCurrentTickString(void)
 	Empty the buffer passed in, then optionally prepend the current TickCount
 	value in string form, depending on the setting of theDebugFlags.
 */
-static const char *prepBuffer(const char* format, char *buffer)
+static const char *prepBuffer(const char* format, char *buffer, size_t bufferSize)
 {
 	buffer[0] = 0;
 #ifdef ALLOW_DEBUG_UTILS
 	if (theDebugFlags & DEBUG_FLAG_PREPEND_TIME)
 	{
-		strcpy(buffer, getCurrentTickString());
-		strcat(buffer, " ");
+		strlcpy(buffer, getCurrentTickString(), bufferSize);
+		strlcat(buffer, " ", bufferSize);
 	}
 #endif
 	return format;
@@ -383,14 +384,14 @@ void DebugInit(int flags)
 		if (!findEarlyCommandLineValue( L"-logPrefix", logPrefix, sizeof( logPrefix ) ))
 			logPrefix[0] = 0;
 
-		strcpy(prevbuf, dirbuf);
-		strcat(prevbuf, gAppPrefix);
-		strcat(prevbuf, logPrefix);
-		strcat(prevbuf, DEBUG_FILE_NAME_PREV);
-		strcpy(curbuf, dirbuf);
-		strcat(curbuf, gAppPrefix);
-		strcat(curbuf, logPrefix);
-		strcat(curbuf, DEBUG_FILE_NAME);
+		strlcpy(prevbuf, dirbuf, ARRAY_SIZE(prevbuf));
+		strlcat(prevbuf, gAppPrefix, ARRAY_SIZE(prevbuf));
+		strlcat(prevbuf, logPrefix, ARRAY_SIZE(prevbuf));
+		strlcat(prevbuf, DEBUG_FILE_NAME_PREV, ARRAY_SIZE(prevbuf));
+		strlcpy(curbuf, dirbuf, ARRAY_SIZE(curbuf));
+		strlcat(curbuf, gAppPrefix, ARRAY_SIZE(curbuf));
+		strlcat(curbuf, logPrefix, ARRAY_SIZE(curbuf));
+		strlcat(curbuf, DEBUG_FILE_NAME, ARRAY_SIZE(curbuf));
 
  		remove(prevbuf);
 		// A failed rotate is not fatal - the log still opens - but it means the ".prev" file holds
@@ -434,7 +435,7 @@ void DebugLog(const char *format, ...)
 	if (theDebugFlags == 0)
 		MessageBoxWrapper("DebugLog - Debug not inited properly", "", MB_OK|MB_TASKMODAL);
 
-	format = prepBuffer(format, theBuffer);
+	format = prepBuffer(format, theBuffer, ARRAY_SIZE(theBuffer));
 
 	va_list arg;
   va_start(arg, format);
@@ -476,15 +477,19 @@ void DebugCrash(const char *format, ...)
 		MessageBoxWrapper("DebugCrash - Debug not inited properly", "", MB_OK|MB_TASKMODAL);
 	}
 
-	format = prepBuffer(format, theCrashBuffer);
-	strcat(theCrashBuffer, "ASSERTION FAILURE: ");
+	format = prepBuffer(format, theCrashBuffer, ARRAY_SIZE(theCrashBuffer));
+	strlcat(theCrashBuffer, "ASSERTION FAILURE: ", ARRAY_SIZE(theCrashBuffer));
 
+	// The overflow test below used to sit after a vsprintf with no bound, so by the time it could
+	// measure the length the stack was already written past.  vsnprintf stops at the wall instead.
+	const size_t used = strlen(theCrashBuffer);
 	va_list arg;
   va_start(arg, format);
-  vsprintf(theCrashBuffer + strlen(theCrashBuffer), format, arg);
+  const int wanted = _vsnprintf(theCrashBuffer + used, ARRAY_SIZE(theCrashBuffer) - used, format, arg);
   va_end(arg);
+	theCrashBuffer[ ARRAY_SIZE(theCrashBuffer) - 1 ] = 0;
 
-	if (strlen(theCrashBuffer) >= sizeof(theCrashBuffer))
+	if (wanted < 0 || (size_t)wanted >= ARRAY_SIZE(theCrashBuffer) - used)
 	{
 		if (!DX8Wrapper_IsWindowed) {
 			if (ApplicationHWnd) {
@@ -509,7 +514,7 @@ void DebugCrash(const char *format, ...)
 	}
 #endif
 
-	strcat(theCrashBuffer, "\n\nAbort->exception; Retry->debugger; Ignore->continue\n");
+	strlcat(theCrashBuffer, "\n\nAbort->exception; Retry->debugger; Ignore->continue\n", ARRAY_SIZE(theCrashBuffer));
 
 	int result = doCrashBox(theCrashBuffer, true);
 
@@ -715,10 +720,10 @@ void ReleaseCrash(const char *reason)
 		return; // We are shutting down, and TheGlobalData has been freed.  jba. [4/15/2003]
 	}
 
-	strcpy(prevbuf, TheGlobalData->getPath_UserData().str());
-	strcat(prevbuf, RELEASECRASH_FILE_NAME_PREV);
-	strcpy(curbuf, TheGlobalData->getPath_UserData().str());
-	strcat(curbuf, RELEASECRASH_FILE_NAME);
+	strlcpy(prevbuf, TheGlobalData->getPath_UserData().str(), ARRAY_SIZE(prevbuf));
+	strlcat(prevbuf, RELEASECRASH_FILE_NAME_PREV, ARRAY_SIZE(prevbuf));
+	strlcpy(curbuf, TheGlobalData->getPath_UserData().str(), ARRAY_SIZE(curbuf));
+	strlcat(curbuf, RELEASECRASH_FILE_NAME, ARRAY_SIZE(curbuf));
 
  	remove(prevbuf);
 	FILE *existingCrashLog = fopen(curbuf, "r");
@@ -824,10 +829,10 @@ void ReleaseCrashLocalized(const AsciiString& p, const AsciiString& m)
 	char prevbuf[ _MAX_PATH ];
 	char curbuf[ _MAX_PATH ];
 
-	strcpy(prevbuf, TheGlobalData->getPath_UserData().str());
-	strcat(prevbuf, RELEASECRASH_FILE_NAME_PREV);
-	strcpy(curbuf, TheGlobalData->getPath_UserData().str());
-	strcat(curbuf, RELEASECRASH_FILE_NAME);
+	strlcpy(prevbuf, TheGlobalData->getPath_UserData().str(), ARRAY_SIZE(prevbuf));
+	strlcat(prevbuf, RELEASECRASH_FILE_NAME_PREV, ARRAY_SIZE(prevbuf));
+	strlcpy(curbuf, TheGlobalData->getPath_UserData().str(), ARRAY_SIZE(curbuf));
+	strlcat(curbuf, RELEASECRASH_FILE_NAME, ARRAY_SIZE(curbuf));
 
  	remove(prevbuf);
 	FILE *existingCrashLog = fopen(curbuf, "r");

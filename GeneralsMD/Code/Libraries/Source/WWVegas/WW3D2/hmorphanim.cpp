@@ -37,6 +37,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "hmorphanim.h"
+#include "stringex.h"
 #include "w3d_file.h"
 #include "chunkio.h"
 #include "assetmgr.h"
@@ -559,9 +560,9 @@ int HMorphAnimClass::Load_W3D(ChunkLoadClass & cload)
 
 	strncpy(AnimName,header.Name,sizeof(AnimName));
    strncpy(HierarchyName,header.HierarchyName,sizeof(HierarchyName));
-	strcpy(Name,HierarchyName);
-	strcat(Name,".");
-	strcat(Name,AnimName);
+	strlcpy(Name,HierarchyName,ARRAY_SIZE(Name));
+	strlcat(Name,".",ARRAY_SIZE(Name));
+	strlcat(Name,AnimName,ARRAY_SIZE(Name));
 
 	HTreeClass * base_pose = WW3DAssetManager::Get_Instance()->Get_HTree(HierarchyName);
 	if (base_pose == NULL) {

@@ -76,6 +76,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "meshmdl.h"
+#include "stringex.h"
 #include "aabtree.h"
 #include "matinfo.h"
 #include "vertmaterial.h"
@@ -274,10 +275,10 @@ WW3DErrorType MeshModelClass::Load_W3D(ChunkLoadClass & cload)
 	memset(tmpname,0,namelen);
 
 	if (strlen(context->Header.ContainerName) > 0) {
-		strcpy(tmpname,context->Header.ContainerName);
-		strcat(tmpname,".");
+		strlcpy(tmpname,context->Header.ContainerName,namelen);
+		strlcat(tmpname,".",namelen);
 	}
-	strcat(tmpname,context->Header.MeshName);
+	strlcat(tmpname,context->Header.MeshName,namelen);
 
 	Set_Name(tmpname);
 

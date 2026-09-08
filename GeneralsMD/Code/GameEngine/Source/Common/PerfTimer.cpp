@@ -485,8 +485,8 @@ static UnsignedInt s_framesAccumulated = 0;
 	strcpy(s_buf, fname);
 
 	char tmp[256];
-	strcpy(tmp, s_buf);
-	strcat(tmp, ".csv");
+	strlcpy(tmp, s_buf, ARRAY_SIZE(tmp));
+	strlcat(tmp, ".csv", ARRAY_SIZE(tmp));
 
 	s_perfStatsFile = fopen(tmp, "w");
 	s_perfDumpOptions = options;

@@ -135,4 +135,8 @@ class STLSpecialAlloc;
 #include "Common/Thing.h"
 #include "Common/UnicodeString.h"
 
+// The bounded string calls are meant to be the default vocabulary, so they are reachable from every
+// engine translation unit rather than included one file at a time as each one gets swept.
+#include "stringex.h"
+
 #endif /* __PRERTS_H__ */

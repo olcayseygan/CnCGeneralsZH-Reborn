@@ -86,6 +86,7 @@
 
 
 #include "meshgeometry.h"
+#include "stringex.h"
 #include "aabtree.h"
 #include "chunkio.h"
 #include "aabox.h"
@@ -1614,10 +1615,10 @@ WW3DErrorType MeshGeometryClass::Load_W3D(ChunkLoadClass & cload)
 	memset(tmpname,0,namelen);
 
 	if (strlen(header.ContainerName) > 0) {
-		strcpy(tmpname,header.ContainerName);
-		strcat(tmpname,".");
+		strlcpy(tmpname,header.ContainerName,namelen);
+		strlcat(tmpname,".",namelen);
 	}
-	strcat(tmpname,header.MeshName);
+	strlcat(tmpname,header.MeshName,namelen);
 
 	Set_Name(tmpname);
 

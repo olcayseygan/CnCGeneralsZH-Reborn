@@ -52,6 +52,7 @@
 #include	"always.h"
 #include <windows.h>
 #include	"assert.h"
+#include "stringex.h"
 #include "cpudetect.h"
 #include	"except.h"
 //#include "debug.h"
@@ -231,9 +232,8 @@ char const * Last_Error_Text(void)
  *=============================================================================================*/
 static void Add_Txt (char const *txt)
 {
-	if (strlen(ExceptionText) + strlen(txt) < 65535) {
-		strcat(ExceptionText, txt);
-	}
+	// The guard was right, but it carried the buffer's size as a literal beside the buffer.
+	strlcat(ExceptionText, txt, ARRAY_SIZE(ExceptionText));
 #if (0)
 	/*
 	** Log to debug output too.
@@ -651,22 +651,25 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 	** Dump the bytes at EIP. This will make it easier to match the crash address with later versions of the game.
 	*/
 	DebugString("EIP bytes dump...\n");
-	sprintf(scrap, "\r\nBytes at CS:EIP (%08X)  : ", context->Eip);
+	// This whole block writes into a 256 byte buffer with no bound, in the handler that is trying to
+	// report a crash.  Thirty-two bytes at three characters each plus the header is close enough to
+	// 256 that a symbol name on the stack pass below pushed it over.
+	snprintf(scrap, ARRAY_SIZE(scrap), "\r\nBytes at CS:EIP (%08X)  : ", context->Eip);
 
 	unsigned char *eip_ptr = (unsigned char *) (context->Eip);
 	char bytestr[32];
 
 	for (int c = 0 ; c < 32 ; c++) {
 		if (IsBadReadPtr(eip_ptr, 1)) {
-			strcat(scrap, "?? ");
+			strlcat(scrap, "?? ", ARRAY_SIZE(scrap));
 		} else {
-			sprintf(bytestr, "%02X ", *eip_ptr);
-			strcat(scrap, bytestr);
+			snprintf(bytestr, ARRAY_SIZE(bytestr), "%02X ", *eip_ptr);
+			strlcat(scrap, bytestr, ARRAY_SIZE(scrap));
 		}
 		eip_ptr++;
 	}
 
-	strcat(scrap, "\r\n\r\n");
+	strlcat(scrap, "\r\n\r\n", ARRAY_SIZE(scrap));
 	Add_Txt(scrap);
 
 	/*
@@ -681,17 +684,17 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 			/*
 			** The stack contents cannot be read so just print up question marks.
 			*/
-			sprintf(scrap, "%08X: ", stackptr);
-			strcat(scrap, "????????\r\n");
+			snprintf(scrap, ARRAY_SIZE(scrap), "%08X: ", stackptr);
+			strlcat(scrap, "????????\r\n", ARRAY_SIZE(scrap));
 		} else {
 			/*
 			** If this stack address is in our memory space then try to match it with a code symbol.
 			*/
 			if (IsBadCodePtr((FARPROC)*stackptr)) {
-				sprintf(scrap, "%08X: %08X ", stackptr, *stackptr);
-				strcat(scrap, "DATA_PTR\r\n");
+				snprintf(scrap, ARRAY_SIZE(scrap), "%08X: %08X ", stackptr, *stackptr);
+				strlcat(scrap, "DATA_PTR\r\n", ARRAY_SIZE(scrap));
 			} else {
-				sprintf(scrap, "%08X: %08X", stackptr, *stackptr);
+				snprintf(scrap, ARRAY_SIZE(scrap), "%08X: %08X", stackptr, *stackptr);
 
 				if (symbols_available) {
 					symptr->SizeOfStruct = sizeof(symbol);
@@ -701,13 +704,13 @@ void Dump_Exception_Info(EXCEPTION_POINTERS *e_info)
 
 					if (_SymGetSymFromAddr != NULL && _SymGetSymFromAddr (GetCurrentProcess(), *stackptr, &displacement, symptr)) {
 						char symbuf[256];
-						sprintf(symbuf, " - %s + %08X", symptr->Name, displacement);
-						strcat(scrap, symbuf);
+						snprintf(symbuf, ARRAY_SIZE(symbuf), " - %s + %08X", symptr->Name, displacement);
+						strlcat(scrap, symbuf, ARRAY_SIZE(scrap));
 					}
 				} else {
-					strcat (scrap, " *");
+					strlcat (scrap, " *", ARRAY_SIZE(scrap));
 				}
-				strcat (scrap, "\r\n");
+				strlcat (scrap, "\r\n", ARRAY_SIZE(scrap));
 			}
 		}
 		Add_Txt(scrap);

@@ -42,6 +42,7 @@
 
 #include "Common/Debug.h"
 #include "Common/File.h"
+#include "stringex.h"
 #include "Common/FileSystem.h"
 #include "Common/GlobalData.h"
 #include "Common/MapObject.h"
@@ -188,8 +189,8 @@ char const * GameFileClass::Set_Name( char const *filename )
 	if( fileType == FILE_TYPE_W3D )
 	{
 		static const char *localizedPathFormat = "Data/%s/Art/W3D/";
-		sprintf(m_filePath,localizedPathFormat, GetRegistryLanguage().str());
-		strcat( m_filePath, filename );
+		snprintf(m_filePath, ARRAY_SIZE(m_filePath), localizedPathFormat, GetRegistryLanguage().str());
+		strlcat( m_filePath, filename, ARRAY_SIZE(m_filePath) );
 
 	}  // end if
 
@@ -197,8 +198,8 @@ char const * GameFileClass::Set_Name( char const *filename )
 	if( isImageFileType(fileType) )
 	{
 		static const char *localizedPathFormat = "Data/%s/Art/Textures/";
-		sprintf(m_filePath,localizedPathFormat, GetRegistryLanguage().str());
-		strcat( m_filePath, filename );
+		snprintf(m_filePath, ARRAY_SIZE(m_filePath), localizedPathFormat, GetRegistryLanguage().str());
+		strlcat( m_filePath, filename, ARRAY_SIZE(m_filePath) );
 
 	}  // end else if
 
@@ -214,19 +215,19 @@ char const * GameFileClass::Set_Name( char const *filename )
 		if( fileType == FILE_TYPE_W3D )
 		{
 			
-			strcpy( m_filePath, W3D_DIR_PATH );
-			strcat( m_filePath, filename );
-			
+			strlcpy( m_filePath, W3D_DIR_PATH, ARRAY_SIZE(m_filePath) );
+			strlcat( m_filePath, filename, ARRAY_SIZE(m_filePath) );
+
 		}  // end if
 		else if( isImageFileType(fileType) )
 		{
-			
-			strcpy( m_filePath, TGA_DIR_PATH );
-			strcat( m_filePath, filename );
-			
+
+			strlcpy( m_filePath, TGA_DIR_PATH, ARRAY_SIZE(m_filePath) );
+			strlcat( m_filePath, filename, ARRAY_SIZE(m_filePath) );
+
 		}  // end else if
 		else
-			strcpy( m_filePath, filename );
+			strlcpy( m_filePath, filename, ARRAY_SIZE(m_filePath) );
 		
 		// see if the file exists
 		m_fileExists = TheFileSystem->doesFileExist( m_filePath );
@@ -242,15 +243,15 @@ char const * GameFileClass::Set_Name( char const *filename )
 		if( fileType == FILE_TYPE_W3D )
 		{
 
-			strcpy( m_filePath, LEGACY_W3D_DIR_PATH );
-			strcat( m_filePath, filename );
+			strlcpy( m_filePath, LEGACY_W3D_DIR_PATH, ARRAY_SIZE(m_filePath) );
+			strlcat( m_filePath, filename, ARRAY_SIZE(m_filePath) );
 
 		}  // end if
 		else if( isImageFileType(fileType) )
 		{
 
-			strcpy( m_filePath, LEGACY_TGA_DIR_PATH );
-			strcat( m_filePath, filename );
+			strlcpy( m_filePath, LEGACY_TGA_DIR_PATH, ARRAY_SIZE(m_filePath) );
+			strlcat( m_filePath, filename, ARRAY_SIZE(m_filePath) );
 
 		}  // end else if
 

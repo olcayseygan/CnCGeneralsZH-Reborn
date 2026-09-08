@@ -42,6 +42,7 @@
 // USER INCLUDES //////////////////////////////////////////////////////////////
 #include "WinMain.h"
 #include "Lib/BaseType.h"
+#include "stringex.h"
 #include "Common/CopyProtection.h"
 #include "Common/CriticalSection.h"
 #include "Common/GlobalData.h"
@@ -1090,7 +1091,7 @@ Int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
 				char name[_MAX_PATH], file[_MAX_PATH];
 				unsigned int line;
 				unsigned int addr;
-				GetFunctionDetails((void*)pc, name, file, &line, &addr);
+				GetFunctionDetails((void*)pc, name, ARRAY_SIZE(name), file, ARRAY_SIZE(file), &line, &addr);
 				DEBUG_LOG(("0x%x - %s, %s, line %d address 0x%x\n", pc, name, file, line, addr));
 			}
 			DEBUG_LOG(("\n--- END OF DX STACK DUMP\n"));
@@ -1119,8 +1120,8 @@ Int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		char filePath[_MAX_PATH];
 		char *fileName = "Install_Final.bmp";
 		static const char *localizedPathFormat = "Data/%s/";
-		sprintf(filePath,localizedPathFormat, GetRegistryLanguage().str());
-		strcat( filePath, fileName );
+		snprintf(filePath, ARRAY_SIZE(filePath), localizedPathFormat, GetRegistryLanguage().str());
+		strlcat( filePath, fileName, ARRAY_SIZE(filePath) );
 		FILE *fileImage = fopen(filePath, "r");
 		if (fileImage) {
 			fclose(fileImage);

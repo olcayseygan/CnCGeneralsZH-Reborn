@@ -301,6 +301,16 @@ __forceinline float fast_float_ceil(float f)
 #define FAST_REAL_CEIL(x)         fast_float_ceil(x)
 #define FAST_REAL_FLOOR(x)        fast_float_floor(x)
 
+//
+// Element count of a real array.  Four files each defined their own copy of this, and the bounded
+// string calls need it at every site, so it lives here now.  It is deliberately the array form
+// only: hand it a pointer and the division is silently wrong, so never use it on a parameter that
+// has decayed.
+//
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(a)             (sizeof(a) / sizeof((a)[0]))
+#endif
+
 //--------------------------------------------------------------------
 // Derived type definitions
 //--------------------------------------------------------------------
