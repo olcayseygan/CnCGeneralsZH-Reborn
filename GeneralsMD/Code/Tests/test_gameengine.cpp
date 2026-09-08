@@ -8544,24 +8544,11 @@ TEST(a_queue_cameo_sits_in_the_general_power_tray_the_way_that_bar_sits_in_it)
 					<= (Int)InGameUI::PRODUCTION_STRIP_TRAY_H );
 
 	//
-	// The overlap is that bar's own: it steps 35 between slots 41 tall, so consecutive trays cover
-	// six of each other and a row of them is one run of metal rather than a line of loose boxes.
+	// Six whole trays side by side is what a row costs across - and that has to fit inside the 800
+	// the whole layout is written in, or the strip runs off the side of the screen before its
+	// overflow count is ever reached.
 	//
-	CHECK_EQ( (Int)InGameUI::PRODUCTION_STRIP_TRAY_H - (Int)InGameUI::PRODUCTION_STRIP_BAR_STEP,
-						(Int)InGameUI::PRODUCTION_STRIP_TRAY_OVER );
-
-	// and it never eats a whole tray: the step has to stay positive on both axes or the row stacks
-	CHECK( (Int)InGameUI::PRODUCTION_STRIP_TRAY_OVER < (Int)InGameUI::PRODUCTION_STRIP_TRAY_W );
-	CHECK( (Int)InGameUI::PRODUCTION_STRIP_TRAY_OVER < (Int)InGameUI::PRODUCTION_STRIP_TRAY_H );
-
-	//
-	// Six trays at that step, plus the tray the last one still needs the rest of, is what the row
-	// costs across - and that has to fit inside the 800 the whole layout is written in, or the strip
-	// runs off the side of the screen before its overflow count is ever reached.
-	//
-	const Int step = (Int)InGameUI::PRODUCTION_STRIP_TRAY_W - (Int)InGameUI::PRODUCTION_STRIP_TRAY_OVER;
-	const Int rowWidth = ( (Int)InGameUI::PRODUCTION_STRIP_ROW_MAX - 1 ) * step
-												+ (Int)InGameUI::PRODUCTION_STRIP_TRAY_W;
+	const Int rowWidth = (Int)InGameUI::PRODUCTION_STRIP_ROW_MAX * (Int)InGameUI::PRODUCTION_STRIP_TRAY_W;
 	CHECK( rowWidth < 800 );
 }
 
@@ -8598,9 +8585,8 @@ TEST(the_strip_tray_geometry_is_a_fraction_of_whatever_size_the_bar_was_loaded_a
 	CHECK( hole.y + cameo.y <= tray.y );
 	CHECK( cameo.x > 0 && cameo.y > 0 );
 
-	// a row closes up rather than separating, and never eats a whole tray
-	CHECK( step > 0 );
-	CHECK( step < tray.x );
+	// a row steps a whole tray, so one tray never lies over the cameo in the next
+	CHECK_EQ( tray.x, step );
 
 	//
 	// Twice the bar, twice everything: an observer borrowing another side's tray gets that side's
@@ -8628,17 +8614,11 @@ TEST(the_strip_tray_geometry_is_a_fraction_of_whatever_size_the_bar_was_loaded_a
 	CHECK_EQ( step, stepOnly );
 }
 
-/* Sideways the trays close up, by the six the general's power bar closes its own by.  Stacked they
-	 do not: a row stands a whole tray above the row under it.  The overlap that reads as one sheet
-	 of metal along a row cuts six pixels off the top of every picture in a column, and a cameo with
-	 another tray's rail lying across it is the thing this was changed to stop. */
+/* No tray lies over another, in either direction: a cell steps a whole tray sideways as well as
+	 upward.  A tray sliding under its neighbour cut the rail across the picture next to it, which is
+	 what the general's powers and the superweapon countdowns both looked like. */
 TEST(a_stacked_tray_does_not_lie_over_the_one_below_it)
 {
-	// sideways: that bar's step, six short of the tray
-	CHECK_EQ( (Int)InGameUI::PRODUCTION_STRIP_TRAY_H - (Int)InGameUI::PRODUCTION_STRIP_BAR_STEP,
-						(Int)InGameUI::PRODUCTION_STRIP_TRAY_OVER );
-	CHECK( (Int)InGameUI::PRODUCTION_STRIP_TRAY_OVER > 0 );
-
 	// upward: nothing is taken off, so a cell has to clear the whole picture that stands in it
 	CHECK( (Int)InGameUI::PRODUCTION_STRIP_TRAY_Y + (Int)InGameUI::PRODUCTION_STRIP_QUEUE_H
 					<= (Int)InGameUI::PRODUCTION_STRIP_TRAY_H );
@@ -8661,14 +8641,11 @@ TEST(a_stacked_tray_does_not_lie_over_the_one_below_it)
 	const Int watchPile = (Int)InGameUI::PRODUCTION_STRIP_ROWS * (Int)InGameUI::PRODUCTION_STRIP_TRAY_H;
 	CHECK( watchPile < 2 * 600 / 3 );
 
-	const Int watchStep = (Int)InGameUI::PRODUCTION_STRIP_TRAY_W - (Int)InGameUI::PRODUCTION_STRIP_TRAY_OVER;
-	const Int watchWidth = (Int)InGameUI::PRODUCTION_STRIP_WATCH_MAX * watchStep
-													+ (Int)InGameUI::PRODUCTION_STRIP_TRAY_W;
+	const Int watchWidth = ( (Int)InGameUI::PRODUCTION_STRIP_WATCH_MAX + 1 )
+													* (Int)InGameUI::PRODUCTION_STRIP_TRAY_W;
 	CHECK( watchWidth < 800 / 2 );
 
-	const Int step = (Int)InGameUI::PRODUCTION_STRIP_TRAY_W - (Int)InGameUI::PRODUCTION_STRIP_TRAY_OVER;
-	const Int rowWidth = ( (Int)InGameUI::SUPERWEAPON_STRIP_COLS - 1 ) * step
-												+ (Int)InGameUI::PRODUCTION_STRIP_TRAY_W;
+	const Int rowWidth = (Int)InGameUI::SUPERWEAPON_STRIP_COLS * (Int)InGameUI::PRODUCTION_STRIP_TRAY_W;
 	CHECK( rowWidth < 800 );
 }
 

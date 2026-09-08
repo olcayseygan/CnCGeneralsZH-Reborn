@@ -737,12 +737,8 @@ public:  // ********************************************************************
 		PRODUCTION_STRIP_TRAY_X		= 1,	///< where the cameo sits inside it
 		PRODUCTION_STRIP_TRAY_Y		= 7,
 		PRODUCTION_STRIP_QUEUE_W	= 39,	///< and how big it is there
-		PRODUCTION_STRIP_QUEUE_H	= 27,
-		PRODUCTION_STRIP_TRAY_OVER = 6,	///< that bar steps 35 between 41-tall slots: its trays overlap by
-																		///  six sideways, and so do ours.  Stacked, they do not: the
-																		///  trays sit one on top of the next at their full height, so no
-																		///  cameo has another tray's rail lying over its top edge
-		PRODUCTION_STRIP_BAR_STEP	= 35	///< the step itself, kept so the overlap can be checked against it
+		PRODUCTION_STRIP_QUEUE_H	= 27		///< a cell steps a whole tray both ways, so no tray lies over the
+																		///  cameo in the one beside or below it
 	};
 
 	///< does an item go in front of one already in the row?  the selected building's items are a

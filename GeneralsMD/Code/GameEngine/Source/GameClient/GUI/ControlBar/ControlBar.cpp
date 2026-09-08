@@ -3958,15 +3958,6 @@ Bool ControlBar::trayLayoutFromSlot( Int slotWidth, Int slotHeight, ICoord2D *tr
 	const Int HOLE_WIDTH = 45;
 	const Int HOLE_HEIGHT = 38;
 
-	//
-	// the tray's right edge is the thick one - eleven of the artwork's sixty columns.  A row set
-	// side by side shows that slab between every pair of cameos, so each slot after the rightmost
-	// slides eight (of the tray's authored forty-eight) back under its neighbour, and the rightmost
-	// is drawn last so it covers the slab rather than being covered by it
-	//
-	const Int TRAY_WIDTH = 48;
-	const Int OVERLAP = 8;
-
 	if( traySize )
 	{
 		traySize->x = slotWidth;
@@ -3985,8 +3976,15 @@ Bool ControlBar::trayLayoutFromSlot( Int slotWidth, Int slotHeight, ICoord2D *tr
 		cameoOffset->y = ( slotHeight * HOLE_Y + ART_HEIGHT / 2 ) / ART_HEIGHT;
 	}
 
+	//
+	// A row steps a whole tray, the way a column already does.  The slots used to slide an eighth of
+	// a tray back under each other so a row read as one run of metal, and what that actually did was
+	// lay the neighbour's rail over the left edge of every cameo but the last: the general's powers
+	// and the superweapon countdowns both came out overlapping.  Side by side they read as the boxes
+	// they are, and the queue column down the left has looked like that all along.
+	//
 	if( columnStep )
-		*columnStep = slotWidth - ( slotWidth * OVERLAP ) / TRAY_WIDTH;
+		*columnStep = slotWidth;
 
 	return TRUE;
 

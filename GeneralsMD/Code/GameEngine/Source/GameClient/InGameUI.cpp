@@ -7563,9 +7563,7 @@ static const ProductionEntry *findStripEntry( ProductionUpdateInterface *pu,
 //-------------------------------------------------------------------------------------------------
 /** The tray a queue cameo stands in: the general's power bar's own, this side's copy of it, turned
 	* back to front.  That bar grows leftward out of the corner and its tray's heavy rail is on the
-	* right hand edge, where in a row running rightward from the left of the screen it would stand
-	* between every pair of cameos; mirrored, the rail leads the row and the trays close up behind
-	* it.
+	* right hand edge; mirrored, the rail leads a row running the other way.
 	*
 	* Kept until the bar hands back a different tray - a side change, an observer picking a different
 	* player out of the list, a mod's own bar - rather than rebuilt per cameo per frame.  NULL when
@@ -7613,7 +7611,7 @@ void InGameUI::stripTrayMetrics( ICoord2D *tray, ICoord2D *cameo, ICoord2D *hole
 	cameo->y = stripPixels( PRODUCTION_STRIP_QUEUE_H );
 	hole->x = stripPixels( PRODUCTION_STRIP_TRAY_X );
 	hole->y = stripPixels( PRODUCTION_STRIP_TRAY_Y );
-	*step = tray->x - stripPixels( PRODUCTION_STRIP_TRAY_OVER );
+	*step = tray->x;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -7816,10 +7814,8 @@ void InGameUI::drawSuperweaponStrip( void )
 		const Int y = trayY + trayHole.y;
 
 		//
-		// The trays go down first, all of them, and from the far end back: each tray's heavy rail
-		// is on its right, and it takes the tray to its right drawn on top of it to cover that
-		// rail. The rightmost is drawn last, and its rail is the one that closes the row against
-		// the edge of the screen.
+		// The trays go down first, all of them, and from the far end back, so the rightmost - the
+		// countdown that lands next - is the one drawn last.
 		//
 		for( Int back = inRow - 1; back >= 0; back-- )
 		{
@@ -7958,9 +7954,8 @@ void InGameUI::drawProductionStripColumn( Int row, Int left, Int bottomY )
 	// any resolution, and it is never squeezed to fit anything - squeezed, its rail and its inner
 	// frame collapse into a coloured smudge and none of it reads as that bar any more.
 	//
-	// Along a row the trays overlap by what that bar overlaps its own by, so the row is one run of
-	// metal rather than a line of separate boxes.  Stacked they do not overlap at all: a cell steps
-	// a whole tray, so no cameo has the tray above it lying over its top edge.
+	// A cell steps a whole tray whichever way the strip runs, so no cameo has the tray beside it or
+	// above it lying over its edge.
 	//
 	ICoord2D traySize, cameoSize, trayHole;
 	Int trayStep = 0;
@@ -7978,9 +7973,8 @@ void InGameUI::drawProductionStripColumn( Int row, Int left, Int bottomY )
 	const Int x = left + trayInsetX;		///< where the first cameo starts
 
 	//
-	// Which way the cells run.  Down a column they step a whole tray, so no cameo has the tray above
-	// it lying over its top edge; along a row they step the way that bar steps its own slots, six
-	// short of the tray, and the six is the rail the next tray covers.
+	// Which way the cells run.  Either way they step a whole tray, so no cameo has a neighbouring
+	// tray lying over its edge.
 	//
 	const Int cellStepX = m_productionStripWatching ? trayStep : 0;
 	const Int cellStepY = m_productionStripWatching ? 0 : trayH;
@@ -8000,8 +7994,7 @@ void InGameUI::drawProductionStripColumn( Int row, Int left, Int bottomY )
 
 	//
 	// The trays go down first, all of them, and from the far end back: the near one carries the item
-	// that arrives next, so it is the one drawn last and the one whose frame is whole.  In a row
-	// that draw order is also what covers each tray's rail, which the mirrored art puts on its left.
+	// that arrives next, so it is the one drawn last and the one whose frame is whole.
 	//
 	// Without the art - a mod that ships no shortcut bar - a slot keeps the flat plate it used to
 	// have rather than losing its backing.
