@@ -125,15 +125,6 @@ void InstantDeathBehavior::onDie( const DamageInfo *damageInfo )
 	if (!isDieApplicable(damageInfo))
 		return;
 
-	AIUpdateInterface* ai = getObject()->getAIUpdateInterface();
-	if (ai)
-	{
-		// has another AI already handled us. (hopefully another InstantDeathBehavior)
-		if (ai->isAiInDeadState())
-			return;
-		ai->markAsDead();
-	}
-
 	const InstantDeathBehaviorModuleData* d = getInstantDeathBehaviorModuleData();
 
 	Int idx, listSize;
@@ -173,6 +164,20 @@ void InstantDeathBehavior::onDie( const DamageInfo *damageInfo )
 		{
 			TheWeaponStore->createAndFireTempWeapon(wt, getObject(), getObject()->getPosition());
 		}
+	}
+
+	/* The dead-state check used to be the first thing this function did, which meant the first
+		 InstantDeathBehavior to run claimed the object and every other one on it was skipped.  Every
+		 other death module - FXListDie, CreateObjectDie, FireWeaponWhenDeadBehavior - already lets you
+		 have several.  Asking here instead lets each of them do its own effect, and still leaves only
+		 one of them destroying the object. */
+	AIUpdateInterface* ai = getObject()->getAIUpdateInterface();
+	if (ai)
+	{
+		// has another AI already handled us. (hopefully another InstantDeathBehavior)
+		if (ai->isAiInDeadState())
+			return;
+		ai->markAsDead();
 	}
 
 	TheGameLogic->destroyObject(getObject());

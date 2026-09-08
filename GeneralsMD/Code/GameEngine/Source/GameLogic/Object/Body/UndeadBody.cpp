@@ -79,9 +79,13 @@ void UndeadBody::attemptDamage( DamageInfo *damageInfo )
 	// remaining, then go ahead and take it.
 	Bool shouldStartSecondLife = FALSE;
 
-	if( damageInfo->in.m_damageType != DAMAGE_UNRESISTABLE  
+	/* Whether this hit is lethal has to be asked of the damage that will actually land, not of the
+		 number the weapon carries.  Armour, damage type multipliers and the veterancy bonus all sit
+		 between the two, so a Battle Bus took its second life off shots that its armour would have
+		 shrugged off, and survived ones that were going to kill it. */
+	if( damageInfo->in.m_damageType != DAMAGE_UNRESISTABLE
 			&& !m_isSecondLife
-			&& damageInfo->in.m_amount >= getHealth()
+			&& estimateDamage( damageInfo->in ) >= getHealth()
 			&& IsHealthDamagingDamage(damageInfo->in.m_damageType)
 			)
 	{
