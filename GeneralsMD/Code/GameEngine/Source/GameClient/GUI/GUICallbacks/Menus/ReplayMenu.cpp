@@ -86,6 +86,12 @@ static Bool callDelete = FALSE;
 void deleteReplayFlag( void ) { callDelete = TRUE;}
 void copyReplayFlag( void ) { callCopy = TRUE;}
 
+// The replay the "this was recorded by an older version" prompt is asking about.  Held from the
+// moment the prompt goes up, because the menu underneath stays live: delete a replay while it is
+// on screen and the list is rebuilt, so the row index the prompt was opened on now names a
+// different file, or none.
+static AsciiString thePendingReplayFilename;
+
 UnicodeString GetReplayFilenameFromListbox(GameWindow *listbox, Int index)
 {
 	UnicodeString fname = GadgetListBoxGetText(listbox, index);
@@ -423,19 +429,16 @@ WindowMsgHandledType ReplayMenuInput( GameWindow *window, UnsignedInt msg,
 
 void reallyLoadReplay(void)
 {
-	UnicodeString filename;
-	Int selected;
-	GadgetListBoxGetSelected( listboxReplayFiles,  &selected );
-	if(selected < 0)
+	// The name was taken when the prompt went up, not now: the list behind it can have been
+	// rebuilt since, and re-reading the selected row would play whatever moved into it.
+	AsciiString asciiFilename = thePendingReplayFilename;
+	thePendingReplayFilename.clear();
+
+	if(asciiFilename.isEmpty())
 	{
 		MessageBoxOk(TheGameText->fetch("GUI:NoFileSelected"),TheGameText->fetch("GUI:PleaseSelectAFile"), NULL);
 		return;
 	}
-
-	filename = GetReplayFilenameFromListbox(listboxReplayFiles, selected);
-
-	AsciiString asciiFilename;
-	asciiFilename.translate(filename);
 
 	TheRecorder->playbackFile(asciiFilename);
 
@@ -563,6 +566,7 @@ WindowMsgHandledType ReplayMenuSystem( GameWindow *window, UnsignedInt msg,
 
 					if(TheRecorder->testVersionPlayback(asciiFilename))
 					{
+						thePendingReplayFilename = asciiFilename;
 						MessageBoxOkCancel(TheGameText->fetch("GUI:OlderReplayVersionTitle"), TheGameText->fetch("GUI:OlderReplayVersion"),reallyLoadReplay ,NULL);
 					}
 					else
