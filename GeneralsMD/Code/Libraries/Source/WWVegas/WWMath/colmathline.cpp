@@ -292,8 +292,13 @@ bool CollisionMath::Collide(const LineSegClass & line,const AABoxClass & box,Cas
 
 	// if ray starts inside the box, note that fact and bail.
 	if (test.Inside) {
-		res->StartBad = true;	
-		return true;	
+		res->StartBad = true;
+		// The contact is where the line began.  It used to be left at whatever the caller had in
+		// there, so a caller that reads ContactPoint on a StartBad hit read a stale point.
+		if (res->ComputeContactPoint) {
+			res->ContactPoint = line.Get_P0();
+		}
+		return true;
 	}
 
 	// Now, if this intersection is before any current intersection
@@ -327,7 +332,11 @@ bool CollisionMath::Collide(const LineSegClass & line,const OBBoxClass & box,Cas
 
 	// if ray starts inside the box, don't collide
 	if (test.Inside) {
-		result->StartBad = true;	
+		result->StartBad = true;
+		// Same as the aligned box above: the contact is where the line began.
+		if (result->ComputeContactPoint) {
+			result->ContactPoint = line.Get_P0();
+		}
 		return true;
 	}
 
