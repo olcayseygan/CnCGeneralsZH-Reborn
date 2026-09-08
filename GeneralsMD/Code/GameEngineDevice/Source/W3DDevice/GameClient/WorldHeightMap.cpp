@@ -1781,9 +1781,14 @@ Bool WorldHeightMap::getUVForTileIndex(Int ndx, Short tileNdx, float U[4], float
 				return info.flip;
 			}
 		}
-#define DO_OLD_UV
+// The block below is a second copy of the setup thirty lines above plus a heuristic that pulls one
+// corner's V toward the other three when a cell is steep.  On steep diagonal ground it produces
+// visibly wrong tiles, and it is not buying any performance either.  Off, the function falls to the
+// plain tiling already written into U and V at the top, which is what WorldBuilder's baked cliff
+// info uses when there is any.  Kept rather than deleted until something is seen to need it.
+//#define DO_OLD_UV
 #ifdef DO_OLD_UV
-// old uv adjustment for cliffs 
+// old uv adjustment for cliffs
 		static Real STRETCH_LIMIT = 1.5f;	 // If it is stretching less than this, don't adjust.
 		static Real TILE_LIMIT = 4.0;			// Our tiles are currently 4 cells wide & tall, so dont'
 																			// adjust to more than 4.0.
