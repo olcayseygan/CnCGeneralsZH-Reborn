@@ -273,14 +273,7 @@ SelectionTranslator::SelectionTranslator()
 	m_lastGroupSelGroup = -1;
 	m_selectFeedbackAnchor.x = 0;
 	m_selectFeedbackAnchor.y = 0;
-	m_deselectFeedbackAnchor.x = 0;
-	m_deselectFeedbackAnchor.y = 0;
-	m_lastClick = 0;
-	//Added By Sadullah Nader
-	//Initializtion(s) inserted
-	m_deselectDownCameraPosition.zero();
 	m_displayedMaxWarning = FALSE;
-	//
 	m_selectCountMap.clear();
 
 	TheSelectionTranslator = this;
@@ -494,8 +487,18 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 		case GameMessage::MSG_MOUSE_LEFT_DOUBLE_CLICK:
 		{
 			Int modifiers = msg->getArgument(1)->integer;
-			
-			// Pressing ctrl is disallowed for double clicking 
+
+			// the release that ended a circle arrives as a double click when the circle was the
+			// second of a quick pair.  Letting it through would select everything of one kind on the
+			// screen, and that new selection is exactly what drops the orders just given
+			if( m_attackCircleJustIssued )
+			{
+				m_attackCircleJustIssued = FALSE;
+				disp = DESTROY_MESSAGE;
+				break;
+			}
+
+			// Pressing ctrl is disallowed for double clicking
 			if (TheInGameUI->isInForceAttackMode())
 				break;
 
@@ -1014,7 +1017,14 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 		// Note that the raw left messages are only used to draw feedback now when 
 		// appropriate. All actual selection code takes place in 
 		// MSG_MOUSE_LEFT_CLICK & MSG_MOUSE_LEFT_DOUBLE_CLICK
+		//
+		// Windows sends the second press of a quick pair as WM_LBUTTONDBLCLK rather than
+		// WM_LBUTTONDOWN, so it arrives here as a double click.  Sweeping a second circle straight
+		// after the first is exactly that pair: without this label no circle began, the drag grew a
+		// selection box instead, and the box swapped the group out from under the order.
+		//
 		case GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_DOWN:
+		case GameMessage::MSG_RAW_MOUSE_LEFT_DOUBLE_CLICK:
 		{
 			// cannot actually start area selection yet - have to wait for cursor to move a bit
 			m_leftMouseButtonIsDown = true;
@@ -1039,9 +1049,26 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			// click that follows this release has to be eaten or it would reselect under the anchor
 			if( TheInGameUI->isAttackCircling() )
 			{
-				TheInGameUI->issueAttackCircle();
-				TheInGameUI->clearAttackMoveToMode();
-				m_attackCircleJustIssued = TRUE;
+				// a circle drawn with shift adds its targets to the end of the list the group is
+				// already working through; without shift it replaces that list
+				if( !TheInGameUI->isInWaypointMode() )
+					TheInGameUI->clearShiftAttackQueue();
+
+				// a press with the attack key that never became a drag is an ordinary attack click,
+				// and the click that follows this release is the order.  Only a real circle eats it
+				if( TheInGameUI->issueAttackCircle() )
+				{
+					TheInGameUI->clearAttackMoveToMode();
+					m_attackCircleJustIssued = TRUE;
+				}
+
+				//
+				// Either way this press belonged to the attack key rather than to selection, so the
+				// release stops here.  Falling through reaches the deselect that ends an ordinary left
+				// click, and for a press that was not a drag - a plain attack click, or a circle small
+				// enough to have no radius - that threw the group away a moment before the click behind
+				// it arrived as the order, leaving the order with nobody to give it to.
+				//
 				break;
 			}
 
@@ -1089,60 +1116,34 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 		}
 
 		//-----------------------------------------------------------------------------
-		case GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_DOWN:
-		{
-			// There are three ways in which we can ignore this as a deselect:
-			// 1) 2-D position on screen
-			// 2) Time has exceeded the time which we allow for this to be a click.
-			// 3) 3-D camera position has changed
-			m_deselectFeedbackAnchor = msg->getArgument( 0 )->pixel;
-			m_lastClick = (UnsignedInt) msg->getArgument( 2 )->integer;
-			TheTacticalView->getPosition(&m_deselectDownCameraPosition);
-
-			break;
-		}
-
-		//-----------------------------------------------------------------------------
 		case GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_UP:
 		{
-			Coord3D cameraPos;
-			TheTacticalView->getPosition(&cameraPos);
-
-			const ICoord2D pixel = msg->getArgument( 0 )->pixel;
-			const UnsignedInt currentTime = (UnsignedInt) msg->getArgument( 2 )->integer;
-
-			// This test used to be written out here, on its own, next to a second copy of it in
-			// the command translator that had no camera term at all.  One function answers it now.
-			const Bool isClick = TheMouse->isClick( &m_deselectFeedbackAnchor, &pixel,
-																							&m_deselectDownCameraPosition, &cameraPos,
-																							m_lastClick, currentTime );
-
-			// right click behavior (not right drag)
-			if (isClick)
+			//
+			// The right button drops whatever is armed, and it does so on a drag as well as on a
+			// click.  A dozer placing a row of structures with shift held is the case that made this
+			// matter: the player right-clicks to send it somewhere, the cursor travels a few pixels
+			// while the button is down, the order goes out as a formation move - and the ghost used
+			// to stay riding the cursor because the cancel only ran on a strict click.
+			//
+			// Nothing here eats the message.  The order itself arrives as the separate
+			// MSG_MOUSE_RIGHT_CLICK the meta translator inserts, and CommandXlat still needs this
+			// release to close off a formation drag it started.
+			//
+			if( TheInGameUI->getGUICommand() )
 			{
-				//Added support to cancel the GUI command without deselecting the unit(s) involved
-				//when you right click.
-				if( TheInGameUI->getGUICommand() )
-				{
-					//Cancel GUI command mode... don't deselect units.
-					TheInGameUI->setGUICommand( NULL );
-
-					//With a GUI command cancel, we want no other behavior.
-					disp = DESTROY_MESSAGE;
-					TheInGameUI->setScrolling( FALSE );
-				}
-				else if( TheInGameUI->getPendingPlaceSourceObjectID() != INVALID_ID )
-				{
-					//Cancel the building placement, and keep the builder selected: you almost always
-					//want to place something else with it, and reselecting it costs a click.
-					TheInGameUI->placeBuildAvailable( NULL, NULL );
-
-					disp = DESTROY_MESSAGE;
-					TheInGameUI->setScrolling( FALSE );
-				}
-				// The right button used to deselect here in the classic mouse mode.  It does not any
-				// more: it is the order button, and an order that hits nothing is simply no order.
+				//Cancel GUI command mode... don't deselect units.
+				TheInGameUI->setGUICommand( NULL );
+				TheInGameUI->setScrolling( FALSE );
 			}
+			else if( TheInGameUI->getPendingPlaceType() != NULL )
+			{
+				//Cancel the building placement, and keep the builder selected: you almost always
+				//want to place something else with it, and reselecting it costs a click.
+				TheInGameUI->placeBuildAvailable( NULL, NULL );
+				TheInGameUI->setScrolling( FALSE );
+			}
+			// The right button used to deselect here in the classic mouse mode.  It does not any
+			// more: it is the order button, and an order that hits nothing is simply no order.
 
 			break;
 		}

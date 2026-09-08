@@ -5496,13 +5496,15 @@ Bool PartitionFilterPossibleToAttack::allow(Object *objOther)
 	DEBUG_ASSERTCRASH(m_obj && m_obj->isAbleToAttack(), ("if the object is unable to attack at all, you should filter that out ahead of time!"));
 #endif
 	//
-	// Someone else's shots are already in the air and already add up to more than this thing has
-	// left, so acquiring it would spend a volley on a corpse.  Skipping it here is what spreads a
+	// Someone else's shots, in the air or announced and about to be fired, already add up to more
+	// than this thing has left, so acquiring it would spend a volley on a corpse.  Our own
+	// announcement does not count against us, or a unit re-scanning would refuse the target it is
+	// currently lining up.  Skipping it here is what spreads a
 	// group's fire over several targets instead of piling all of it onto the nearest one.  This
 	// filter is only ever used to acquire a target on the unit's own initiative - guarding, attack
 	// moving, idle scanning - so an explicit attack order is never touched by it.
 	//
-	if (IncomingDamageTracker::isAlreadyDoomed(objOther))
+	if (IncomingDamageTracker::isSpokenFor(objOther, m_obj->getID()))
 		return FALSE;
 
 	//

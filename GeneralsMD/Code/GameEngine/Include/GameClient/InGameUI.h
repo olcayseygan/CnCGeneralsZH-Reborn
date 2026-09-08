@@ -406,7 +406,11 @@ public:  // ********************************************************************
 		FORMATION_DRAG_MIN_SPACING = 12		///< pixels between kept points, doubled when the curve fills up
 	};
 	void addFormationDragPoint( const ICoord2D& pt );
-	void clearFormationDrag( void ) { m_isFormationDragging = FALSE; m_formationDragPoints.clear(); m_orderHints.clear(); }
+	// The markers are not thrown away with the drag.  They are rebuilt from the units every frame
+	// anyway, before anything is drawn, and emptying the list here cost every marker on the screen
+	// its age: a right click is what ends a drag, so every order the player gave made the whole
+	// screen slide in again instead of only the marker that was new.
+	void clearFormationDrag( void ) { m_isFormationDragging = FALSE; m_formationDragPoints.clear(); }
 	Bool isFormationDragging( void ) const { return m_isFormationDragging; }
 	const std::vector<ICoord2D>& getFormationDragPoints( void ) const { return m_formationDragPoints; }
 
@@ -438,36 +442,38 @@ public:  // ********************************************************************
 		Coord3D from;						///< where the unit is now
 		Coord3D to;							///< where it is going
 		OrderHintKind kind;
+		ObjectID owner;					///< the selected unit this one belongs to
+		UnsignedInt bornMs;			///< when the marker first appeared, so it can be slid in
 	};
 	const std::vector<OrderHint>& getOrderHints( void ) const { return m_orderHints; }
 
 	// A circle dragged out with the left button while the attack key is armed.  Everything hostile
-	// and visible inside it becomes a list, and the selection works down that list one target at a
-	// time: the next one is ordered the moment the current one stops existing.
+	// and visible inside it joins the shift queue below, and the selection works down that list one
+	// target at a time: the next one is ordered the moment the current one stops existing.
 	void beginAttackCircle( const ICoord2D& pt );
 	void updateAttackCircle( const ICoord2D& pt );
-	void issueAttackCircle( void );
+	Bool issueAttackCircle( void );		///< FALSE when the press never became a drag, so it was an ordinary attack click
 	void cancelAttackCircle( void ) { m_isAttackCircling = FALSE; }
 	Bool isAttackCircling( void ) const { return m_isAttackCircling; }
 	const ICoord2D& getAttackCircleAnchor( void ) const { return m_attackCircleAnchor; }
 	const ICoord2D& getAttackCircleCursor( void ) const { return m_attackCircleCursor; }
-	void clearAttackQueue( void );
+	Bool getAttackCircleGround( Coord3D& center, Real& radius ) const;	///< the circle in world terms, FALSE while it is still a dot
 
 	// An attack order (force-attack or attack-move) added to the shift queue.  The goal path the
-	// plain move queue rides on carries no order type, so this is a second queue, driven the same
-	// way the attack circle's is: an ordinary message the client sends again once the order before
-	// it is over, nothing new for the logic to learn.
+	// plain move queue rides on carries no order type, so this is a second queue: an ordinary
+	// message the client sends again once the order before it is over, nothing new for the logic
+	// to learn.
 	struct AttackWaypoint
 	{
 		Coord3D		pos;					///< where to attack-move to, or the last known spot of targetID
 		ObjectID	targetID;			///< INVALID_ID for a plain attack-move point, a specific victim otherwise
+		Bool			forceAttack;	///< what the attack key said when it was queued, not when it goes out
 	};
 	void queueAttackWaypoint( const Coord3D *pos, Object *targetObj );
 	void clearShiftAttackQueue( void );
 	Bool isShiftAttackQueueActive( void ) const { return !m_shiftAttackQueue.empty() || m_shiftAttackQueueRunning; }
 	const std::vector<AttackWaypoint>& getShiftAttackQueue( void ) const { return m_shiftAttackQueue; }
 
-	virtual void createMoveHint( const GameMessage *msg );			///< A move command has occurred, start graphical "hint"
 	virtual void createAttackHint( const GameMessage *msg );		///< An attack command has occurred, start graphical "hint"
 	virtual void createForceAttackHint( const GameMessage *msg );		///< A force attack command has occurred, start graphical "hint"
 
@@ -922,16 +928,6 @@ protected:
 	// Protected Types ------------------------------------------------------------------------------
 	// ----------------------------------------------------------------------------------------------
 
-	enum HintType
-	{
-		MOVE_HINT = 0,
-		ATTACK_HINT,
-#ifdef _DEBUG
-		DEBUG_HINT,
-#endif
-		NUM_HINT_TYPES  // keep this one last
-	};
-
 	// mouse mode interface
 	enum MouseMode 
 	{
@@ -939,14 +935,6 @@ protected:
 		MOUSEMODE_BUILD_PLACE,
 		MOUSEMODE_GUI_COMMAND,
 		MOUSEMODE_MAX
-	};
-
-	enum { MAX_MOVE_HINTS = 256 };
-	struct MoveHintStruct
-	{
-		Coord3D pos;						///< World coords of destination point
-		UnsignedInt sourceID;		///< id of who will move to this point
-		UnsignedInt frame;			///< frame the command was issued on
 	};
 
 	struct UIMessage
@@ -989,9 +977,6 @@ protected:
 	virtual View *createView( void ) = 0;												///< Factory for Views
 	void evaluateSoloNexus( Drawable *newlyAddedDrawable = NULL );
 
-	/// expire a hint from of the specified type at the hint index
-	void expireHint( HintType type, UnsignedInt hintIndex );
-
 	void createControlBar( void );			///< create the control bar user interface
 	void createReplayControl( void );		///< create the replay control window
 
@@ -1010,6 +995,10 @@ public:
 		* renderer rather than from preDraw: it is geometry lying on the ground, and it has to go down
 		* with the terrain so that everything drawn after the terrain covers it. */
 	virtual void drawBuildGrid( void ) { }
+
+	/** The wash inside the attack circle, on the ground for the same reason: the units being swept
+		* up stand on top of it instead of being painted over. */
+	virtual void drawAttackCircleFill( void ) { }
 protected:
 
 	void clearWorldAnimations( void );					///< delete all world animations
@@ -1042,22 +1031,27 @@ protected:
 	Bool												m_isAttackCircling;														///< TRUE while an attack circle is being dragged (fork)
 	ICoord2D										m_attackCircleAnchor;													///< where the circle was started, in pixels
 	ICoord2D										m_attackCircleCursor;													///< where the cursor is now, which is the rim
-	std::vector<ObjectID>				m_attackQueue;																///< targets still owed, nearest first
-	ObjectID										m_attackQueueTarget;													///< the one the group is on now
-	std::vector<ObjectID>				m_attackQueueUnits;														///< who was told, so a changed selection drops the queue
 
 	std::vector<AttackWaypoint>	m_shiftAttackQueue;														///< attack points still owed, in click order (fork)
 	Bool												m_shiftAttackQueueRunning;										///< TRUE once the first order of the queue has been sent
 	AttackWaypoint							m_shiftAttackQueueActive;											///< the order that was sent, so its completion can be noticed
+	UnsignedInt									m_shiftAttackQueueEngagedFrame;								///< the last logic frame somebody was still working on the order in flight
 	std::vector<ObjectID>				m_shiftAttackQueueUnits;											///< who was told, so a changed selection drops the queue
+	Bool												m_shiftAttackQueueWaitingForRearm;							///< the order stands but its aircraft went home for ammo
+	Bool												m_shiftAttackQueueWaitingForSelection;				///< the order stands but nothing that was told is in hand
 
 	void updateFormationHints( void );													///< recompute who goes where from the curve being drawn
 	void updateOrderHints( void );															///< read the selection's own goals, once a frame
-	void updateAttackQueue( void );															///< order the next target when the current one is gone
 	void updateShiftAttackQueue( void );												///< send the next queued attack once the current one is over
+	void addOrderHint( OrderHint& hint, const std::vector<OrderHint>& previous );	///< keep a marker's age across the frame the list is rebuilt on
+	Bool getHeldAircraftOrder( const Object *obj, OrderHintKind& kind, Coord3D& to ) const;	///< the order an aircraft is sitting on until it is airborne
+	void sendShiftAttackOrder( const AttackWaypoint& waypoint );	///< put one queue entry on the message stream
+	void logShiftAttackQueue( const char *why ) const;						///< one line saying what the queue did and what its group was doing
+	void addShiftAttackQueueTail( OrderHint& hint, const std::vector<OrderHint>& previous );	///< every target still owed, drawn on from where the hint leaves off
+	Bool isHiddenByShroud( const Object *obj ) const;						///< is the shroud over this, for the player at this machine
+	void collectSelectedObjectIDs( std::vector<ObjectID>& ids ) const;	///< the selection by id, sorted
+	Bool selectionOwnsShiftAttackQueue( const std::vector<ObjectID>& selected ) const;	///< is this still the group the queue was given to
 	Bool												m_displayedMaxWarning;                        ///< keeps the warning from being shown over and over
-	MoveHintStruct							m_moveHint[ MAX_MOVE_HINTS ];
-	Int													m_nextMoveHint;
 	const CommandButton *				m_pendingGUICommand;										///< GUI command that needs additional interaction from the user
 	BuildProgress								m_buildProgress[ MAX_BUILD_PROGRESS ];	///< progress for building units
 	const ThingTemplate *				m_pendingPlaceType;											///< type of built thing we're trying to place

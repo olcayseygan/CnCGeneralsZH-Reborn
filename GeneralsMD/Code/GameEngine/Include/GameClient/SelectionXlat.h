@@ -51,13 +51,9 @@ private:
 	UnsignedInt m_lastGroupSelTime;
 	Int m_lastGroupSelGroup;
 	ICoord2D m_selectFeedbackAnchor;		// Note: Used for drawing feedback only.
-	ICoord2D m_deselectFeedbackAnchor;	// Note: Used for drawing feedback only.
 	Bool m_displayedMaxWarning;	// did we already display a warning about selecting too many units?
-	UnsignedInt m_lastClick;    ///< timer used for checking double click for type selection
 
 	SelectCountMap m_selectCountMap;
-
-	Coord3D m_deselectDownCameraPosition;
 
 	Bool selectFriends( Drawable *draw, GameMessage *createTeamMsg, Bool dragSelecting );
 	Bool killThemKillThemAll( Drawable *draw, GameMessage *killThemAllMsg );

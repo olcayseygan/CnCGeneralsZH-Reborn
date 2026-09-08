@@ -1426,10 +1426,16 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 			Object *enemy = TheGameLogic->findObjectByID( msg->getArgument( 0 )->objectID );
 
 			// Check enemy, as it is possible that he died this frame.
-			if (enemy) 
+			if (enemy)
 			{
 				if (currentlySelectedGroup)
 				{
+
+					// how many units the order actually reached, against how many the player had
+					// selected on their own screen: the two disagreeing is what "only one of them
+					// went" looks like from the outside
+					DEBUG_LOG(("attack order: %d units on %s\n", currentlySelectedGroup->getCount(),
+										 enemy->getTemplate()->getName().str()));
 
 					currentlySelectedGroup->releaseWeaponLockForGroup(LOCKED_TEMPORARILY);	// release any temporary locks.
 					currentlySelectedGroup->groupAttackObject( enemy, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );

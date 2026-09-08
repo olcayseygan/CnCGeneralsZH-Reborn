@@ -3991,7 +3991,11 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 					}
 
 					TheInGameUI->clearAttackMoveToMode();
-					TheInGameUI->clearAttackQueue();
+
+					// a hand-given order ends whatever list the group was working through, unless shift
+					// says the player is adding to it
+					if( !TheInGameUI->isInWaypointMode() )
+						TheInGameUI->clearShiftAttackQueue();
 
 					const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
 					if( selected && !selected->empty() )
@@ -4001,16 +4005,8 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 				}
 			}
 
-			//Kris: July 7, 2003. Added this code to deselect build placement mode when right clicked. This fixes
-			//a bug where you couldn't cancel the sneak attack mode via right click. This only happened when you
-			//didn't have anything selected which is possible via the shortcut bar. Normally, it would get deselected
-			//via the deselect drawable code.
-			if( TheMouse->isClick(&m_mouseRightDragAnchor, &m_mouseRightDragLift,
-					NULL, NULL,
-					m_mouseRightDown, m_mouseRightUp) )
-			{
-				TheInGameUI->placeBuildAvailable( NULL, NULL );
-			}
+			// a structure waiting to be placed is dropped by the same release, over in
+			// SelectionXlat, which sees it whether this was a click or a drag
 
 			break;
 		}
@@ -4075,8 +4071,12 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 
 					disp = DESTROY_MESSAGE;
 					TheInGameUI->clearAttackMoveToMode();
-					// a hand-given order ends whatever list the circle was working through
-					TheInGameUI->clearAttackQueue();
+
+					// a hand-given order ends whatever list the group was working through, unless shift
+					// says the player is adding to it - in which case the order just given is itself the
+					// newest entry in that list
+					if( !TheInGameUI->isInWaypointMode() )
+						TheInGameUI->clearShiftAttackQueue();
 				}
 			}
 

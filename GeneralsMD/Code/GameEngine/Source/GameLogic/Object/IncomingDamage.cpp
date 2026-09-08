@@ -36,6 +36,8 @@ struct BookedShot
 	ObjectID			m_shooter;			///< who fired it, so the landing damage can release its own booking
 	Real					m_amount;				///< damage it is expected to take off the victim, after armor
 	UnsignedInt		m_expireFrame;	///< when the booking lapses even though nothing landed
+	Bool					m_isClaim;			///< an announced shot rather than one in the air: invisible to its own shooter
+	UnsignedInt		m_claimFrame;		///< when the claim was first made, which is what decides who gets the target
 };
 
 typedef std::vector<BookedShot> BookedShotVec;
@@ -57,6 +59,57 @@ static const UnsignedInt BOOKING_SLACK_FRAMES = 15;
 // the projectile flies on its own locomotor. Clamp the estimate rather than trust it outright.
 static const UnsignedInt MIN_FLIGHT_FRAMES = 1;
 static const UnsignedInt MAX_FLIGHT_FRAMES = 90;
+
+//
+// How long an announced shot stands without being repeated.  A unit that is still lining the shot up
+// says so again every frame, so this only has to outlast one frame; the margin is there so a unit
+// whose update is skipped for a frame does not have to start over, and it is short enough that a
+// unit which gives up on the target frees it again within a fifth of a second.
+//
+static const UnsignedInt CLAIM_HOLD_FRAMES = 6;
+
+//-------------------------------------------------------------------------------------------------
+/** Damage genuinely in the air against a victim.  Announcements are not counted. */
+//-------------------------------------------------------------------------------------------------
+static Real sumShotsInFlight(ObjectID victim)
+{
+	BookedShotMap::const_iterator vic = theBookings.find(victim);
+	if (vic == theBookings.end())
+		return 0.0f;
+
+	Real total = 0.0f;
+	const BookedShotVec& shots = vic->second;
+	for (BookedShotVec::const_iterator s = shots.begin(); s != shots.end(); ++s)
+	{
+		if (!s->m_isClaim)
+			total += s->m_amount;
+	}
+
+	return total;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Take back this shooter's announcement against this victim, if it has one standing. */
+//-------------------------------------------------------------------------------------------------
+static void releaseClaim(ObjectID victim, ObjectID shooter)
+{
+	BookedShotMap::iterator vic = theBookings.find(victim);
+	if (vic == theBookings.end())
+		return;
+
+	BookedShotVec& shots = vic->second;
+	for (BookedShotVec::iterator s = shots.begin(); s != shots.end(); ++s)
+	{
+		if (s->m_isClaim && s->m_shooter == shooter)
+		{
+			shots.erase(s);
+			break;
+		}
+	}
+
+	if (shots.empty())
+		theBookings.erase(vic);
+}
 
 //-------------------------------------------------------------------------------------------------
 void IncomingDamageTracker::reset()
@@ -105,12 +158,49 @@ void IncomingDamageTracker::bookShot(ObjectID victim, ObjectID shooter, Real amo
 	else if (flight > MAX_FLIGHT_FRAMES)
 		flight = MAX_FLIGHT_FRAMES;
 
+	// the round is away, so the announcement that preceded it has done its job
+	releaseClaim(victim, shooter);
+
 	BookedShot shot;
 	shot.m_shooter = shooter;
 	shot.m_amount = amount;
 	shot.m_expireFrame = currentFrame + flight + BOOKING_SLACK_FRAMES;
+	shot.m_isClaim = FALSE;
+	shot.m_claimFrame = 0;
 
 	theBookings[victim].push_back(shot);
+}
+
+//-------------------------------------------------------------------------------------------------
+void IncomingDamageTracker::claimShot(ObjectID victim, ObjectID shooter, Real amount,
+																			UnsignedInt currentFrame)
+{
+	if (victim == INVALID_ID || shooter == INVALID_ID || amount <= 0.0f)
+		return;
+
+	const UnsignedInt expire = currentFrame + CLAIM_HOLD_FRAMES;
+
+	BookedShotVec& shots = theBookings[victim];
+	for (BookedShotVec::iterator s = shots.begin(); s != shots.end(); ++s)
+	{
+		if (s->m_isClaim && s->m_shooter == shooter)
+		{
+			// saying it again only stands the same claim up for longer: the frame it was first made on
+			// is what holds this unit's place in the queue for the target, so it is left alone
+			s->m_amount = amount;
+			s->m_expireFrame = expire;
+			return;
+		}
+	}
+
+	BookedShot claim;
+	claim.m_shooter = shooter;
+	claim.m_amount = amount;
+	claim.m_expireFrame = expire;
+	claim.m_isClaim = TRUE;
+	claim.m_claimFrame = currentFrame;
+
+	shots.push_back(claim);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -123,7 +213,7 @@ void IncomingDamageTracker::shotLanded(ObjectID victim, ObjectID shooter)
 	BookedShotVec& shots = vic->second;
 	for (BookedShotVec::iterator s = shots.begin(); s != shots.end(); ++s)
 	{
-		if (s->m_shooter == shooter)
+		if (s->m_shooter == shooter && !s->m_isClaim)
 		{
 			// oldest first: a shooter's shots land in the order they were fired
 			shots.erase(s);
@@ -138,16 +228,7 @@ void IncomingDamageTracker::shotLanded(ObjectID victim, ObjectID shooter)
 //-------------------------------------------------------------------------------------------------
 Real IncomingDamageTracker::getBookedDamage(ObjectID victim)
 {
-	BookedShotMap::const_iterator vic = theBookings.find(victim);
-	if (vic == theBookings.end())
-		return 0.0f;
-
-	Real total = 0.0f;
-	const BookedShotVec& shots = vic->second;
-	for (BookedShotVec::const_iterator s = shots.begin(); s != shots.end(); ++s)
-		total += s->m_amount;
-
-	return total;
+	return sumShotsInFlight(victim);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -164,4 +245,57 @@ Bool IncomingDamageTracker::isAlreadyDoomed(ObjectID victim, Real remainingHealt
 Bool IncomingDamageTracker::isAlreadyDoomed(const Object *victim)
 {
 	return isAlreadyDoomed(victim->getID(), victim->getBodyModule()->getHealth());
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool IncomingDamageTracker::isSpokenFor(const Object *victim, ObjectID asker)
+{
+	BookedShotMap::const_iterator vic = theBookings.find(victim->getID());
+	if (vic == theBookings.end())
+		return FALSE;
+
+	const BookedShotVec& shots = vic->second;
+
+	// where the asker stands in the queue for this victim, if it has announced anything at all
+	Bool askerHasClaim = FALSE;
+	UnsignedInt askerClaimFrame = 0;
+	for (BookedShotVec::const_iterator s = shots.begin(); s != shots.end(); ++s)
+	{
+		if (s->m_isClaim && s->m_shooter == asker)
+		{
+			askerHasClaim = TRUE;
+			askerClaimFrame = s->m_claimFrame;
+			break;
+		}
+	}
+
+	Real covered = 0.0f;
+	for (BookedShotVec::const_iterator s = shots.begin(); s != shots.end(); ++s)
+	{
+		if (s->m_isClaim)
+		{
+			if (s->m_shooter == asker)
+				continue;
+
+			//
+			// Only an announcement that got in ahead of ours stops us.  Two units that each defer to
+			// the other both hold fire and the target is never shot at all, so the claims are ordered:
+			// whoever spoke first keeps the target, and two that spoke on the same frame are settled by
+			// object id, which every machine in a network game agrees on.  A unit that has announced
+			// nothing - one scanning for something to acquire - is behind all of them.
+			//
+			const Bool spokeFirst = !askerHasClaim
+														|| s->m_claimFrame < askerClaimFrame
+														|| (s->m_claimFrame == askerClaimFrame && s->m_shooter < asker);
+			if (!spokeFirst)
+				continue;
+		}
+
+		covered += s->m_amount;
+	}
+
+	if (covered <= 0.0f)
+		return FALSE;
+
+	return covered >= victim->getBodyModule()->getHealth();
 }

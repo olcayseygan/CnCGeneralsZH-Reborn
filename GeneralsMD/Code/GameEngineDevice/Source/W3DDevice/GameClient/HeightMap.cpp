@@ -2157,7 +2157,13 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 	// the terrain and covered by everything drawn after it, so it reads as paint on the map rather
 	// than as a wireframe floating over the scene
 	if( TheInGameUI )
+	{
 		TheInGameUI->drawBuildGrid();
+
+		// and the wash inside an attack circle, for the same reason: the units it is sweeping up
+		// have to stand on top of it
+		TheInGameUI->drawAttackCircleFill();
+	}
 
 	// We do some custom blending, so tell the shader class to reset everything.
 	DX8Wrapper::Set_Texture(0,NULL);
