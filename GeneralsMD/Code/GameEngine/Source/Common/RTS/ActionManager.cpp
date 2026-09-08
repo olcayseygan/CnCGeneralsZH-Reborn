@@ -36,6 +36,7 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
 #include "Common/ActionManager.h"
+#include "Common/BuildAssistant.h"
 #include "Common/GlobalData.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
@@ -1579,10 +1580,28 @@ Bool ActionManager::canDoSpecialPowerAtLocation( const Object *obj, const Coord3
 			case SUPW_SPECIAL_PARTICLE_UPLINK_CANNON:
 			case LAZR_SPECIAL_PARTICLE_UPLINK_CANNON:
 			case SPECIAL_CLEANUP_AREA:
-			case SPECIAL_SNEAK_ATTACK:
 			case SPECIAL_BATTLESHIP_BOMBARDMENT:
 				//Don't allow "damaging" special powers in shrouded areas, but Fogged are okay.
 				return ThePartitionManager->getShroudStatusForPlayer( obj->getControllingPlayer()->getPlayerIndex(), loc ) != CELLSHROUD_SHROUDED;
+
+			case SPECIAL_SNEAK_ATTACK:
+			{
+				// The Sneak Attack puts a building on the ground, and the only thing checked here was
+				// the shroud, so it could be dropped on water, on a cliff or inside another building.
+				const ThingTemplate *referenceThing = mod->getReferenceThingTemplate();
+				if( referenceThing == NULL )
+					return FALSE;
+
+				return TheBuildAssistant->isLocationLegalToBuild(
+					loc, referenceThing, referenceThing->getPlacementViewAngle(),
+					BuildAssistant::USE_QUICK_PATHFIND |
+					BuildAssistant::TERRAIN_RESTRICTIONS |
+					BuildAssistant::CLEAR_PATH |
+					BuildAssistant::NO_OBJECT_OVERLAP |
+					BuildAssistant::SHROUD_REVEALED |
+					BuildAssistant::IGNORE_STEALTHED,
+					obj, NULL ) == LBC_OK;
+			}
 
 			case SPECIAL_SPY_SATELLITE:
 			case SPECIAL_RADAR_VAN_SCAN:

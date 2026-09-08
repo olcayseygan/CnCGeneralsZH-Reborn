@@ -677,7 +677,7 @@ void BuildAssistant::iterateFootprint( const ThingTemplate *build,
 LegalBuildCode BuildAssistant::isLocationClearOfObjects( const Coord3D *worldPos, 
 																											 const ThingTemplate *build,
 																											 Real angle,
-																											 Object *builderObject,
+																											 const Object *builderObject,
 																											 UnsignedInt options,
 																											 Player *thePlayer)
 {
@@ -930,7 +930,7 @@ LegalBuildCode BuildAssistant::isLocationLegalToBuild( const Coord3D *worldPos,
 																											 const ThingTemplate *build,
 																											 Real angle, 
 																											 UnsignedInt options, 
-																											 Object *builderObject,
+																											 const Object *builderObject,
 																											 Player *player)
 {
 
@@ -1017,7 +1017,7 @@ LegalBuildCode BuildAssistant::isLocationLegalToBuild( const Coord3D *worldPos,
 	// if clear path is requested check to see if the builder object can get there (unless it's a structure)
 	if( BitTest( options, CLEAR_PATH ) && builderObject && !builderObject->isKindOf( KINDOF_IMMOBILE ) )
 	{
-		AIUpdateInterface *ai = builderObject->getAIUpdateInterface();
+		const AIUpdateInterface *ai = builderObject->getAIUpdateInterface();
 
 		//
 		// if there is no AI interface for this object, it cannot possible pass a clear path
