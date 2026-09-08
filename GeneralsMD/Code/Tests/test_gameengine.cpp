@@ -290,6 +290,24 @@ TEST(name_key_generator_round_trips)
 						(Int)TheNameKeyGenerator->nameToLowercaseKey( "tankgeneralusa" ) );
 }
 
+/* nameToLowercaseKey hashes the lowercased text but stores the string as it was given, so a
+   later exact lookup of the lowercase spelling lands in the same socket, fails the strcmp
+   against the stored mixed case, and gets a second key for what is one name.  Not fixed:
+   the two callers of nameToLowercaseKey - the file-exists cache and the image map - use it
+   for both storing and looking up, so nothing here goes through both paths, and making the
+   stored name canonical would change how many keys get allocated and therefore every key
+   number after it.  See UPSTREAM-FARK #3082. */
+TEST(namekey_lowercase_then_exact_lookup_makes_a_second_key_DEFECT_3082)
+{
+	CHECK( bootOnce() );
+
+	NameKeyType lower = TheNameKeyGenerator->nameToLowercaseKey( "DefectMixedCase" );
+	NameKeyType exact = TheNameKeyGenerator->nameToKey( "defectmixedcase" );
+
+	CHECK_NE( (Int)lower, (Int)exact );
+	CHECK_STR( TheNameKeyGenerator->keyToName( lower ).str(), "DefectMixedCase" );
+}
+
 /* AsciiString::toLower used to strcpy into a fixed 2048-byte stack buffer, so a
    longer string - a path, or a map name arriving over the network - wrote past the
    end of it.  2048 is MAX_FORMAT_BUF_LEN, private to the header, so this walks
