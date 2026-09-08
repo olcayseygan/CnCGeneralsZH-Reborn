@@ -5475,10 +5475,18 @@ void AIUpdateInterface::privateExit( Object *objectToExit, CommandSourceType cmd
 	if (!objectToExit)
 	{
 		objectToExit = us->getContainedBy();
-	}
 
-	if (!objectToExit)
-		return;
+		if (!objectToExit)
+			return;
+	}
+	else
+	{
+		// An object cannot get out of something it is not inside.  The order carries a container
+		// with it, and a stale one - the transport it left last, a building it was told to leave
+		// before somebody else pulled it out - used to be obeyed anyway.
+		if (us->getContainedBy() != objectToExit)
+			return;
+	}
 
   if ( objectToExit->isDisabledByType( DISABLED_SUBDUED ) )
     return;
@@ -5504,10 +5512,18 @@ void AIUpdateInterface::privateExitInstantly( Object *objectToExit, CommandSourc
 	if (!objectToExit)
 	{
 		objectToExit = us->getContainedBy();
-	}
 
-	if (!objectToExit)
-		return;
+		if (!objectToExit)
+			return;
+	}
+	else
+	{
+		// An object cannot get out of something it is not inside.  The order carries a container
+		// with it, and a stale one - the transport it left last, a building it was told to leave
+		// before somebody else pulled it out - used to be obeyed anyway.
+		if (us->getContainedBy() != objectToExit)
+			return;
+	}
 
   if ( objectToExit->isDisabledByType( DISABLED_SUBDUED ) )
     return;

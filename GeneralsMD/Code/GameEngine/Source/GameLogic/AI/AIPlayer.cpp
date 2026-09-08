@@ -367,7 +367,10 @@ void AIPlayer::onStructureProduced( Object *factory, Object *bldg )
 		Dict d;
 		d.setAsciiString(TheKey_objectName, info->getBuildingName());
 		d.setAsciiString(TheKey_objectScriptAttachment, info->getScript());
-		d.setInt(TheKey_objectInitialHealth, info->getHealth());
+		// The build list's health is the health the map author wanted the building to start at.
+		// Writing it here, when construction finishes, throws away whatever the scaffold actually
+		// has: a structure shot at while it was going up comes out at full health, and one the map
+		// wanted damaged comes out damaged twice.  Whatever the scaffold ended on is what it keeps.
 		d.setBool(TheKey_objectUnsellable, info->getUnsellable());
 		
 		info->setUnderConstruction(false);
@@ -733,7 +736,10 @@ Object *AIPlayer::buildStructureNow(const ThingTemplate *bldgPlan, BuildListInfo
 		Dict d;
 		d.setAsciiString(TheKey_objectName, info->getBuildingName());
 		d.setAsciiString(TheKey_objectScriptAttachment, info->getScript());
-		d.setInt(TheKey_objectInitialHealth, info->getHealth());
+		// The build list's health is the health the map author wanted the building to start at.
+		// Writing it here, when construction finishes, throws away whatever the scaffold actually
+		// has: a structure shot at while it was going up comes out at full health, and one the map
+		// wanted damaged comes out damaged twice.  Whatever the scaffold ended on is what it keeps.
 		d.setBool(TheKey_objectUnsellable, info->getUnsellable());
 		
 		bldg->updateObjValuesFromMapProperties(&d);

@@ -525,9 +525,11 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 		if( !canBeSubdued() )
 			return;
 		
+		// isSubdued now reads the status, which is set below off this very comparison, so the
+		// question "has this new damage crossed the line" has to be the comparison itself.
 		Bool wasSubdued = isSubdued();
 		internalAddSubdualDamage(amount);
-		Bool nowSubdued = isSubdued();
+		Bool nowSubdued = m_maxHealth <= m_currentSubdualDamage;
 		alreadyHandled = TRUE;
 		allowModifier = FALSE;
 
@@ -1367,7 +1369,12 @@ void ActiveBody::onSubdualChange( Bool isNowSubdued )
 //-------------------------------------------------------------------------------------------------
 Bool ActiveBody::isSubdued() const
 {
-	return m_maxHealth <= m_currentSubdualDamage;
+	/* Ask the status, not the arithmetic.  This used to compare subdual damage against max health,
+		 which is the rule that decides when to subdue in the first place - so anything that moved
+		 health across that line while the object was already subdued (a repair, a heal, a max health
+		 upgrade) made the answer disagree with the state the object is actually in, and a Battle Bus
+		 could be held down forever. */
+	return getObject()->isDisabledByType( DISABLED_SUBDUED );
 }
 
 //-------------------------------------------------------------------------------------------------
