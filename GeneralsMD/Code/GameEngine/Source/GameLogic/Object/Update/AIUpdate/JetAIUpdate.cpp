@@ -2493,6 +2493,27 @@ void JetAIUpdate::aiDoCommand(const AICommandParms* parms)
 				// don't need (or want) to take off for these
 				break;
 
+			/* A jet parked with no ammo used to take off the moment it was given an attack order, fly
+				 to the target, find it had nothing to shoot with and fly home again.  Hold the order
+				 instead: it is carried out when the rearming finishes, which is what the player meant. */
+			case AICMD_ATTACKMOVE_TO_POSITION:
+			case AICMD_ATTACK_AREA:
+			case AICMD_ATTACK_OBJECT:
+			case AICMD_ATTACK_POSITION:
+			case AICMD_ATTACK_TEAM:
+			case AICMD_FORCE_ATTACK_OBJECT:
+			case AICMD_GUARD_AREA:
+			case AICMD_GUARD_OBJECT:
+			case AICMD_GUARD_POSITION:
+			case AICMD_GUARD_RETALIATE:
+			case AICMD_HUNT:
+				if (isOutOfSpecialReloadAmmo())
+				{
+					setFlag(HAS_PENDING_COMMAND, true);
+					return;
+				}
+				// falls through
+
 			case AICMD_ENTER:
 			case AICMD_GET_REPAIRED:
 

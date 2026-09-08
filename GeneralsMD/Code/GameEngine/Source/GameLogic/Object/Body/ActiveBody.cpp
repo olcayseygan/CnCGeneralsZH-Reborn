@@ -1374,6 +1374,11 @@ Bool ActiveBody::isSubdued() const
 		 health across that line while the object was already subdued (a repair, a heal, a max health
 		 upgrade) made the answer disagree with the state the object is actually in, and a Battle Bus
 		 could be held down forever. */
+	// Except for projectiles, which never take a disabled flag of any kind when they are jammed,
+	// so for those the arithmetic is the only answer there is.
+	if (getObject()->isKindOf( KINDOF_PROJECTILE ))
+		return m_maxHealth <= m_currentSubdualDamage;
+
 	return getObject()->isDisabledByType( DISABLED_SUBDUED );
 }
 

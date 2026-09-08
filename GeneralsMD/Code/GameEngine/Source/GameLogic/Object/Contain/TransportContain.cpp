@@ -551,7 +551,10 @@ void TransportContain::killRidersWhoAreNotFreeToExit()
 			if (d->m_destroyRidersWhoAreNotFreeToExit)
 				TheGameLogic->destroyObject(obj);
 			else
-				obj->kill();
+				// Named death, not the default one: a burned death leaves no corpse, and the plain
+				// kill dropped infantry bodies out of a container they could not have got out of.
+				obj->kill( DAMAGE_UNRESISTABLE,
+									 d->m_isBurnedDeathToUnits ? DEATH_BURNED : DEATH_NORMAL );
 		}
 	}
 }

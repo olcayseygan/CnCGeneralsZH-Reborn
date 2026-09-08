@@ -890,14 +890,18 @@ void OpenContain::onDie( const DamageInfo * damageInfo )
 	if (!getOpenContainModuleData()->m_dieMuxData.isDieApplicable(getObject(), damageInfo))
 		return;
 
+	/* Kill the ones who have nowhere to get out to first.  This used to run after the damage pass,
+		 and the damage pass can kill an occupant - whose own container then tries to empty itself into
+		 a container that is already dying, so the occupants of the occupants were left standing in a
+		 wreck. */
+	killRidersWhoAreNotFreeToExit();
+
 	//Check to see if we are going to inflict damage on contained units.
 	if( getDamagePercentageToUnits() > 0 )
 	{
 		//Cycle through the units and apply damage to them!
 		processDamageToContained(getDamagePercentageToUnits());
 	}
-
-	killRidersWhoAreNotFreeToExit();
 
 	// Leaving this commented out to show it can't work.  We are about to die, so they will have zero 
 	// chance to hit an exitState::Update.  At least we would clean them up in onDelete.
