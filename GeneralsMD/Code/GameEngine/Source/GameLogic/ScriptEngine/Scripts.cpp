@@ -2162,13 +2162,12 @@ Parameter *Parameter::ReadParameter(DataChunkInput &file)
 		// quick hack to make loading models with "Fundamentalist" switch to "GLA"
 		if (pParm->m_string.startsWith("Fundamentalist")) 
 		{
-			char oldName[256];
-			char newName[256];
-			strcpy(oldName, pParm->m_string.str());
-			strcpy(newName, "GLA");
-			strcat(newName, oldName+strlen("Fundamentalist"));
-			pParm->m_string.set(newName);
-			DEBUG_LOG(("Changing Script Ref from %s to %s\n", oldName, newName));
+			// TheSuperHackers @fix The old code copied the name into a 256 byte stack buffer first,
+			// which overflows on a longer script reference. AsciiString has no such limit.
+			AsciiString newName = "GLA";
+			newName.concat( pParm->m_string.str() + strlen("Fundamentalist") );
+			DEBUG_LOG(("Changing Script Ref from %s to %s\n", pParm->m_string.str(), newName.str()));
+			pParm->m_string = newName;
 		}
 	}
 

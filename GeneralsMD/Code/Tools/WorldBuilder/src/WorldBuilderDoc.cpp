@@ -439,12 +439,11 @@ void CWorldBuilderDoc::Serialize(CArchive& ar)
 
 AsciiString ConvertToNonGCName(AsciiString name, Bool checkTemplate=true)
 {
-	char oldName[256];
-	char newName[256];
-	strcpy(oldName, name.str());
-	strcpy(newName, oldName+strlen("GC_"));
+	// TheSuperHackers @fix Skipping the prefix without checking for it walked past the
+	// terminator on a shorter name, and the 256 byte stack copy overflowed on a longer one.
+	const char *prefix = "GC_";
 	AsciiString swapName;
-	swapName.set(newName);
+	swapName.set( name.startsWith( prefix ) ? name.str() + strlen( prefix ) : name.str() );
 	if (checkTemplate)
 	{
 		const ThingTemplate *tt = TheThingFactory->findTemplate(swapName);
@@ -458,13 +457,9 @@ AsciiString ConvertToNonGCName(AsciiString name, Bool checkTemplate=true)
 
 AsciiString ConvertName(AsciiString name)
 {
-	char oldName[256];
-	char newName[256];
-	strcpy(oldName, name.str());
-	strcpy(newName, "GLA");
-	strcat(newName, oldName+strlen("Fundamentalist"));
-	AsciiString swapName;
-	swapName.set(newName);
+	const char *prefix = "Fundamentalist";
+	AsciiString swapName = "GLA";
+	swapName.concat( name.startsWith( prefix ) ? name.str() + strlen( prefix ) : name.str() );
 	const ThingTemplate *tt = TheThingFactory->findTemplate(swapName);
 	if (tt) {
 		return swapName;
@@ -474,13 +469,9 @@ AsciiString ConvertName(AsciiString name)
 
 AsciiString ConvertFaction(AsciiString name)
 {
-	char oldName[256];
-	char newName[256];
-	strcpy(oldName, name.str());
-	strcpy(newName, "FactionGLA");
-	strcat(newName, oldName+strlen("FactionFundamentalist"));
-	AsciiString swapName;
-	swapName.set(newName);
+	const char *prefix = "FactionFundamentalist";
+	AsciiString swapName = "FactionGLA";
+	swapName.concat( name.startsWith( prefix ) ? name.str() + strlen( prefix ) : name.str() );
 	const PlayerTemplate* pt = ThePlayerTemplateStore->findPlayerTemplate(NAMEKEY(swapName));
 	if (pt) {
 		return swapName;
