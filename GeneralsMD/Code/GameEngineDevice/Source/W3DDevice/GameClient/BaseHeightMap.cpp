@@ -377,7 +377,7 @@ void BaseHeightMapRenderObjClass::adjustTerrainLOD(Int adj)
 		m_shroud->reset();	//need reset here since initHeightData will load new shroud.
 
 	BaseHeightMapRenderObjClass *newROBJ = NULL;
-	if (TheGlobalData->m_terrainLOD==7) {
+	if (TheGlobalData->m_terrainLOD == TERRAIN_LOD_MAX) {
 		newROBJ = TheHeightMap;
 		if (newROBJ==NULL) {
 			newROBJ = NEW_REF( HeightMapRenderObjClass, () );
@@ -388,7 +388,9 @@ void BaseHeightMapRenderObjClass::adjustTerrainLOD(Int adj)
 			newROBJ = NEW_REF( FlatHeightMapRenderObjClass, () );
 		}
 	}
-	if (TheGlobalData->m_terrainLOD == 5)
+	// This mode draws no terrain object at all.  Upstream deleted the branch along with the mode
+	// itself; here the mode is still reachable from Options.ini, so the branch stays.
+	if (TheGlobalData->m_terrainLOD == TERRAIN_LOD_STRETCH_CLOUDS)
 		newROBJ = NULL;
 	RTS3DScene *pMyScene = (RTS3DScene *)Scene;
 	if (pMyScene) {

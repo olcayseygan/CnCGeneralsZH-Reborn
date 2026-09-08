@@ -172,6 +172,9 @@ public:
 };
 
 static DLListClass<SortingNodeStruct> sorted_list;
+// Nodes that arrive with no bounding sphere have nothing to sort by; they wait here and go into
+// the sorted list in one piece at flush time, instead of each walking it looking for a place.
+static DLListClass<SortingNodeStruct> unsorted_list;
 static DLListClass<SortingNodeStruct> clean_list;
 static unsigned total_sorting_vertices;
 
@@ -251,16 +254,22 @@ void SortingRendererClass::Insert_Triangles(
 	WWASSERT(vertex_buffer);
 	WWASSERT(state->vertex_count<=vertex_buffer->Get_Vertex_Count());
 
+	if (state->bounding_sphere.Radius <= 0.0f) {
+		// Nothing to sort by, so do not pay the walk down the list looking for a place.
+		state->transformed_center=Vector3(0.0f,0.0f,0.0f);
+		unsorted_list.Add_Tail(state);
+	}
+	else {
 	D3DXMATRIX mtx=(D3DXMATRIX&)state->sorting_state.world*(D3DXMATRIX&)state->sorting_state.view;
 	D3DXVECTOR3 vec=(D3DXVECTOR3&)state->bounding_sphere.Center;
 	D3DXVECTOR4 transformed_vec;
 	D3DXVec3Transform(
 		&transformed_vec,
 		&vec,
-		&mtx); 
+		&mtx);
 	state->transformed_center=Vector3(transformed_vec[0],transformed_vec[1],transformed_vec[2]);
 
-	
+
 	/// @todo lorenzen sez use a bucket sort here... and stop copying so much data so many times
 
 	SortingNodeStruct* node=sorted_list.Head();
@@ -275,6 +284,7 @@ void SortingRendererClass::Insert_Triangles(
 		node=node->Succ();
 	}
 	if (!node) sorted_list.Add_Tail(state);
+	}
 
 #ifdef WWDEBUG
 	unsigned short* indices=NULL;
@@ -631,6 +641,22 @@ void SortingRendererClass::Flush()
 	DX8Wrapper::Get_Transform(D3DTS_VIEW,old_view);
 	DX8Wrapper::Get_Transform(D3DTS_WORLD,old_world);
 
+	// Put the unsorted nodes in where the sorted ones cross behind the camera, in the order they
+	// arrived.  Insert_Before takes care of the head, so the boundary node can be the head.
+	if (unsorted_list.Head()) {
+		SortingNodeStruct* at=sorted_list.Head();
+		while (at && at->transformed_center.Z > 0.0f)
+			at=at->Succ();
+
+		while (SortingNodeStruct* state=unsorted_list.Head()) {
+			state->Remove();
+			if (at)
+				state->Insert_Before(at);
+			else
+				sorted_list.Add_Tail(state);
+		}
+	}
+
 	while (SortingNodeStruct* state=sorted_list.Head()) {
 		state->Remove();
 		
@@ -676,6 +702,14 @@ void SortingRendererClass::Deinit()
 	//
 	while ((head = sorted_list.Head ()) != NULL) {
 		sorted_list.Remove_Head ();
+		delete head;
+	}
+
+	//
+	//	Flush the unsorted list
+	//
+	while ((head = unsorted_list.Head ()) != NULL) {
+		unsorted_list.Remove_Head ();
 		delete head;
 	}
 

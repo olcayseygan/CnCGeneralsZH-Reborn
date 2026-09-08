@@ -927,7 +927,12 @@ void PointGroupClass::Render(RenderInfoClass &rinfo)
 	DX8Wrapper::Set_Texture(0,Texture);
 
 	// Enable sorting if the primitives are translucent and alpha testing is not enabled.
-	const bool sort = (Shader.Get_Dst_Blend_Func() != ShaderClass::DSTBLEND_ZERO) && (Shader.Get_Alpha_Test() == ShaderClass::ALPHATEST_DISABLE) && (WW3D::Is_Sorting_Enabled());
+	// TheSuperHackers @bugfix Ground-aligned particles are left out of it.  They lie flat, so
+	// sorting them against the billboards clips one against the other and costs the sort as well.
+	const bool sort = Billboard &&
+										(Shader.Get_Dst_Blend_Func() != ShaderClass::DSTBLEND_ZERO) &&
+										(Shader.Get_Alpha_Test() == ShaderClass::ALPHATEST_DISABLE) &&
+										(WW3D::Is_Sorting_Enabled());
 
 	IndexBufferClass *indexbuffer;
 	int	verticesperprimitive;/// lorenzen fixed
@@ -1836,6 +1841,8 @@ void PointGroupClass::RenderVolumeParticle(RenderInfoClass &rinfo, unsigned int 
 		DX8Wrapper::Set_Texture(0,Texture);
 
 		// Enable sorting if the primitives are translucent and alpha testing is not enabled.
+		// Volumetric particles keep it whether they billboard or not: their stacked layers do not
+		// face the camera square on, so the alpha blending needs the order.
 		const bool sort = (Shader.Get_Dst_Blend_Func() != ShaderClass::DSTBLEND_ZERO) && (Shader.Get_Alpha_Test() == ShaderClass::ALPHATEST_DISABLE) && (WW3D::Is_Sorting_Enabled());
 
 		IndexBufferClass *indexbuffer;
