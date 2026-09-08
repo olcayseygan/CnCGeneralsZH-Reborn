@@ -475,6 +475,9 @@ public:
 	void onRemovedFrom( Object *removedFrom );
 	Int getTransportSlotCount() const;
 	void friend_setContainedBy( Object *containedBy ) { m_containedBy = containedBy; }
+	const Object* getEnclosingContainedBy() const;	///< the first container up the chain that hides what is inside it
+	const Object* getOuterObject() const;						///< that container, or this object when nothing hides it
+	Bool isLogicallyVisible() const;								///< can the watching player see this at all, shroud aside
 
 	// Special Powers -------------------------------------------------------------------------------
 	SpecialPowerModuleInterface *getSpecialPowerModule( const SpecialPowerTemplate *specialPowerTemplate ) const;

@@ -147,8 +147,7 @@ Bool SupplyCenterDockUpdate::action( Object* docker, Object *drone )
 	// OY LOOK!  I AM USING LOCAL PLAYER.  Do not put anything other than TheInGameUI->addFloatingText in the block this controls!!!
 	// The figure shows if this watcher can see the centre - an ally sharing the sight and an
 	// observer both got nothing from the old spelled-out rule.
-	Drawable *centerDraw = getObject()->getDrawable();
-	Bool displayMoney = ( value > 0 && centerDraw != NULL && centerDraw->isVisible() );
+	Bool displayMoney = ( value > 0 && getObject()->isLogicallyVisible() );
 		
 	if( displayMoney )
 	{

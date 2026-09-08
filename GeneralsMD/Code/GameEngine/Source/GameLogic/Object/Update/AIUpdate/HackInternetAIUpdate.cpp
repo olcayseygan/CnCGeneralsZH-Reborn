@@ -558,11 +558,10 @@ StateReturnType HackInternetState::update()
 				//
 				// A hacker working from inside an Internet Center has no drawable on screen at all -
 				// a garrisoned unit is hidden by its container - so asking the hacker whether it can
-				// be seen answered no for the whole time the money was coming in.  The thing on
-				// screen is the building, so it is the building that gets asked.
+				// be seen answered no for the whole time the money was coming in.  isLogicallyVisible
+				// asks about the thing on screen, which is the building.
 				Object *internetCenter = owner->getContainedBy();
-				Drawable *ownerDraw = internetCenter ? internetCenter->getDrawable() : owner->getDrawable();
-				Bool displayMoney = ( ownerDraw != NULL && ownerDraw->isVisible() );
+				Bool displayMoney = owner->isLogicallyVisible();
 
 				if( displayMoney )
 				{

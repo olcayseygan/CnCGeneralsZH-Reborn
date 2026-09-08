@@ -941,8 +941,10 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate
 		// used to be spelled out as "not mine, and stealthed, and not detected, and not disguised",
 		// which reads the same for a player but hid the shot from an ally who shares your sight and
 		// from an observer who sees everything.
-		Drawable *sourceDraw = sourceObj->getDrawable();
-		if((sourceDraw == NULL || !sourceDraw->isVisible())	// if the watcher cannot see us
+		// And it asks about stealth rather than about a drawable's hidden flag: a unit that has just
+		// left a tunnel has a visible drawable while it is still stealthed, and used to give itself
+		// away with its own muzzle flash.
+		if(!sourceObj->isLogicallyVisible()									// if the watcher cannot see us
 			&& !sourceObj->isKindOf(KINDOF_MINE)								// and not a mine (which always do the FX, even if hidden)...
 			&& !isPlayFXWhenStealthed()													// and not a weapon marked to playwhenstealthed
 			)

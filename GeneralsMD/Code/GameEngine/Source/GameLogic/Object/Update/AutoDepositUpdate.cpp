@@ -212,8 +212,7 @@ UpdateSleepTime AutoDepositUpdate::update( void )
 		// OY LOOK!  I AM USING LOCAL PLAYER.  Do not put anything other than TheInGameUI->addFloatingText in the block this controls!!!
 		// The figure shows if this watcher can see the building - which covers an ally sharing the
 		// sight and an observer, both of whom the old spelled-out rule left out.
-		Drawable *depositDraw = getObject()->getDrawable();
-		Bool displayMoney = ( moneyAmount > 0 && depositDraw != NULL && depositDraw->isVisible() );
+		Bool displayMoney = ( moneyAmount > 0 && getObject()->isLogicallyVisible() );
 		
 		if( displayMoney )
 		{

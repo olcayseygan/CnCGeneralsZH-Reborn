@@ -744,6 +744,61 @@ Int Object::getTransportSlotCount() const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The first container up the chain that visibly encloses what is inside it.  A man in a Humvee is
+	* enclosed; a man riding a bike is not.  NULL when nothing hides this object. */
+//-------------------------------------------------------------------------------------------------
+const Object* Object::getEnclosingContainedBy() const
+{
+	for (const Object *child = this, *container = getContainedBy(); container;
+			 child = container, container = container->getContainedBy())
+	{
+		ContainModuleInterface *containModule = container->getContain();
+		if (containModule && containModule->isEnclosingContainerFor( child ))
+			return container;
+	}
+	return NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Whatever the watching player would actually be looking at: the transport if this is inside one,
+	* otherwise this object. */
+//-------------------------------------------------------------------------------------------------
+const Object* Object::getOuterObject() const
+{
+	const Object *enclosing = getEnclosingContainedBy();
+	return enclosing ? enclosing : this;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Whether the watching player can see this at all, leaving the shroud out of it.
+	*
+	* Client-side feedback - the rank-up animation, the floating cash, a weapon's muzzle flash - used
+	* to ask the object's own drawable whether it was visible.  A passenger inside a transport has a
+	* drawable that is hidden, so a man who ranked up in a Humvee got no chevron; and a unit that had
+	* left a tunnel had a visible drawable while it was still stealthed, so it announced itself.
+	* Ask about the thing the player is looking at, and ask about stealth rather than about a
+	* drawable's hidden flag. */
+//-------------------------------------------------------------------------------------------------
+Bool Object::isLogicallyVisible() const
+{
+	const Object *obj = getOuterObject();
+
+	// A disguised unit is meant to be seen by everybody, and the disguise status is briefly absent
+	// while the disguise is being put on, so ask what it is rather than what it is doing.
+	if (obj->isKindOf( KINDOF_DISGUISER ))
+		return TRUE;
+
+	if (obj->testStatus( OBJECT_STATUS_STEALTHED ) && !obj->testStatus( OBJECT_STATUS_DETECTED ))
+	{
+		const Player *player = ThePlayerList->getLocalPlayer();
+		if (player && player->isPlayerActive() && player->getRelationship( getTeam() ) != ALLIES)
+			return FALSE;
+	}
+
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Run from GameLogic::destroyObject */
 //-------------------------------------------------------------------------------------------------
 void Object::onDestroy()
@@ -3211,8 +3266,10 @@ void Object::onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLevel ne
 	// the same for a player but is wrong for everyone else at the table: an ally who shares your
 	// sight, and an observer who sees everything, both got nothing.  The drawable already answers
 	// the question for whoever is watching.
-	const Drawable *draw = getDrawable();
-	Bool hideAnimationForStealth = ( draw == NULL || !((Drawable *)draw)->isVisible() );
+	// And "this watcher can see the unit" means the thing on screen, which for a passenger is the
+	// transport it is riding in - a man who ranks up inside a Humvee has a hidden drawable of his
+	// own and used to get no chevron at all.
+	Bool hideAnimationForStealth = !isLogicallyVisible();
 
 	Bool doAnimation = ( ! hideAnimationForStealth 
 											&& (newLevel > oldLevel) 

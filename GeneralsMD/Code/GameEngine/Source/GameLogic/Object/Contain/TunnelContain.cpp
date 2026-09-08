@@ -243,18 +243,18 @@ void TunnelContain::onRemoving( Object *obj )
 	// object is no longer held inside a garrisoned building
 	obj->clearDisabled( DISABLED_HELD );
 
-	/// place the object in the world at position of the container m_object
-	ThePartitionManager->registerObject( obj );
+	/* Put the object back in the world at the tunnel's position.
+
+		 This used to register it with the partition manager and unhide its drawable by hand, which
+		 does most of what is needed and skips the rest: whatever the object had attached to it - the
+		 flame on a flame trooper, a rider's own drawable - stayed hidden, so a unit that came out of a
+		 tunnel inside the fog carried invisible attachments around with it.  addOrRemoveObjFromWorld
+		 is the one that puts every piece of an object back. */
 	obj->setPosition( getObject()->getPosition() );
-	if( obj->getDrawable() )
-	{
-		obj->setSafeOcclusionFrame(TheGameLogic->getFrame()+obj->getTemplate()->getOcclusionDelay());
-		obj->getDrawable()->setDrawableHidden( false );
-	}
+	obj->setSafeOcclusionFrame( TheGameLogic->getFrame() + obj->getTemplate()->getOcclusionDelay() );
+	addOrRemoveObjFromWorld( obj, TRUE );
 
 	doUnloadSound();
-
-
 }
 
 //-------------------------------------------------------------------------------------------------
