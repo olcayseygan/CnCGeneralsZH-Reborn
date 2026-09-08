@@ -1009,9 +1009,8 @@ void MilesAudioManager::killAudioEventImmediately( AudioHandle audioEvent )
 	for( ait = m_audioRequests.begin(); ait != m_audioRequests.end(); ait++ ) 
 	{
 		AudioRequest *req = (*ait);
-		// m_handleToInteractOn and m_pendingEvent share one union, and a play request fills in the
-		// event pointer - so this compared a pointer against a handle, never matched, and a sound
-		// killed before it started played anyway.
+		// A play request carries the event, not the handle, so the match is on the event's handle.
+		// The two used to share a union and this compared a pointer against a handle instead.
 		if( req && req->m_usePendingEvent && req->m_pendingEvent
 				&& req->m_pendingEvent->getPlayingHandle() == audioEvent )
 		{

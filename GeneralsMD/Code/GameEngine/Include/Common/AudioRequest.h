@@ -49,13 +49,31 @@ struct AudioRequest : public MemoryPoolObject
 
 public:
 	RequestType m_request;
-	union 
-	{
-		AudioEventRTS *m_pendingEvent;
-		AudioHandle m_handleToInteractOn;
-	};
+
+	//
+	// These two used to share a union, told apart by m_usePendingEvent.  A play request fills in
+	// the event pointer, so the kill-by-handle search compared a pointer against a handle, never
+	// matched, and a sound killed before it started played anyway.  They are eight bytes; sharing
+	// them bought nothing and cost that.
+	//
+	AudioEventRTS *m_pendingEvent;
+	AudioHandle m_handleToInteractOn;
+
 	Bool m_usePendingEvent;
 	Bool m_requiresCheckForSample;
+
+	//
+	// The pool hands out raw memory, and allocateAudioRequest only ever set m_usePendingEvent.
+	// Between that call and the caller assigning the event, m_pendingEvent held whatever the last
+	// occupant of the block left there - which the destructor would then delete.
+	//
+	AudioRequest()
+		: m_request(AR_Play),
+			m_pendingEvent(NULL),
+			m_handleToInteractOn(0),
+			m_usePendingEvent(FALSE),
+			m_requiresCheckForSample(FALSE)
+	{ }
 
 	/** A play request owns the event it is carrying until something takes it - the destructor frees
 		* whatever is left, so a request dropped without being processed no longer leaks it. */
