@@ -2557,11 +2557,11 @@ Drawable *W3DView::pickDrawable( const ICoord2D *screen, Bool forceAttack, PickT
 /** convert a pixel (x,y) to a location in the world on the terrain.
 	Screen coordinates assumed in absolute values relative to full display resolution.  */
 //-------------------------------------------------------------------------------------------------
-void W3DView::screenToTerrain( const ICoord2D *screen, Coord3D *world )
+Bool W3DView::screenToTerrain( const ICoord2D *screen, Coord3D *world )
 {
 	// sanity
 	if( screen == NULL || world == NULL || TheTerrainRenderObject == NULL )
-		return;
+		return FALSE;
 
 	if (m_cameraHasMovedSinceRequest) {
 		m_locationRequests.clear();
@@ -2578,7 +2578,7 @@ void W3DView::screenToTerrain( const ICoord2D *screen, Coord3D *world )
 	for (int i = m_locationRequests.size() - 1; i >= 0; --i) {
 		if (m_locationRequests[i].first.x == screen->x && m_locationRequests[i].first.y == screen->y) {
 			(*world) = m_locationRequests[i].second;
-			return;
+			return TRUE;
 		}
 	}
 
@@ -2593,28 +2593,44 @@ void W3DView::screenToTerrain( const ICoord2D *screen, Coord3D *world )
 
 	RayCollisionTestClass raytest(lineseg,&result);
 
+	Bool hit = FALSE;
+
 	if( TheTerrainRenderObject->Cast_Ray(raytest) )
 	{
 		// get the point of intersection according to W3D
 		intersection = result.ContactPoint;
-		
+		hit = TRUE;
+
 	}  // end if
 
-	// Pick bridges.  
+	// Pick bridges.
 	Vector3 bridgePt;
 	Drawable *bridge = TheTerrainLogic->pickBridge(rayStart, rayEnd, &bridgePt);
 	if (bridge && bridgePt.Z > intersection.Z) {
 		intersection = bridgePt;
+		hit = TRUE;
 	}
 
+	//
+	// A ray aimed above the horizon reaches no ground at all, and this used to hand the caller
+	// (0,0,0) without a word - a real place, the corner of the map, which is why the radius cursor
+	// and the building ghost jumped there.  The out parameter still gets that value so the callers
+	// that ignore the answer behave exactly as before; the answer is now available to the ones that
+	// should not draw anything at all.
+	//
 	world->x = intersection.X;
 	world->y = intersection.Y;
 	world->z = intersection.Z;
+
+	if (!hit)
+		return FALSE;
 
 	PosRequest req;
 	req.first = (*screen);
 	req.second = (*world);
 	m_locationRequests.push_back(req);	// Insert this request at the end, requires no extra copies
+
+	return TRUE;
 
 }  // end screenToTerrain
 

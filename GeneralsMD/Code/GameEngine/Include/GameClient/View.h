@@ -201,7 +201,10 @@ public:
   Bool worldToScreen( const Coord3D *w, ICoord2D *s ) { return worldToScreenTriReturn( w, s ) == WTS_INSIDE_FRUSTUM; }	///< Transform world coordinate "w" into screen coordinate "s"
   virtual WorldToScreenReturn worldToScreenTriReturn(const Coord3D *w, ICoord2D *s ) = 0; ///< Like worldToScreen(), but with a more informative return value
 	virtual void screenToWorld( const ICoord2D *s, Coord3D *w ) = 0;										///< Transform screen coordinate "s" into world coordinate "w"
-	virtual void screenToTerrain( const ICoord2D *screen, Coord3D *world ) = 0;  ///< transform screen coord to a point on the 3D terrain
+	/// Transform a screen coord to a point on the 3D terrain.  FALSE when the ray reaches no ground,
+	/// which happens whenever the pixel is above the horizon; world is still filled in, with the
+	/// map corner, so a caller that ignores this reads what it always read.
+	virtual Bool screenToTerrain( const ICoord2D *screen, Coord3D *world ) = 0;
 	virtual void screenToWorldAtZ( const ICoord2D *s, Coord3D *w, Real z ) = 0;  ///< transform screen point to world point at the specified world Z value
 
 	virtual void getLocation ( ViewLocation *location );								///< write the view's current location in to the view location object

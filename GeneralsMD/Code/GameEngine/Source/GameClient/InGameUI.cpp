@@ -1528,8 +1528,9 @@ void InGameUI::handleRadiusCursor()
 												&& ThePlayerList->getLocalPlayer()->hasRadar()
 											);
 
-		if( !radarOn  ||  (TheRadar->screenPixelToWorld( &mouseIO->pos, &pos ) == FALSE) )// if radar off, or point not on radar
-			TheTacticalView->screenToTerrain( &mouseIO->pos, &pos );
+		Bool hasPos = radarOn && TheRadar->screenPixelToWorld( &mouseIO->pos, &pos );
+		if( !hasPos )// if radar off, or point not on radar
+			hasPos = TheTacticalView->screenToTerrain( &mouseIO->pos, &pos );
 
 
     if ( TheGlobalData->m_doubleClickAttackMove && m_duringDoubleClickAttackMoveGuardHintTimer > 0 )
@@ -1538,7 +1539,7 @@ void InGameUI::handleRadiusCursor()
   		m_curRadiusCursor.setPosition( m_duringDoubleClickAttackMoveGuardHintStashedPosition );	//world space position of center of decal
 
     }
-    else
+    else if ( hasPos )
     {
   		m_curRadiusCursor.setPosition(pos);	//world space position of center of decal
       m_curRadiusCursor.update();
@@ -1550,9 +1551,11 @@ void InGameUI::handleRadiusCursor()
 
 void InGameUI::triggerDoubleClickAttackMoveGuardHint( void ) 
 {
-  m_duringDoubleClickAttackMoveGuardHintTimer = 11; 
 	const MouseIO* mouseIO = TheMouse->getMouseStatus();
-	TheTacticalView->screenToTerrain( &mouseIO->pos, &m_duringDoubleClickAttackMoveGuardHintStashedPosition );
+	// No ground under the cursor means there is nothing to stash and nothing to hint at, so the
+	// timer stays down rather than parking the hint on the corner of the map for eleven frames.
+	if( TheTacticalView->screenToTerrain( &mouseIO->pos, &m_duringDoubleClickAttackMoveGuardHintStashedPosition ) )
+		m_duringDoubleClickAttackMoveGuardHintTimer = 11;
 }
 
 
@@ -1733,7 +1736,10 @@ void InGameUI::handleBuildPlacements( void )
 		// set the location and angle of the place icon
 		/**@todo this whole orientation vector thing is LAME! Must replace, all I want to
 		to do is set a simple angle and have it automatically change, ug! */
-		TheTacticalView->screenToTerrain( &loc, &world );
+		// Above the horizon the ray reaches no ground and the answer is the corner of the map, which
+		// threw the ghost across the world and back.  Hold it where it was instead.
+		if( !TheTacticalView->screenToTerrain( &loc, &world ) )
+			world = *m_placeIcon[ 0 ]->getPosition();
 		snapPlacementToGrid( &world, m_pendingPlaceType, angle );
 
 		//
@@ -1852,8 +1858,12 @@ void InGameUI::handleBuildPlacements( void )
 
 			// project the start and the end points of the line anchor into the 3D world
 			Coord3D worldStart, worldEnd;
-			TheTacticalView->screenToTerrain( &screenStart, &worldStart );
-			TheTacticalView->screenToTerrain( &screenEnd, &worldEnd );
+			// An end that leaves the ground - the cursor dragged above the horizon - has no place on
+			// the map, and the corner is not it.  Leave the line as it was last drawn.  This block is
+			// the last thing handleBuildPlacements does.
+			if( !TheTacticalView->screenToTerrain( &screenStart, &worldStart ) ||
+					!TheTacticalView->screenToTerrain( &screenEnd, &worldEnd ) )
+				return;
 
 			// both ends, so a wall lands on the grid and tiles from a grid square
 			snapPlacementToGrid( &worldStart, m_pendingPlaceType, angle );
