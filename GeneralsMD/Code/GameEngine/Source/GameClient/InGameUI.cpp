@@ -2973,7 +2973,7 @@ void InGameUI::updateOrderHints( void )
 		// the order the group is on right now is no longer in the list, so it is drawn from here
 		const Object *active = m_shiftAttackQueueActive.targetID != INVALID_ID
 													 ? TheGameLogic->findObjectByID( m_shiftAttackQueueActive.targetID ) : NULL;
-		if( active && !active->isEffectivelyDead() )
+		if( active && !active->isEffectivelyDead() && !isHiddenByShroud( active ) )
 		{
 			hint.kind = ORDER_HINT_ATTACK;
 			hint.to = *active->getPosition();
@@ -3005,9 +3005,11 @@ void InGameUI::addShiftAttackQueueTail( OrderHint& hint, const std::vector<Order
 		{
 			// a queued victim is drawn where it stands now rather than where it stood when the player
 			// picked it, so the thread follows a target that is driving away.  One that died while it
-			// waited its turn is drawn nowhere: the order will be skipped
+			// waited its turn is drawn nowhere: the order will be skipped.  Nor is one that has driven
+			// into the shroud since it was picked - the thread would otherwise trace it through the
+			// fog, which is a look at the map you have not earned
 			const Object *victim = TheGameLogic->findObjectByID( qit->targetID );
-			if( victim == NULL || victim->isEffectivelyDead() )
+			if( victim == NULL || victim->isEffectivelyDead() || isHiddenByShroud( victim ) )
 				continue;
 
 			hint.kind = ORDER_HINT_ATTACK;
@@ -3122,7 +3124,6 @@ Bool InGameUI::issueAttackCircle( void )
 		return FALSE;
 
 	Player *local = ThePlayerList->getLocalPlayer();
-	const Int localIndex = local->getPlayerIndex();
 
 	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( &center, radius,
 																																		FROM_CENTER_2D, NULL,
@@ -3135,7 +3136,17 @@ Bool InGameUI::issueAttackCircle( void )
 			continue;
 		if( local->getRelationship( obj->getTeam() ) != ENEMIES )
 			continue;
-		if( obj->getShroudedStatus( localIndex ) > OBJECTSHROUD_PARTIAL_CLEAR )
+		if( isHiddenByShroud( obj ) )
+			continue;
+
+		//
+		// Not everything hostile standing in the circle is something to shoot at.  A shell or a
+		// missile in flight is an object on the enemy's team like any other, and the range query hands
+		// them over the same way it hands over tanks; the rest of the engine drops them by kind
+		// wherever it scans.  Each one that reached the list cost the group a two second stall on a
+		// target that was about to stop existing.
+		//
+		if( obj->isKindOf( KINDOF_PROJECTILE ) || obj->isKindOf( KINDOF_UNATTACKABLE ) )
 			continue;
 
 		queueAttackWaypoint( obj->getPosition(), obj );
@@ -3145,6 +3156,15 @@ Bool InGameUI::issueAttackCircle( void )
 	DEBUG_LOG(("attack circle: radius %.0f, %d targets, %d selected\n", radius, targetCount,
 						 getSelectCount()));
 	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Whether the shroud is over this object as far as the player at this machine is concerned. */
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::isHiddenByShroud( const Object *obj ) const
+{
+	const Int localIndex = ThePlayerList->getLocalPlayer()->getPlayerIndex();
+	return obj->getShroudedStatus( localIndex ) > OBJECTSHROUD_PARTIAL_CLEAR;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3191,6 +3211,10 @@ void InGameUI::queueAttackWaypoint( const Coord3D *pos, Object *targetObj )
 	order.pos = *pos;
 	order.targetID = targetObj ? targetObj->getID() : INVALID_ID;
 
+	// remembered rather than read again when the order goes out: the attack key drops the moment the
+	// first order of the queue is sent, so everything behind it used to lose its force attack
+	order.forceAttack = isInForceAttackMode();
+
 	// who the queue belongs to.  A selection that is not part of the group holding the queue starts
 	// a fresh one rather than adding to whatever the old selection was doing
 	std::vector<ObjectID> current;
@@ -3203,18 +3227,7 @@ void InGameUI::queueAttackWaypoint( const Coord3D *pos, Object *targetObj )
 		m_shiftAttackQueueRunning = TRUE;
 		m_shiftAttackQueueActive = order;
 		m_shiftAttackQueueEngagedFrame = TheGameLogic->getFrame();
-
-		if( order.targetID != INVALID_ID )
-		{
-			GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACK_OBJECT );
-			msg->appendObjectIDArgument( order.targetID );
-		}
-		else
-		{
-			GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACKMOVETO );
-			msg->appendLocationArgument( order.pos );
-			msg->appendBooleanArgument( isInForceAttackMode() );
-		}
+		sendShiftAttackOrder( order );
 		return;
 	}
 
@@ -3229,6 +3242,7 @@ void InGameUI::clearShiftAttackQueue( void )
 	m_shiftAttackQueueRunning = FALSE;
 	m_shiftAttackQueueActive.targetID = INVALID_ID;
 	m_shiftAttackQueueActive.pos.zero();
+	m_shiftAttackQueueActive.forceAttack = FALSE;
 	m_shiftAttackQueueEngagedFrame = 0;
 	m_shiftAttackQueueWaitingForRearm = FALSE;
 	m_shiftAttackQueueWaitingForSelection = FALSE;
@@ -3288,7 +3302,7 @@ void InGameUI::sendShiftAttackOrder( const AttackWaypoint& waypoint )
 	{
 		GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_DO_ATTACKMOVETO );
 		msg->appendLocationArgument( waypoint.pos );
-		msg->appendBooleanArgument( isInForceAttackMode() );
+		msg->appendBooleanArgument( waypoint.forceAttack );
 	}
 }
 
@@ -3308,8 +3322,25 @@ void InGameUI::updateShiftAttackQueue( void )
 	// two seconds at the logic's own rate: longer than any repath, shorter than a stalled list
 	const UnsignedInt ABANDON_ORDER_FRAMES = 60;
 
+	// half a minute with the group out of hand.  The list belongs to those units and waits for them,
+	// but a player who has walked away from it should not have it fire again ten minutes later
+	// because they happened to reselect the same planes
+	const UnsignedInt FORGET_UNHELD_FRAMES = 900;
+
 	if( !m_shiftAttackQueueRunning )
 		return;
+
+	//
+	// A replay is played back from the recorded command stream, and this is a place that writes new
+	// commands into it.  A viewer who arms the attack key and drags a circle would be adding orders
+	// that were never in the recording, which is exactly the shape of desync that makes a replay
+	// stop matching its own CRC.
+	//
+	if( TheGameLogic->isInReplayGame() )
+	{
+		clearShiftAttackQueue();
+		return;
+	}
 
 	std::vector<ObjectID> current;
 	collectSelectedObjectIDs( current );
@@ -3346,11 +3377,23 @@ void InGameUI::updateShiftAttackQueue( void )
 								 TheGameLogic->getFrame(), stillAlive));
 		}
 
-		m_shiftAttackQueueEngagedFrame = TheGameLogic->getFrame();
+		// the clock is deliberately not reset here, so a list nobody comes back to eventually lapses
+		if( TheGameLogic->getFrame() - m_shiftAttackQueueEngagedFrame > FORGET_UNHELD_FRAMES )
+		{
+			logShiftAttackQueue( "over, half a minute with none of the group in hand" );
+			clearShiftAttackQueue();
+		}
+
 		return;
 	}
 
-	m_shiftAttackQueueWaitingForSelection = FALSE;
+	if( m_shiftAttackQueueWaitingForSelection )
+	{
+		// back in hand: the order in flight gets its two seconds again rather than being judged on a
+		// clock that ran the whole time the group was out of the selection
+		m_shiftAttackQueueWaitingForSelection = FALSE;
+		m_shiftAttackQueueEngagedFrame = TheGameLogic->getFrame();
+	}
 
 	if( !selectionOwnsShiftAttackQueue( current ) )
 	{

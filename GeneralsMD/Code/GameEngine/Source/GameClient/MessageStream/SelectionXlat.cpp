@@ -1060,8 +1060,16 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				{
 					TheInGameUI->clearAttackMoveToMode();
 					m_attackCircleJustIssued = TRUE;
-					break;
 				}
+
+				//
+				// Either way this press belonged to the attack key rather than to selection, so the
+				// release stops here.  Falling through reaches the deselect that ends an ordinary left
+				// click, and for a press that was not a drag - a plain attack click, or a circle small
+				// enough to have no radius - that threw the group away a moment before the click behind
+				// it arrived as the order, leaving the order with nobody to give it to.
+				//
+				break;
 			}
 
 			if (m_dragSelecting) {

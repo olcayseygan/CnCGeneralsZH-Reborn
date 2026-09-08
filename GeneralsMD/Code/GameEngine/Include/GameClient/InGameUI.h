@@ -467,6 +467,7 @@ public:  // ********************************************************************
 	{
 		Coord3D		pos;					///< where to attack-move to, or the last known spot of targetID
 		ObjectID	targetID;			///< INVALID_ID for a plain attack-move point, a specific victim otherwise
+		Bool			forceAttack;	///< what the attack key said when it was queued, not when it goes out
 	};
 	void queueAttackWaypoint( const Coord3D *pos, Object *targetObj );
 	void clearShiftAttackQueue( void );
@@ -1045,6 +1046,7 @@ protected:
 	void sendShiftAttackOrder( const AttackWaypoint& waypoint );	///< put one queue entry on the message stream
 	void logShiftAttackQueue( const char *why ) const;						///< one line saying what the queue did and what its group was doing
 	void addShiftAttackQueueTail( OrderHint& hint, const std::vector<OrderHint>& previous );	///< every target still owed, drawn on from where the hint leaves off
+	Bool isHiddenByShroud( const Object *obj ) const;						///< is the shroud over this, for the player at this machine
 	void collectSelectedObjectIDs( std::vector<ObjectID>& ids ) const;	///< the selection by id, sorted
 	Bool selectionOwnsShiftAttackQueue( const std::vector<ObjectID>& selected ) const;	///< is this still the group the queue was given to
 	Bool												m_displayedMaxWarning;                        ///< keeps the warning from being shown over and over

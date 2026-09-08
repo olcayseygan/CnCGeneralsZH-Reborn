@@ -793,7 +793,16 @@ void W3DInGameUI::drawAttackCircleFill( void )
 
 	GroundOverlayQuads &quads = theGroundOverlayQuads;
 	const UnsignedInt fill = overlayColor( FILL_RGB, FILL_ALPHA );
-	for( r = 0; r < FILL_RINGS; ++r )
+	// the innermost band is a fan around the centre point, two segments to a quad.  Running it through
+	// the same loop as the rest pins both inner corners to that one point, and every second triangle
+	// of the band comes out with no area at all
+	for( s = 0; s < FILL_SEGMENTS; s += 2 )
+	{
+		quads.add( ring[ 0 ][ 0 ], ring[ 1 ][ s ], ring[ 1 ][ s + 1 ], ring[ 1 ][ s + 2 ],
+							 fill, fill, fill, fill );
+	}
+
+	for( r = 1; r < FILL_RINGS; ++r )
 	{
 		for( s = 0; s < FILL_SEGMENTS; ++s )
 		{
