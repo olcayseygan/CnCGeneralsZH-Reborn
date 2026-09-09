@@ -196,6 +196,15 @@ set_target_properties(d3dx9runtime PROPERTIES CXX_STANDARD 17)
 target_include_directories(d3dx9runtime PUBLIC ${WW}/WW3D2)
 target_link_libraries(d3dx9runtime PUBLIC d3d9)
 
+# ---- ffshader -------------------------------------------------------------
+# The fixed-function texture stages written out as HLSL, phase 2's replacement for
+# combiners D3D11 does not have.  Its own library because it is string building over
+# a description and nothing else: the test links this alone rather than all of WW3D2.
+add_library(ffshader STATIC ${WW}/WW3D2/ffshader.cpp)
+set_target_properties(ffshader PROPERTIES CXX_STANDARD 17)
+target_include_directories(ffshader PUBLIC ${WW}/WW3D2)
+target_link_libraries(ffshader PUBLIC d3d9)
+
 # ---- ww3d2 (renderer core) ------------------------------------------------
 # wwshade is header-only here on purpose: no .dsp links wwshade.lib and its
 # shd*bump* sources need shdpp/NVASM-generated headers.  Revisit at exe link.
@@ -603,6 +612,8 @@ add_lib_test(test_compression compression)
 add_lib_test(test_ww3d2 ww3d2 wwsaveload wwlib wwmath wwdebug)
 target_include_directories(test_ww3d2 PRIVATE
   ${WW}/WW3D2 ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WWSaveLoad ${WW}/Wwutil)
+
+add_lib_test(test_ffshader ffshader)
 
 add_lib_test(test_wwdownload wwdownload)
 target_include_directories(test_wwdownload PRIVATE ${WW}/WWDownload)
