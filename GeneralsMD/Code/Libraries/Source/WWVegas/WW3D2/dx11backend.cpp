@@ -112,6 +112,31 @@ static void multiply(const float left[16], const float right[16], float result[1
 	}
 }
 
+// A light is handed to Direct3D 9 in world space and lit in camera space: the fixed-function
+// pipeline carries its position and direction through the view matrix itself, once per light rather
+// than once per vertex.  The generated shader lights in camera space too, so the same two products
+// happen here.  Without them a world space light direction is dotted against a camera space normal
+// and every lit model is shaded from the wrong angle - which reads as a lighting mood, not as a
+// bug, and cost the whole of Alpine Assault's remaining 9.23%.
+static void transform_point(const float source[4], const float matrix[16], float result[4])
+{
+	for (unsigned column = 0; column < 4; ++column) {
+		result[column] = source[0] * matrix[column]
+			+ source[1] * matrix[4 + column]
+			+ source[2] * matrix[8 + column]
+			+ matrix[12 + column];
+	}
+}
+
+static void transform_direction(const float source[4], const float matrix[16], float result[4])
+{
+	for (unsigned column = 0; column < 4; ++column) {
+		result[column] = source[0] * matrix[column]
+			+ source[1] * matrix[4 + column]
+			+ source[2] * matrix[8 + column];
+	}
+}
+
 // A normal is transformed by the inverse transpose of the upper three by three, not by the matrix
 // itself.  With a uniform scale the two differ only by a factor that normalize removes, but the
 // engine scales models unevenly and a normal carried through the matrix itself comes out pointing
@@ -984,8 +1009,8 @@ void DX11BackendClass::Upload_Constants()
 		if (!Lights[index].Enabled) {
 			continue;
 		}
-		memcpy(vertex_block.LightFields[slot][0], Lights[index].Position, sizeof(float) * 4);
-		memcpy(vertex_block.LightFields[slot][1], Lights[index].Direction, sizeof(float) * 4);
+		transform_point(Lights[index].Position, View, vertex_block.LightFields[slot][0]);
+		transform_direction(Lights[index].Direction, View, vertex_block.LightFields[slot][1]);
 		memcpy(vertex_block.LightFields[slot][2], Lights[index].Diffuse, sizeof(float) * 4);
 		memcpy(vertex_block.LightFields[slot][3], Lights[index].Specular, sizeof(float) * 4);
 		memcpy(vertex_block.LightFields[slot][4], Lights[index].Attenuation, sizeof(float) * 4);

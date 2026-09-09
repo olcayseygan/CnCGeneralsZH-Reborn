@@ -398,7 +398,14 @@ static bool generate_pretransformed(const VertexPipelineDescription & descriptio
 		"    Output output;\n"
 		"    float reciprocal_w = (input.Position.w == 0.0) ? 1.0 : input.Position.w;\n"
 		"    float w = 1.0 / reciprocal_w;\n"
-		"    float2 normalised = input.Position.xy * ViewportInverse.xy;\n"
+		// Direct3D 9 puts a pixel's centre at an integer screen coordinate and Direct3D 10 onwards
+		// puts it at a half-integer, so a screen space quad written for one lands half a pixel off
+		// under the other.  Every such quad in this engine already carries D3D9's own -0.5, which is
+		// what aligns a texel with a pixel there; the half added back here cancels it.  Miss it and
+		// the quad samples exactly between two texels, linear filtering averages them, and the whole
+		// scene comes back softened - 42% of the local contrast on Alpine Assault, with the command
+		// bar beside it sharp because the bar is drawn after the composite rather than through it.
+		"    float2 normalised = (input.Position.xy + 0.5) * ViewportInverse.xy;\n"
 		"    output.Position = float4((normalised.x * 2.0 - 1.0) * w,\n"
 		"        (1.0 - normalised.y * 2.0) * w, input.Position.z * w, w);\n";
 
@@ -480,7 +487,20 @@ bool VertexShader_Generate(const VertexPipelineDescription & description,
 	}
 
 	if (description.LightingEnabled) {
-		body += "    float3 diffuse_light = GlobalAmbient.rgb;\n";
+		// D3D9's vertex colour is
+		//     sum(atten * spot * Ldiffuse * Cdiffuse * N.L)
+		//   + Cambient * (Gambient + sum(atten * spot * Lambient))
+		//   + Cemissive
+		// so the scene ambient is spent once, through the ambient material.  Seeding this sum with
+		// it instead spends it twice - once scaled by the diffuse material and once by the ambient
+		// one - and every lit model comes out too bright.  It reads as a lighting mood rather than
+		// as a bug, which is why it survived six maps of zero-refusal runs: Alpine Assault at dusk
+		// was 13.2% from the Direct3D 9 frame and Golden Oasis in daylight 2.57%, and the geometry
+		// was in the right place in both.
+		//
+		// A light's own ambient is not in that second sum because DX11BackendClass::Set_Light does
+		// not carry one; every light W3D creates leaves it black.
+		body += "    float3 diffuse_light = float3(0.0, 0.0, 0.0);\n";
 		body += "    float3 specular_light = float3(0.0, 0.0, 0.0);\n";
 		for (unsigned index = 0; index < description.LightCount; ++index) {
 			append_light(body, index, description.Lights[index].Type);

@@ -133,6 +133,28 @@ TEST(ffvertex_a_spot_light_adds_the_cone_to_the_point_light_terms)
 	CHECK(contains(hlsl, "Light0Spot.z"));
 }
 
+// D3D9 spends the scene ambient once, through the ambient material:
+//     sum(atten * spot * Ldiffuse * Cdiffuse * N.L) + Cambient * Gambient + Cemissive
+// The generator used to seed the light sum with GlobalAmbient as well, which scaled it by the
+// diffuse material a second time and made every lit model brighter than Direct3D 9 draws it.  On a
+// dusk map that was 13.2% of the frame with the geometry in exactly the right place, so nothing
+// short of two pictures of one view could see it.
+TEST(ffvertex_the_scene_ambient_is_spent_once)
+{
+	VertexPipelineDescription lit = plain_description();
+	lit.LightingEnabled = true;
+	lit.LightCount = 1;
+	lit.Lights[0].Type = D3DLIGHT_DIRECTIONAL;
+
+	std::string hlsl;
+	CHECK(VertexShader_Generate(lit, VERTEX_SHADER_TARGET_D3D9, hlsl));
+
+	// The light sum starts empty and the ambient enters only through the ambient material.
+	CHECK(contains(hlsl, "float3 diffuse_light = float3(0.0, 0.0, 0.0);"));
+	CHECK(!contains(hlsl, "float3 diffuse_light = GlobalAmbient.rgb;"));
+	CHECK(contains(hlsl, "MaterialAmbient.rgb * GlobalAmbient.rgb"));
+}
+
 // D3DMCS_COLOR1 reads the diffuse vertex colour, but only where the format carries one and
 // D3DRS_COLORVERTEX allows it.  D3D9 falls back to the material in both of those cases and so does
 // this, which is a fallback rather than a refusal because the device makes it silently too.
@@ -276,9 +298,15 @@ TEST(ffvertex_puts_a_pretransformed_vertex_back_into_clip_space)
 	std::string hlsl;
 	CHECK(VertexShader_Generate(pretransformed, VERTEX_SHADER_TARGET_D3D11, hlsl));
 	CHECK(contains(hlsl, "float4 Position : POSITION;"));
-	CHECK(contains(hlsl, "input.Position.xy * ViewportInverse.xy"));
 	CHECK(contains(hlsl, "output.TexCoord0 = input.TexCoord0;"));
 	CHECK(contains(hlsl, "output.Diffuse = input.Diffuse;"));
+
+	// D3D9's pixel centre is at an integer screen coordinate and D3D11's at a half-integer, so the
+	// half these quads already carry for D3D9 has to be given back.  Without it the composite quad
+	// samples the scene texture exactly between two texels and the whole frame comes back softened:
+	// 42% of Alpine Assault's local contrast, with the command bar sharp beside it because the bar
+	// is drawn straight to the back buffer rather than through the composite.
+	CHECK(contains(hlsl, "(input.Position.xy + 0.5) * ViewportInverse.xy"));
 
 	// The one thing it must not do is transform a position that is already transformed.
 	CHECK(!contains(hlsl, "WorldViewProjection)"));
