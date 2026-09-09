@@ -1984,6 +1984,9 @@ void WaterRenderObjClass::drawSea(RenderInfoClass & rinfo)
 	m_pDev->SetVertexShaderConstantF(CV_ZERO,   D3DXVECTOR4(0.0f, 0.0f, 0.0f, 0.0f), 1);
 	m_pDev->SetVertexShaderConstantF(CV_ONE,    D3DXVECTOR4(1.0f, 1.0f, 1.0f, 1.0f), 1);
 
+	// The declaration D3D8 carried beside the shader has to be bound separately in D3D9, or the
+	// shader's dcl_ inputs read zero out of a stream the current FVF describes differently.
+	m_pDev->SetVertexDeclaration(m_waveVertexDeclaration);
 	m_pDev->SetVertexShader(m_dwWaveVertexShader);
 	m_pDev->SetPixelShader(m_dwWavePixelShader);
 

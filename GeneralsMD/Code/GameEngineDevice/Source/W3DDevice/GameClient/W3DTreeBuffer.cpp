@@ -1958,6 +1958,14 @@ void W3DTreeBuffer::drawTreeBuffers(Bool shadowPass)
 		// Render the waving grass
 		DX8Wrapper::Apply_Render_State_Changes();
 		if (m_dwTreeVertexShader) {
+			// D3D8 carried the vertex declaration beside the shader and SetVertexShader bound
+			// both.  D3D9 split them, and a shader whose dcl_ inputs have no matching element in
+			// whatever declaration is currently bound reads zero out of them.  The FVF the vertex
+			// buffer sets has no blend weight and no blend indices, which is where Trees.vso keeps
+			// the tree's base height, its sway type and its lit colour: without this the trees draw
+			// unswayed and black, their shadows draw unflattened on top of them, and the buffer,
+			// the draw call and the matrix all look right while it happens.
+			dev->SetVertexDeclaration(m_treeVertexDeclaration);
 			dev->SetVertexShader(m_dwTreeVertexShader);
 			dev->SetTextureStageState(0,  D3DTSS_TEXCOORDINDEX, 0);
 			dev->SetTextureStageState(1,  D3DTSS_TEXCOORDINDEX, 1);
