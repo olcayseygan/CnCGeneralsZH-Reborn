@@ -1329,6 +1329,23 @@ Int parseMSAA(char *args[], int num)
 	return 1;
 }
 
+/* -ffprobe: count the fixed-function combinations the frame actually uses.
+	 *
+	 * RENDERER-ROADMAP.md's phase 2 replaces fixed-function multitexture with HLSL, and the size of
+	 * that job is not the number of combinations shader.h can express - tens of thousands - but the
+	 * number the game sets during a match.  This reads the stage combiners and the pixel-affecting
+	 * render states back off the device at every draw call, so a call site that set its own states
+	 * without going through DX8Wrapper is counted too, and writes Run/ffprobe.txt at shutdown, most
+	 * used first.  Reading forty states per draw is slow; pair it with -maxframes. */
+Int parseFixedFunctionProbe(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_fixedFunctionProbe = TRUE;
+	}
+	return 1;
+}
+
 /* -camera <x> <y>: point the camera at one map position and leave it there.
 	 *
 	 * -screenshot only made a picture; it could not say of what.  The camera starts at the local
@@ -2084,6 +2101,7 @@ static CommandLineParam params[] =
 	{ "-maxframes", parseMaxGameFrames },
 	{ "-screenshot", parseScreenShot },
 	{ "-msaa", parseMSAA },
+	{ "-ffprobe", parseFixedFunctionProbe },
 	{ "-autocamera", parseAutoCamera },
 	{ "-camera", parseCameraLook },
 	{ "-tracemove", parseTraceMove },

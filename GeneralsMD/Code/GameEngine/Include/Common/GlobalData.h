@@ -121,6 +121,7 @@ public:
 	Int m_windowMode;					///< WindowModeType: fullscreen, borderless or windowed.  m_windowed
 														///< is derived from it and is what the device layer reads.
 	Int m_msaaLevel;					///< multisampling, as an index into the levels the options menu offers
+	Bool m_fixedFunctionProbe;	///< -ffprobe: count the fixed-function combinations the frame actually uses
 	Int m_xResolution;
 	Int m_yResolution;
 	Int m_maxShellScreens;  ///< this many shells layouts can be loaded at once

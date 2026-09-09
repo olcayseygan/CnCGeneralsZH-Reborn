@@ -72,6 +72,7 @@
 #include "thread.h"
 #include <stdio.h>
 #include "d3dx9runtime.h"
+#include "ffprobe.h"
 #include "pot.h"
 #include "wwprofile.h"
 #include "ffactory.h"
@@ -454,6 +455,9 @@ bool DX8Wrapper::Init(void * hwnd, bool lite)
 
 void DX8Wrapper::Shutdown(void)
 {
+	// Before the device goes, because the inventory is read off it.
+	FixedFunctionProbe_Dump("ffprobe.txt");
+
 	if (D3DDevice) {
 
 		Set_Render_Target ((IDirect3DSurface9 *)NULL);
@@ -2252,6 +2256,13 @@ void DX8Wrapper::Draw(
 	SNAPSHOT_SAY(("DX8 - draw\n"));
 
 	Apply_Render_State_Changes();
+
+	// -ffprobe only: the fixed-function inventory phase 2 has to write as HLSL, counted off the
+	// device rather than off this wrapper's cache, so a call site that set its own states directly
+	// is seen too.
+	if (FixedFunctionProbe_Is_Enabled()) {
+		FixedFunctionProbe_Record(D3DDevice);
+	}
 
 	// Debug feature to disable triangle drawing...
 	if (!_Is_Triangle_Draw_Enabled()) return;

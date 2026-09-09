@@ -646,6 +646,7 @@ GlobalData::GlobalData()
 	m_windowed = 0;
 	m_windowMode = WINDOW_MODE_FULLSCREEN;
 	m_msaaLevel = 0;
+	m_fixedFunctionProbe = FALSE;
 	m_xResolution = 800;
 	m_yResolution = 600;
 	m_maxShellScreens = 0;

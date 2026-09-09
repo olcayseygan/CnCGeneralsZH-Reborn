@@ -46,6 +46,7 @@ static void drawFramerateBar(void);
 #include "Common/GlobalData.h"
 #include "Common/OptionsCatalog.h"
 #include "dx8wrapper.h"
+#include "ffprobe.h"
 #include "Common/PerfTimer.h"
 #include "Common/FileSystem.h"
 #include "Common/LocalFileSystem.h"
@@ -924,6 +925,9 @@ void W3DDisplay::init( void )
 	// the sample count is handed to it here.  msaaSamplesForLevel turns the stored index into 0, 2,
 	// 4, 8 or 16; the device degrades an unsupported one on its own.
 	DX8Wrapper::Set_Requested_MultiSample_Level( msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
+
+	// Same reason: WW3D2 cannot see GlobalData, so -ffprobe is pushed in from here.
+	FixedFunctionProbe_Enable( TheGlobalData->m_fixedFunctionProbe != FALSE );
 
 	// Same problem, same answer: the filter table is built the moment the device exists and WW3D2
 	// cannot see GlobalData, so the player's texture filtering goes in here. Nothing in the game
