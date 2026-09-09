@@ -513,6 +513,12 @@ bool DX11BackendClass::Any_Missing_Texture() const
 void DX11BackendClass::Set_Dump_Directory(const char * directory)
 {
 	DumpDirectory = directory == NULL ? "" : directory;
+
+	// fopen will not make the directory, and a dump that writes nothing looks exactly like a run
+	// that built no pipelines.  An existing one comes back as an error and is ignored.
+	if (!DumpDirectory.empty()) {
+		CreateDirectoryA(DumpDirectory.c_str(), NULL);
+	}
 }
 
 // The key has characters a file name cannot carry, so it becomes the file's first line and the

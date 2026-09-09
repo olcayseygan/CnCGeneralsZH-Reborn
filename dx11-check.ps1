@@ -64,12 +64,17 @@ function Shoot($c, $tag, $extra) {
   return $out
 }
 
-# Every fourth pixel of every other row, counting the ones more than 40 apart in summed channels.
-# The same measure tree-check.ps1 uses, so the two numbers are comparable.
+# Every other pixel of every other row, counting the ones more than 40 apart in summed channels.
+#
+# The whole frame, where tree-check.ps1 stops at row 520 to keep the command bar out of a comparison
+# about trees.  Carrying that limit over here hid a bug for the length of the phase: the 2D layer was
+# drawn half a pixel off under Direct3D 11, 45% of the command bar was past this threshold, and every
+# number this script printed was blind to it.  An instrument that cannot see part of the picture
+# cannot be the exit condition for drawing the picture.
 function DiffPct($a, $b) {
   $ia = New-Object System.Drawing.Bitmap($a)
   $ib = New-Object System.Drawing.Bitmap($b)
-  $w = $ia.Width; $h = [Math]::Min($ia.Height, 520)
+  $w = $ia.Width; $h = $ia.Height
   $apart = 0; $total = 0
   for ($y = 0; $y -lt $h; $y += 2) {
     for ($x = 0; $x -lt $w; $x += 2) {
