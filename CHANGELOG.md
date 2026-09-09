@@ -887,7 +887,13 @@ found and fixed â€” EA's own, not port damage.**
 - The videos play: the intro, the sizzle reel, the mission briefings, the general portraits.
 - The pointer is on screen over them. It used to appear only once the main menu did, so clicking through the logos was done blind.
 - Escape skips the opening logo, not just everything after it. The key has always skipped movies; the gate it asks was raised only once the logo had played itself out, so the one film you see on every single launch was the one you could not get past.
-- About 5,600 graphics calls are translated to a modern path, none of them touched.
+- The graphics go straight to a modern path. About 5,600 calls used to be translated on the way out
+  by a small library shipped alongside the game; the game now speaks that path itself and the extra
+  library is gone from the download. The picture is the picture it was, and the frame it draws in a
+  fixed-seed match is within half a percent of the old one, pixel for pixel.
+- Vertical sync works in a window. The option has always been in the menu, and in a window the old
+  path ignored it and ran the picture as fast as it could, which is what a screen tears from. It is
+  honoured now, so the picture holds to your monitor's refresh rate unless you turn it off.
 - No disc, no registry keys, no retail installer â€” a normal install works.
 - The startup screen is this build's own, so you can see which one you launched before the menu loads.
 - The zip installs itself and takes itself back off. `install.bat` asks where the game is, offering
@@ -906,7 +912,7 @@ found and fixed â€” EA's own, not port damage.**
 - The game no longer needs a Visual C++ redistributable installed. The exe asked Windows for two
   support libraries by name at load, so a machine that had never installed one failed exactly the
   way a missing `mss32.dll` did: a dialog naming a file, nothing written to any log, nothing to send
-  back to anyone. Both libraries are compiled into the exe and into the graphics translator now. The
+  back to anyone. Both libraries are compiled into the exe now. The
   download is half a megabyte larger and there is nothing left to install alongside it.
 - Over a build that is already there it updates rather than installs, and says which number it is
   moving you from and to. Running an older package over a newer install stops instead, since the

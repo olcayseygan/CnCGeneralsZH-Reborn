@@ -263,18 +263,12 @@ set_source_files_properties(${WW}/WW3D2/dx8webbrowser.cpp PROPERTIES COMPILE_OPT
 add_executable(eip_sampler ${CMAKE_CURRENT_SOURCE_DIR}/Tools/ProfileSampler/eip_sampler.cpp)
 set_target_properties(eip_sampler PROPERTIES CXX_STANDARD 17)
 
-# Phase 1 checkpoint: vendored DX8 SDK + a d3d8.dll create a real device.  Our d3d8to9
-# d3d8.dll is copied next to the exe (see below, after d3d8to9 is defined) so the test
-# exercises the game's real path: Direct3D 9 by default, Direct3D 9On12 / Direct3D 12 with -d3d12.
-add_executable(dx8_smoke ${WW}/WW3D2/test_dx8_smoke.cpp)
-target_include_directories(dx8_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Include)
-target_link_directories(dx8_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Lib)
-target_link_libraries(dx8_smoke PRIVATE d3d8 user32)
-
-# RENDERER-ROADMAP.md phase 1 checkpoint: the same proof without the translating
-# dll.  d3d9.h and d3d9.lib come from the Windows SDK, so this target must not see
-# Libraries/DirectX/Include - d3d8.h would shadow nothing here, but keeping the two
-# header sets apart is what makes the native path native.
+# RENDERER-ROADMAP.md phase 1 checkpoint: a real device, with no translating dll
+# anywhere.  It replaces dx8_smoke, which proved the same thing about the vendored
+# DirectX 8 SDK and the d3d8.dll the renderer used to load; that path is gone, and
+# test_dx8_smoke.cpp stays in the tree unbuilt as the record of what it measured.
+# d3d9.h and d3d9.lib come from the Windows SDK, so this target never sees
+# Libraries/DirectX/Include.
 add_executable(dx9_smoke ${WW}/WW3D2/test_dx9_smoke.cpp)
 target_link_libraries(dx9_smoke PRIVATE d3dx9runtime user32)
 
@@ -368,11 +362,12 @@ set(GS_BUILD_TESTS      OFF CACHE BOOL "" FORCE)
 set(GS_INCLUDE_VOICE    OFF CACHE BOOL "" FORCE)
 add_subdirectory(${LIBSRC}/GameSpy ${CMAKE_CURRENT_BINARY_DIR}/gamespy)
 
-# d3d8to9 (vendored, github.com/crosire/d3d8to9): builds our own d3d8.dll that
-# translates every D3D8 call to Direct3D 9.  It sits next to generals.exe, the
-# loader prefers the application directory over system32, and the whole
-# renderer runs on the DX9 runtime without touching the ~5600 D3D8 call sites.
-add_subdirectory(${LIBSRC}/d3d8to9 ${CMAKE_CURRENT_BINARY_DIR}/d3d8to9)
+# d3d8to9 is no longer built.  It was a d3d8.dll next to generals.exe that translated
+# every D3D8 call to Direct3D 9, which is how the renderer ran on a modern runtime
+# without touching the ~5600 D3D8 call sites.  The renderer creates its own
+# IDirect3DDevice9 now (RENDERER-ROADMAP.md phase 1), so nothing loads that dll.  The
+# vendored source stays in Libraries/Source/d3d8to9: WW3D2/d3d8shadertranslate.cpp is
+# lifted from it, and it is the reference for how a D3D8 call was being answered.
 
 # ===========================================================================
 # Phase 3 - GameEngine.  ~580 files of game logic; no DX8, no device code.
@@ -522,9 +517,6 @@ add_custom_command(TARGET generals POST_BUILD
   # and without it the crash log's stack is addresses with no names.
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           $<TARGET_PDB_FILE:generals> ${CMAKE_CURRENT_SOURCE_DIR}/../Run/
-  # d3d8to9's d3d8.dll next to the exe = the renderer runs on Direct3D 9.
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          $<TARGET_FILE:d3d8to9> ${CMAKE_CURRENT_SOURCE_DIR}/../Run/
   # The fork's key bindings and their labels.  Run/ is gitignored, so these two
   # used to be hand-made files that silently went stale every time a command was
   # added - the tracked copies under Code/Data are the masters and this puts them
@@ -568,7 +560,6 @@ add_custom_command(TARGET generals POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_CURRENT_SOURCE_DIR}/Data/Scenarios
           ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Scenarios)
-add_dependencies(generals d3d8to9)
 
 # ===========================================================================
 # Tests.  Run with:  ctest --test-dir build -C Release --output-on-failure
@@ -640,17 +631,13 @@ target_compile_definitions(test_gameengine PRIVATE
 # too so one command covers everything.
 add_test(NAME wwmath_selfcheck COMMAND wwmath_selfcheck)
 add_test(NAME compression_selfcheck COMMAND compression_selfcheck)
-# dx8_smoke runs through our d3d8to9 d3d8.dll (copied next to it): once on its default,
-# Direct3D 9, once opted in to Direct3D 9On12 / Direct3D 12 via -d3d12 (each run fails if
-# it did not land on its runtime)
-add_custom_command(TARGET dx8_smoke POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:d3d8to9> $<TARGET_FILE_DIR:dx8_smoke>)
-add_dependencies(dx8_smoke d3d8to9)
-add_test(NAME dx8_smoke COMMAND dx8_smoke)
-add_test(NAME dx8_smoke_d3d12 COMMAND dx8_smoke -d3d12)
-# dx9_smoke deliberately does not get d3d8.dll copied next to it: it calls
-# Direct3DCreate9 itself and a translating dll would hide whether that worked.
+# dx9_smoke creates a device the way the renderer does, with nothing next to it to
+# translate anything, and puts the D3D8 calls that have no D3D9 counterpart through their
+# replacements.  "-msaa 4" adds the multisampled back buffer and the plain render target
+# with a depth buffer of its own that DX8Wrapper::_Get_Non_MultiSampled_Depth_Buffer pairs
+# for the screen filters.
 add_test(NAME dx9_smoke COMMAND dx9_smoke)
+add_test(NAME dx9_smoke_msaa COMMAND dx9_smoke -msaa 4)
 
 # bink_smoke validates the hand-reconstructed Bink ABI against the real
 # BINKW32.DLL the game ships - it loads that DLL by path, so it does not link
@@ -659,9 +646,6 @@ add_executable(bink_smoke ${TESTS}/bink_smoke.c)
 target_include_directories(bink_smoke PRIVATE ${WW}/Bink/include)
 add_test(NAME bink_smoke COMMAND bink_smoke
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../Run)
-# "-msaa": a multisampled back buffer, and the plain render target + non-multisampled depth
-# buffer pairing that DX8Wrapper::_Get_Non_MultiSampled_Depth_Buffer hands the screen filters.
-add_test(NAME dx8_smoke_msaa COMMAND dx8_smoke -msaa 4)
 
 # Tools/bigfile.py reads and writes the game's BIG archives (that is how the shipped INIs
 # come out for editing).  Its selfcheck round-trips synthetic files, so it needs no game

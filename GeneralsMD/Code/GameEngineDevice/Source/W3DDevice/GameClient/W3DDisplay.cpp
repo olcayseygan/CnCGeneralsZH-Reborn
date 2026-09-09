@@ -977,16 +977,13 @@ void W3DDisplay::init( void )
 
 	}  // end if
 
-	extern bool DX8Wrapper_IsWindowed;	// dx8wrapper.cpp
-	// which runtime the device really landed on - d3d8.dll in the exe directory is our d3d8to9,
-	// so normally Direct3D 9, or Direct3D 9On12 (Direct3D 12) when the player started with -d3d12
-	// and is fullscreen (d3d8to9 keeps windowed devices on Direct3D 9 - its 9On12 windowed
-	// present is blank above ~640x480 on at least one machine)
+	// Which runtime the device really landed on.  The renderer creates an IDirect3DDevice9 itself
+	// now, so there is one answer here and no translating dll to name; -d3d12 was d3d8to9's opt-in
+	// and does nothing until RENDERER-ROADMAP.md's phase 5 puts a real Direct3D 12 backend behind
+	// the same seam.
 	DEBUG_LOG(("W3DDisplay::init - renderer runtime: %s\n",
-						 GetModuleHandleA("d3d9on12.dll") ? (DX8Wrapper_IsWindowed ? "Direct3D 9 (d3d8to9; -d3d12 given, but windowed devices stay on Direct3D 9)"
-						                                                        : "Direct3D 12 (d3d8to9 -> Direct3D 9On12)")
-						 : GetModuleHandleA("d3d9.dll")  ? "Direct3D 9 (d3d8to9)"
-						                                 : "Direct3D 8 (system d3d8.dll)"));
+						 GetModuleHandleA("d3d9.dll") ? "Direct3D 9 (native)"
+						                              : "no Direct3D 9 runtime loaded"));
 	// multisampling is opt-in with "-msaa" / "-msaa N" and silently degrades to whatever the
 	// device supports, so log what was actually granted
 	DEBUG_LOG(("W3DDisplay::init - multisampling: %ux\n", DX8Wrapper::Get_MultiSample_Level()));

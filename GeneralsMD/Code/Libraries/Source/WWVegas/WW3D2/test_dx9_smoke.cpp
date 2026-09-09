@@ -142,8 +142,43 @@ static bool channel_is_near(BYTE actual, BYTE expected)
 	return difference <= (int)CHANNEL_TOLERANCE && difference >= -(int)CHANNEL_TOLERANCE;
 }
 
-int main()
+// "-msaa N": ask for a multisampled back buffer, then build the pairing
+// DX8Wrapper::_Get_Non_MultiSampled_Depth_Buffer exists for.  A multisampled back buffer
+// gets a multisampled auto depth/stencil, and Direct3D requires the depth buffer to match
+// the render target, so the plain render-target textures the screen filters and the water
+// reflection draw into need a non-multisampled depth buffer of their own.
+static int requested_multisample_level(int argument_count, char ** arguments)
 {
+	for (int index = 1; index + 1 < argument_count; ++index) {
+		if (strcmp(arguments[index], "-msaa") == 0) {
+			return atoi(arguments[index + 1]);
+		}
+	}
+	return 0;
+}
+
+static D3DMULTISAMPLE_TYPE highest_supported_multisample(IDirect3D9 * direct3D,
+	const D3DPRESENT_PARAMETERS & present, int requested)
+{
+	const int MAX_SAMPLES = 16;
+	if (requested < 2) {
+		return D3DMULTISAMPLE_NONE;
+	}
+	for (int samples = requested > MAX_SAMPLES ? MAX_SAMPLES : requested; samples >= 2; --samples) {
+		const D3DMULTISAMPLE_TYPE type = (D3DMULTISAMPLE_TYPE)samples;
+		if (FAILED(direct3D->CheckDeviceMultiSampleType(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+				present.BackBufferFormat, TRUE, type, NULL))) continue;
+		if (FAILED(direct3D->CheckDeviceMultiSampleType(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+				present.AutoDepthStencilFormat, TRUE, type, NULL))) continue;
+		return type;
+	}
+	return D3DMULTISAMPLE_NONE;
+}
+
+int main(int argument_count, char ** arguments)
+{
+	const int requested_samples = requested_multisample_level(argument_count, arguments);
+
 	Owned<IDirect3D9> direct3D;
 	direct3D.Take(Direct3DCreate9(D3D_SDK_VERSION));
 	if (direct3D == NULL) {
@@ -181,6 +216,19 @@ int main()
 	present.AutoDepthStencilFormat = D3DFMT_D16;
 	present.Flags = D3DPRESENTFLAG_LOCKABLE_BACKBUFFER;
 
+	const D3DMULTISAMPLE_TYPE multisample =
+		highest_supported_multisample(direct3D, present, requested_samples);
+	if (requested_samples >= 2) {
+		printf("msaa: %dx requested, %dx supported\n", requested_samples, (int)multisample);
+		if (multisample == D3DMULTISAMPLE_NONE) {
+			printf("FAIL: no multisample level up to %dx is supported\n", requested_samples);
+			return 1;
+		}
+		present.MultiSampleType = multisample;
+		present.SwapEffect = D3DSWAPEFFECT_DISCARD;	// the only swap effect D3D allows with multisampling
+		present.Flags = 0;							// and a multisampled back buffer cannot be lockable
+	}
+
 	Owned<IDirect3DDevice9> device;
 	HRESULT created = direct3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, window.Get(),
 		D3DCREATE_MIXED_VERTEXPROCESSING, &present, &device);
@@ -197,8 +245,9 @@ int main()
 	}
 
 	// Read the cleared back buffer back, so a runtime that created a device and painted
-	// nothing does not pass.
-	{
+	// nothing does not pass.  A multisampled back buffer cannot be locked, so that run
+	// proves itself with the render-to-texture readback below instead.
+	if (multisample == D3DMULTISAMPLE_NONE) {
 		Owned<IDirect3DSurface9> backBuffer;
 		if (FAILED(device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer))) {
 			printf("FAIL: GetBackBuffer\n");
@@ -256,6 +305,57 @@ int main()
 		}
 	}
 	printf("replacements: sampler states, depth bias, offscreen surface, render-target readback\n");
+
+	// The pairing DX8Wrapper::_Get_Non_MultiSampled_Depth_Buffer exists for: a plain render
+	// target texture with a depth buffer of its own, while the back buffer is multisampled.
+	// Cleared green and read back, so a target that was bound but never drawn into fails.
+	if (multisample != D3DMULTISAMPLE_NONE) {
+		Owned<IDirect3DTexture9> renderTexture;
+		Owned<IDirect3DSurface9> renderSurface;
+		Owned<IDirect3DSurface9> renderDepth;
+		Owned<IDirect3DSurface9> backBuffer;
+		Owned<IDirect3DSurface9> autoDepth;
+		Owned<IDirect3DSurface9> readback;
+		if (FAILED(device->CreateTexture(RENDER_TARGET_EDGE, RENDER_TARGET_EDGE, 1,
+				D3DUSAGE_RENDERTARGET, present.BackBufferFormat, D3DPOOL_DEFAULT, &renderTexture, NULL))
+			|| FAILED(renderTexture->GetSurfaceLevel(0, &renderSurface))
+			|| FAILED(device->CreateDepthStencilSurface(RENDER_TARGET_EDGE, RENDER_TARGET_EDGE,
+				present.AutoDepthStencilFormat, D3DMULTISAMPLE_NONE, 0, TRUE, &renderDepth, NULL))
+			|| FAILED(device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer))
+			|| FAILED(device->GetDepthStencilSurface(&autoDepth))
+			|| FAILED(device->CreateOffscreenPlainSurface(RENDER_TARGET_EDGE, RENDER_TARGET_EDGE,
+				present.BackBufferFormat, D3DPOOL_SYSTEMMEM, &readback, NULL))) {
+			printf("FAIL: could not build the render-to-texture surfaces\n");
+			return 1;
+		}
+
+		if (FAILED(device->SetRenderTarget(0, renderSurface))
+			|| FAILED(device->SetDepthStencilSurface(renderDepth))
+			|| FAILED(device->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+				D3DCOLOR_XRGB(0, 255, 0), MAX_DEPTH, 0))
+			|| FAILED(device->GetRenderTargetData(renderSurface, readback))
+			|| FAILED(device->SetRenderTarget(0, backBuffer))
+			|| FAILED(device->SetDepthStencilSurface(autoDepth))) {
+			printf("FAIL: render to a plain target with its own depth buffer\n");
+			return 1;
+		}
+
+		D3DLOCKED_RECT locked;
+		if (FAILED(readback->LockRect(&locked, NULL, D3DLOCK_READONLY))) {
+			printf("FAIL: the render texture readback is not lockable\n");
+			return 1;
+		}
+		const BYTE * pixel = (const BYTE *)locked.pBits
+			+ SAMPLE_PIXEL_OFFSET * locked.Pitch + SAMPLE_PIXEL_OFFSET * BYTES_PER_PIXEL;
+		const bool holdsGreen = channel_is_near(pixel[1], 255) && channel_is_near(pixel[0], 0)
+			&& channel_is_near(pixel[2], 0);
+		printf("render texture pixel (b,g,r) = (%u,%u,%u)\n", pixel[0], pixel[1], pixel[2]);
+		readback->UnlockRect();
+		if (!holdsGreen) {
+			printf("FAIL: the render texture does not hold the clear colour (0,255,0)\n");
+			return 1;
+		}
+	}
 
 	// d3dx9runtime.cpp is what the renderer will bind, so the test binds the same thing
 	// rather than a copy of it: a missing entry point fails here before it fails in a match.
