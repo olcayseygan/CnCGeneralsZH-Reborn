@@ -998,7 +998,14 @@ void W3DDisplay::init( void )
 	WW3D::Set_Collision_Box_Display_Mask(0x00);	///<set to 0xff to make collision boxes visible
 	WW3D::Enable_Static_Sort_Lists(true);
 	WW3D::Set_Thumbnail_Enabled(false);
-	WW3D::Set_Screen_UV_Bias( TRUE );  ///< this makes text look good :)
+	// The bias is half a pixel taken off every 2D vertex, and it makes text look good on Direct3D 9
+	// because a pixel's centre sits at an integer screen coordinate there.  Direct3D 10 onwards puts
+	// it at a half-integer, so the same half moves the whole 2D layer off the pixel grid it was
+	// snapped to: measured against the Direct3D 9 frame, the command bar came back 82 levels a pixel
+	// apart and lined up again when shifted back.  Off while the D3D11 backend is presenting.
+	// Read from the option rather than from Direct3D11_Present_Is_Enabled(), which is not set until
+	// the device is created a few lines below this one.
+	WW3D::Set_Screen_UV_Bias( TheGlobalData->m_direct3D11Present ? FALSE : TRUE );
 	WW3D::Set_Texture_Bitdepth(32);
 			
 	setWindowed( TheGlobalData->m_windowed );
