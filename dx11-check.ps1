@@ -10,11 +10,23 @@
 # that comes back apart is the backend and not a build, a map or a seed.
 #
 # Three shots, not two.  The instrument has noise of its own: particles advance per rendered frame,
-# and two runs of one unchanged binary come back up to 3.66% apart on Flash Effect.  A single D3D9
-# against D3D11 pair therefore cannot say whether four percent is the backend or the smoke, so each
-# view is photographed twice through Direct3D 9 as well and the pair's own disagreement is printed
-# beside the signal.  A view passes when the backend is no further from Direct3D 9 than Direct3D 9
-# is from itself, plus the margin.
+# so each view is photographed twice through Direct3D 9 as well and the pair's own disagreement is
+# printed beside the signal.  That floor is 0.0% to 0.8% by count and 0.03 to 0.18 levels by mean.
+#
+# Two numbers a pair, and the pass rule is the mean.  This changed once the error got small, and the
+# reason is in the numbers rather than in anybody's preference.  The count is pixels more than 40
+# apart in summed channels: a coverage measure.  A boundary pixel that one rasteriser fills and the
+# other does not flips between a leaf and the sky and clears 40 without difficulty, so the count
+# tracks how much foliage is in the view - 0.18% on Golden Oasis against 1.44% on Flash Effect while
+# the mean over the same eight views moves only from 0.56 to 0.91 levels a channel.  The two
+# rasterisers have been shown to agree at every sub-pixel position across a whole pixel, ties
+# included (test_pixelcentre), so a boundary pixel can only land differently because the vertex
+# reaching it differs in its last bits - which is the transform, and no backend makes two of those
+# bit-identical.  Below about 2% the count is measuring content and the mean is measuring error.
+#
+# So a view passes when the mean is under MeanMargin levels a channel.  -CountRule restores the old
+# rule (count no further from Direct3D 9 than Direct3D 9 is from itself, plus Margin) for anyone who
+# wants the number this phase was originally written against.  Both are always printed.
 #
 # The views are tree-check.ps1's, for the same reason it has them: they are the eight positions in
 # UI-MAP.md that between them frame terrain, trees, water, roads, shadows and the command bar.
@@ -30,7 +42,11 @@
 # -Extra passes further switches to all three shots, which is how a pass is taken out of both sides
 # at once: -Extra -nofx, -Extra -noshadowvolumes, -Extra -noshroud. A difference that collapses when
 # one pass is gone belongs to that pass, and one that does not is somewhere else.
-param([double]$Margin = 1.0, [string]$Map = '', [switch]$BackendNoise, [string[]]$Extra = @())
+#
+# -MeanMargin is the pass threshold in levels a channel, and 1.0 is the frame buffer's own step: two
+# frames that agree to within the smallest value the buffer can hold are the same frame.
+param([double]$Margin = 1.0, [double]$MeanMargin = 1.0, [string]$Map = '',
+  [switch]$BackendNoise, [switch]$CountRule, [string[]]$Extra = @())
 
 Add-Type -AssemblyName System.Drawing
 $run = Join-Path $PSScriptRoot "GeneralsMD\Run"
@@ -123,13 +139,18 @@ foreach ($c in $cases) {
     $noise = DiffPct $nine $again
   }
   $signal = DiffPct $nine $eleven
-  $verdict = if ($signal[0] -le ($noise[0] + $Margin)) { 'ok' } else { 'DIFFERENT' }
+  $verdict = if ($CountRule) {
+    if ($signal[0] -le ($noise[0] + $Margin)) { 'ok' } else { 'DIFFERENT' }
+  } else {
+    if ($signal[1] -le $MeanMargin) { 'ok' } else { 'DIFFERENT' }
+  }
   if ($verdict -ne 'ok') { $fail++ }
-  "{0,-20} cam {1,5},{2,-5} frame {3,-5} noise {4,5}%  dx11 {5,5}%  mean {6,5}  {7}" -f `
-    $c.map, $c.x, $c.y, $c.f, $noise[0], $signal[0], $signal[1], $verdict
+  "{0,-20} cam {1,5},{2,-5} frame {3,-5} noise {4,5}% {5,5}  dx11 {6,5}% {7,5}  {8}" -f `
+    $c.map, $c.x, $c.y, $c.f, $noise[0], $noise[1], $signal[0], $signal[1], $verdict
 }
 "---"
 "pictures in $tmp"
-if ($fail -eq 0) { "all $($cases.Count) views are within $Margin% of their own noise" }
-else { "$fail of $($cases.Count) views are further than $Margin% past their own noise" }
+$rule = if ($CountRule) { "$Margin% of their own noise" } else { "$MeanMargin levels a channel" }
+if ($fail -eq 0) { "all $($cases.Count) views are within $rule" }
+else { "$fail of $($cases.Count) views are further than $rule" }
 exit $fail

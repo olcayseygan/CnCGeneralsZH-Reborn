@@ -90,6 +90,19 @@ static const EdgeVertex EDGE_QUAD[4] = {
 
 static const unsigned short EDGE_INDICES[6] = { 0, 1, 2, 0, 2, 3 };
 
+// The same rectangle with its two edges put wherever the caller asks, so the sweep below can walk
+// them across a pixel instead of testing one position and calling the rule proven.
+static void build_edge_quad(float screen, EdgeVertex quad[4])
+{
+	memcpy(quad, EDGE_QUAD, sizeof(EDGE_QUAD));
+	const float clip_x = screen * 2.0f / TARGET_SIZE - 1.0f;
+	const float clip_y = 1.0f - screen * 2.0f / TARGET_SIZE;
+	quad[1].Position[0] = clip_x;
+	quad[2].Position[0] = clip_x;
+	quad[2].Position[1] = clip_y;
+	quad[3].Position[1] = clip_y;
+}
+
 // The second question needs a quad that covers the target with its alpha running from nothing on the
 // left to full on the right, so an alpha test cuts it somewhere in the middle and the column it cuts
 // at is the threshold read back in pixels.  Eight of the sixty-six pipelines a Flash Effect frame
@@ -346,6 +359,52 @@ TEST(pixelcentre_the_two_runtimes_cover_the_same_pixels)
 
 	CHECK_EQ(eleven_across, nine_across);
 	CHECK_EQ(eleven_down, nine_down);
+}
+
+// One position proves the offset. It does not prove the fill rule, and the difference that is left
+// between the two frames is boundary pixels, so the fill rule is worth proving: walk both edges
+// across a whole pixel in sixteenths and check that the two runtimes cover the same pixel at every
+// step, ties included.
+//
+// If they agree all the way across, their sub-pixel grids and their fill rules are the same and a
+// boundary pixel can only land differently because the vertex reaching the rasteriser differs in its
+// last bits - which is the transform, not the rasteriser, and is not something a backend can fix.
+TEST(pixelcentre_the_two_runtimes_agree_at_every_sub_pixel_position)
+{
+	const unsigned STEPS = 16;
+	const float START = 32.0f;
+
+	TargetLine nine_row;
+	TargetLine nine_column;
+	TargetLine eleven_row;
+	TargetLine eleven_column;
+	unsigned disagreements = 0;
+
+	for (unsigned step = 0; step < STEPS; ++step) {
+		const float screen = START + static_cast<float>(step) / STEPS;
+		EdgeVertex quad[4];
+		build_edge_quad(screen, quad);
+
+		if (!direct3d9_draw(quad, false, nine_row, nine_column)
+			|| !direct3d11_draw(quad, false, eleven_row, eleven_column)) {
+			printf("  no Direct3D 9 or Direct3D 11 device on this machine - skipped\n");
+			return;
+		}
+
+		const int nine_across = last_covered(&nine_row[0][0], 3);
+		const int nine_down = last_covered(&nine_column[0][0], 3);
+		const int eleven_across = last_covered(&eleven_row[0][0], 3);
+		const int eleven_down = last_covered(&eleven_column[0][0], 3);
+
+		if (eleven_across != nine_across || eleven_down != nine_down) {
+			++disagreements;
+			printf("  screen %.4f: Direct3D 9 covers to %d,%d and Direct3D 11 to %d,%d\n",
+				screen, nine_across, nine_down, eleven_across, eleven_down);
+		}
+	}
+
+	printf("  %u of %u sub-pixel positions disagree\n", disagreements, STEPS);
+	CHECK_EQ(disagreements, 0u);
 }
 
 // The alpha test, which the generated pixel program turns into a clip because D3D11 has no alpha
