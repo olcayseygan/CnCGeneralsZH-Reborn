@@ -334,9 +334,11 @@ static DynamicVectorClass<StringClass>					_RenderDeviceShortNameTable;
 static DynamicVectorClass<RenderDeviceDescClass>	_RenderDeviceDescriptionTable;
 
 
-typedef IDirect3D9* (WINAPI *Direct3DCreate8Type) (UINT SDKVersion);
-Direct3DCreate8Type	Direct3DCreate8Ptr = NULL;
-HINSTANCE D3D8Lib = NULL;
+// d3d9.dll is loaded by hand rather than imported, the way d3d8.dll was, so a machine
+// without it gets the engine's own "no Direct3D" path instead of a loader error box.
+typedef IDirect3D9* (WINAPI *Direct3DCreate9Type) (UINT SDKVersion);
+Direct3DCreate9Type	Direct3DCreate9Ptr = NULL;
+HINSTANCE D3D9Lib = NULL;
 
 DX8_CleanupHook	 *DX8Wrapper::m_pCleanupHook=NULL;
 #ifdef EXTENDED_STATS
@@ -422,18 +424,18 @@ bool DX8Wrapper::Init(void * hwnd, bool lite)
 	Invalidate_Cached_Render_States();
 
 	if (!lite) {
-		D3D8Lib = LoadLibrary("D3D8.DLL");
+		D3D9Lib = LoadLibrary("D3D9.DLL");
 
-		if (D3D8Lib == NULL) return false;	// Return false at this point if init failed
+		if (D3D9Lib == NULL) return false;	// Return false at this point if init failed
 
-		Direct3DCreate8Ptr = (Direct3DCreate8Type) GetProcAddress(D3D8Lib, "Direct3DCreate8");
-		if (Direct3DCreate8Ptr == NULL) return false;
+		Direct3DCreate9Ptr = (Direct3DCreate9Type) GetProcAddress(D3D9Lib, "Direct3DCreate9");
+		if (Direct3DCreate9Ptr == NULL) return false;
 
 		/*
 		** Create the D3D interface object
 		*/
-		WWDEBUG_SAY(("Create Direct3D8\n"));
-		D3DInterface = Direct3DCreate8Ptr(D3D_SDK_VERSION);		// TODO: handle failure cases...
+		WWDEBUG_SAY(("Create Direct3D9\n"));
+		D3DInterface = Direct3DCreate9Ptr(D3D_SDK_VERSION);		// TODO: handle failure cases...
 		if (D3DInterface == NULL) {
 			return(false);
 		}
@@ -484,9 +486,9 @@ void DX8Wrapper::Shutdown(void)
 		D3DInterface=NULL;
 	}
 
-	if (D3D8Lib) {
-		FreeLibrary(D3D8Lib);
-		D3D8Lib = NULL;
+	if (D3D9Lib) {
+		FreeLibrary(D3D9Lib);
+		D3D9Lib = NULL;
 	}
 
 	_RenderDeviceNameTable.Clear();		 // note - Delete_All() resizes the vector, causing a reallocation.  Clear is better. jba.
@@ -583,9 +585,16 @@ void DX8Wrapper::Invalidate_Cached_Render_States(void)
 	}
 	for (a=0;a<MAX_TEXTURE_STAGES;++a) 
 	{
-		for (int b=0; b<32;b++) 
+		for (int b=0; b<32;b++)
 		{
 			TextureStageStates[a][b]=0x12345678;
+		}
+		// The sampler states D3D9 split off the texture stage have their own cache and
+		// have to be invalidated with it, or the first filter the renderer sets after a
+		// reset is skipped as redundant and the device keeps its own default instead.
+		for (int sampler_state=0; sampler_state<MAX_SAMPLER_STATES; sampler_state++)
+		{
+			SamplerStates[a][sampler_state]=0x12345678;
 		}
 		//Need to explicitly set texture to NULL, otherwise app will not be able to
 		//set it to null because of redundant state checker. MW

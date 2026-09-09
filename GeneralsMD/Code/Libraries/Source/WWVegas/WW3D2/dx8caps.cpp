@@ -512,20 +512,19 @@ void DX8Caps::Shutdown(void)
 
 void DX8Caps::Init_Caps(IDirect3DDevice9* D3DDevice)
 {
-	// D3D9 took software vertex processing off the render state list and gave it its own
-	// pair of calls.  The caps are read twice on purpose: a mixed device reports a
-	// different set in each mode, and the hardware set is the one that has to stick.
-	D3DDevice->SetSoftwareVertexProcessing(TRUE);
+	// EA asked this question by turning D3DRS_SOFTWAREVERTEXPROCESSING on, reading the
+	// caps, and turning it off again if hardware transform and lighting was there.  That
+	// state does not exist in D3D9, so under d3d8to9 the write was dropped and the caps
+	// that came back were always the hardware ones.  D3D9's SetSoftwareVertexProcessing
+	// is a real call, and making the toggle work again is what breaks it: a mixed device
+	// asked in software mode does not report D3DDEVCAPS_HWTRANSFORMANDLIGHT, so SupportTnL
+	// came out false and the device stayed in software vertex processing, at half the
+	// frame rate and with the wrong filter caps behind it.  The device runs in hardware
+	// mode, so that is the mode its caps are read in.
+	D3DDevice->SetSoftwareVertexProcessing(FALSE);
 	DX8CALL(GetDeviceCaps(&Caps));
 
-	if ((Caps.DevCaps&D3DDEVCAPS_HWTRANSFORMANDLIGHT)==D3DDEVCAPS_HWTRANSFORMANDLIGHT) {
-		SupportTnL=true;
-
-		D3DDevice->SetSoftwareVertexProcessing(FALSE);
-		DX8CALL(GetDeviceCaps(&Caps));	
-	} else {
-		SupportTnL=false;			
-	}
+	SupportTnL=(Caps.DevCaps&D3DDEVCAPS_HWTRANSFORMANDLIGHT)==D3DDEVCAPS_HWTRANSFORMANDLIGHT;
 }
 
 // ----------------------------------------------------------------------------
