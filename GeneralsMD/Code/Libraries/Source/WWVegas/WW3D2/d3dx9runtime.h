@@ -75,6 +75,13 @@ typedef HRESULT (WINAPI * D3DXAssembleShaderFunction)(LPCSTR source, UINT source
 	const D3DXMACRO * defines, LPD3DXINCLUDE include, DWORD flags,
 	LPD3DXBUFFER * shader, LPD3DXBUFFER * errors);
 
+// The HLSL compiler.  ffshader.cpp writes the fixed-function stages out as HLSL and this is what
+// turns that into something a device will take; the constant table is not asked for, because the
+// generated shader's registers are fixed by the generator rather than looked up.
+typedef HRESULT (WINAPI * D3DXCompileShaderFunction)(LPCSTR source, UINT source_length,
+	const D3DXMACRO * defines, LPD3DXINCLUDE include, LPCSTR entry_point, LPCSTR profile,
+	DWORD flags, LPD3DXBUFFER * shader, LPD3DXBUFFER * errors, void ** constant_table);
+
 typedef HRESULT (WINAPI * D3DXDisassembleShaderFunction)(const DWORD * shader, BOOL colour_code,
 	LPCSTR comments, LPD3DXBUFFER * disassembly);
 
@@ -106,6 +113,7 @@ typedef HRESULT (WINAPI * D3DXLoadSurfaceFromSurfaceFunction)(LPDIRECT3DSURFACE9
 typedef UINT (WINAPI * D3DXGetFVFVertexSizeFunction)(DWORD fvf);
 
 extern D3DXAssembleShaderFunction			D3DXAssembleShader;
+extern D3DXCompileShaderFunction			D3DXCompileShader;
 extern D3DXDisassembleShaderFunction		D3DXDisassembleShader;
 extern D3DXCreateTextureFunction			D3DXCreateTexture;
 extern D3DXCreateCubeTextureFunction		D3DXCreateCubeTexture;

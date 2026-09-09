@@ -73,6 +73,8 @@
 #include <stdio.h>
 #include "d3dx9runtime.h"
 #include "ffprobe.h"
+#include "ffshadercache.h"
+#include "dx11runtime.h"
 #include "pot.h"
 #include "wwprofile.h"
 #include "ffactory.h"
@@ -455,8 +457,11 @@ bool DX8Wrapper::Init(void * hwnd, bool lite)
 
 void DX8Wrapper::Shutdown(void)
 {
-	// Before the device goes, because the inventory is read off it.
+	// Before the device goes: the inventory is read off it, and the device owns every shader the
+	// combiner cache compiled.
 	FixedFunctionProbe_Dump("ffprobe.txt");
+	CombinerShaderCache_Release();
+	Direct3D11_Release();
 
 	if (D3DDevice) {
 
@@ -841,6 +846,10 @@ bool DX8Wrapper::Reset_Device(bool reload_assets)
 void DX8Wrapper::Release_Device(void)
 {
 	if (D3DDevice) {
+
+		// The device made every shader in the combiner cache and outliving it is not something they
+		// can do.  Nothing recompiles them: the next draw asks the cache again and it is empty.
+		CombinerShaderCache_Release();
 
 		if (_RTTDepthBuffer) { _RTTDepthBuffer->Release(); _RTTDepthBuffer = NULL; }
 
@@ -1269,6 +1278,17 @@ bool DX8Wrapper::Set_Render_Device(int dev, int width, int height, int bits, int
 		ret = Create_Device();
 
 	WWDEBUG_SAY(("Reset/Create_Device done, reset_device=%d, restore_assets=%d\n", reset_device, restore_assets));
+
+	// -dx11 builds the Direct3D 11 device beside the Direct3D 9 one rather than instead of it.
+	// Phase 2 of RENDERER-ROADMAP.md is not finished: 236 places still call the D3D9 device
+	// directly, so taking it away would be a black screen rather than a second backend.  What this
+	// gets is a device and a backend that the wrapper's own state calls reach, and a count at
+	// shutdown of how much of the frame that turned out to be.
+	if (Direct3D11_Is_Enabled() && !Direct3D11_Is_Active()) {
+		const bool created = Direct3D11_Create((HWND)_Hwnd,
+			_PresentParameters.BackBufferWidth, _PresentParameters.BackBufferHeight);
+		WWDEBUG_SAY(("-dx11: Direct3D 11 device %s\n", created ? "created" : "refused"));
+	}
 
 	return ret;
 }
@@ -2243,6 +2263,70 @@ void DX8Wrapper::Draw_Sorting_IB_VB(
 //
 // ----------------------------------------------------------------------------
 
+// The constant register the generated shader reads D3DRS_TEXTUREFACTOR out of.  The generator
+// writes register(c0) into the HLSL, so the two have to agree and nothing else may use it while a
+// generated shader is bound.
+static const UINT COMBINER_TEXTURE_FACTOR_REGISTER = 0;
+
+// -ffshader only: puts a generated pixel shader in place of the texture stage combiners for the
+// length of one draw call, and takes it off again however the draw ends.
+//
+// Bound and unbound around each draw rather than left in place, because the next draw may be one
+// the generator refuses and a shader left bound would take that draw over without saying so.  A
+// draw that brought its own pixel shader - the six W3DShaderManager builds - is left alone: those
+// are already programmable and are not what this replaces.
+class CombinerShaderBinding
+{
+public:
+	explicit CombinerShaderBinding(IDirect3DDevice9 * device)
+		: Device(device), Bound(false)
+	{
+		if (!CombinerShaders_Are_Enabled() || Device == NULL) {
+			return;
+		}
+
+		IDirect3DPixelShader9 * existing = NULL;
+		Device->GetPixelShader(&existing);
+		if (existing != NULL) {
+			existing->Release();
+			return;
+		}
+
+		CombinerDescription description;
+		CombinerShaderCache_Read_Device(Device, description);
+		IDirect3DPixelShader9 * generated = CombinerShaderCache_Get(Device, description);
+		if (generated == NULL) {
+			return;
+		}
+
+		DWORD texture_factor = 0;
+		Device->GetRenderState(D3DRS_TEXTUREFACTOR, &texture_factor);
+		const float factor[4] = {
+			((texture_factor >> 16) & 0xff) / 255.0f,
+			((texture_factor >>  8) & 0xff) / 255.0f,
+			( texture_factor        & 0xff) / 255.0f,
+			((texture_factor >> 24) & 0xff) / 255.0f
+		};
+		Device->SetPixelShaderConstantF(COMBINER_TEXTURE_FACTOR_REGISTER, factor, 1);
+		Device->SetPixelShader(generated);
+		Bound = true;
+	}
+
+	~CombinerShaderBinding()
+	{
+		if (Bound) {
+			Device->SetPixelShader(NULL);
+		}
+	}
+
+private:
+	CombinerShaderBinding(const CombinerShaderBinding &);
+	CombinerShaderBinding & operator=(const CombinerShaderBinding &);
+
+	IDirect3DDevice9 * Device;
+	bool Bound;
+};
+
 void DX8Wrapper::Draw(
 	unsigned primitive_type,
 	unsigned short start_index,
@@ -2263,6 +2347,10 @@ void DX8Wrapper::Draw(
 	if (FixedFunctionProbe_Is_Enabled()) {
 		FixedFunctionProbe_Record(D3DDevice);
 	}
+
+	// -ffshader only.  Binds the generated shader for this one draw and takes it off again on every
+	// path out, including the early return below and Draw_Sorting_IB_VB's own draws.
+	CombinerShaderBinding combiner_shader(D3DDevice);
 
 	// Debug feature to disable triangle drawing...
 	if (!_Is_Triangle_Draw_Enabled()) return;

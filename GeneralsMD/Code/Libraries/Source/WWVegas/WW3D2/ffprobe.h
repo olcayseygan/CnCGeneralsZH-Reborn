@@ -38,6 +38,12 @@
 void FixedFunctionProbe_Enable(bool enabled);
 bool FixedFunctionProbe_Is_Enabled();
 
+// Off unless -ffshader was given.  Replaces the texture stage combiners with a generated pixel
+// shader for every draw the generator will take, which is what phase 2 compares against the
+// fixed-function pipeline before carrying any of it to a second backend.
+void CombinerShaders_Enable(bool enabled);
+bool CombinerShaders_Are_Enabled();
+
 // One draw call's worth: reads the stage combiners and the pixel-affecting render states off the
 // device and counts the combination.
 void FixedFunctionProbe_Record(IDirect3DDevice9 * device);

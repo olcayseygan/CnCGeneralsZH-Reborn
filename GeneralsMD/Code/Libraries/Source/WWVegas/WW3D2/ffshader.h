@@ -60,16 +60,45 @@ struct CombinerStage
 };
 
 // What a draw asks the combiners to compute.  Stages past StageCount are not read.
+// The two pieces of the D3D9 pixel pipeline that are neither texture stages nor shader
+// instructions.  D3D9 applies both around a bound pixel shader and D3D11 has neither, so they are
+// part of the program on one profile and absent from it on the other.  The alpha reference and the
+// fog colour are not here: they are uniforms, and two draws differing only in one are one program.
+struct PixelPipelineDescription
+{
+	bool AlphaTestEnabled;
+
+	// D3DCMP_*, the comparison the surviving alpha has to pass.
+	DWORD AlphaFunction;
+
+	bool FogEnabled;
+};
+
 struct CombinerDescription
 {
 	CombinerStage Stages[MAXIMUM_COMBINER_STAGES];
 	unsigned      StageCount;
+
+	// Only read when generating for D3D11.  On D3D9 the device still applies both itself around a
+	// bound pixel shader, and generating them there would apply each of them twice.
+	PixelPipelineDescription PixelPipeline;
 };
 
 // The HLSL for one description, or false when the description names an operation or an argument
 // this does not generate.  A refusal is not a failure: the caller keeps the fixed-function path for
 // that draw, which is the only reason an unmeasured operation is safe to meet at run time.
-bool CombinerShader_Generate(const CombinerDescription & description, std::string & hlsl);
+// Which profile the generated text is for.  ps_2_0 and ps_4_0 are not the same language: a sampler
+// is a sampler2D read with tex2D in one and a Texture2D beside a SamplerState read with Sample in
+// the other, the output semantic is COLOR against SV_Target, and the texture factor is a constant
+// register against a constant buffer.  The arithmetic between them is the same text.
+enum CombinerShaderTarget
+{
+	COMBINER_SHADER_TARGET_D3D9,
+	COMBINER_SHADER_TARGET_D3D11
+};
+
+bool CombinerShader_Generate(const CombinerDescription & description, CombinerShaderTarget target,
+	std::string & hlsl);
 
 // The description two draws share iff they can share a compiled shader.  Stages past StageCount are
 // zeroed, so two descriptions that differ only in a stage nobody reads compare equal.

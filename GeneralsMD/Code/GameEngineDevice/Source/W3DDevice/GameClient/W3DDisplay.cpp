@@ -47,6 +47,8 @@ static void drawFramerateBar(void);
 #include "Common/OptionsCatalog.h"
 #include "dx8wrapper.h"
 #include "ffprobe.h"
+#include "ffshadercache.h"
+#include "dx11runtime.h"
 #include "Common/PerfTimer.h"
 #include "Common/FileSystem.h"
 #include "Common/LocalFileSystem.h"
@@ -431,6 +433,34 @@ W3DDisplay::W3DDisplay()
 //=============================================================================
 W3DDisplay::~W3DDisplay()
 {
+
+	// What -ffshader did, written from here because WW3D2 is built without RELEASE_DEBUG_LOGGING
+	// and its own WWDEBUG_SAY does not exist in a shipping build.  Before W3D shuts down, which is
+	// where the cache is released.
+	if( CombinerShaders_Are_Enabled() )
+	{
+		unsigned compiled = 0;
+		unsigned refusedDescriptions = 0;
+		unsigned long long shadedDraws = 0;
+		unsigned long long refusedDraws = 0;
+		CombinerShaderCache_Statistics( compiled, refusedDescriptions, shadedDraws, refusedDraws );
+		DEBUG_LOG(("-ffshader: %u programs compiled, %u descriptions refused; %I64u draws shaded, "
+			"%I64u left on the fixed-function path\n",
+			compiled, refusedDescriptions, shadedDraws, refusedDraws));
+	}
+
+	// Same reason as above: WW3D2 has no logging in a shipping build, and a -dx11 run that made no
+	// device at all would otherwise look exactly like one that made a device nothing drew through.
+	if( Direct3D11_Is_Enabled() )
+	{
+		unsigned pipelines = 0;
+		unsigned long long drawsMade = 0;
+		unsigned long long drawsRefused = 0;
+		Direct3D11_Statistics( pipelines, drawsMade, drawsRefused );
+		DEBUG_LOG(("-dx11: device %s; %u pipelines built, %I64u draws made, %I64u refused\n",
+			Direct3D11_Is_Active() ? "created" : "REFUSED",
+			pipelines, drawsMade, drawsRefused));
+	}
 
 	// get rid of the debug display
 	delete m_debugDisplay;
@@ -926,8 +956,10 @@ void W3DDisplay::init( void )
 	// 4, 8 or 16; the device degrades an unsupported one on its own.
 	DX8Wrapper::Set_Requested_MultiSample_Level( msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
 
-	// Same reason: WW3D2 cannot see GlobalData, so -ffprobe is pushed in from here.
+	// Same reason: WW3D2 cannot see GlobalData, so -ffprobe and -ffshader are pushed in from here.
 	FixedFunctionProbe_Enable( TheGlobalData->m_fixedFunctionProbe != FALSE );
+	CombinerShaders_Enable( TheGlobalData->m_combinerShaders != FALSE );
+	Direct3D11_Enable( TheGlobalData->m_direct3D11 != FALSE );
 
 	// Same problem, same answer: the filter table is built the moment the device exists and WW3D2
 	// cannot see GlobalData, so the player's texture filtering goes in here. Nothing in the game

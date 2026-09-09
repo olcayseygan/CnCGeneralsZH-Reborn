@@ -122,6 +122,8 @@ public:
 														///< is derived from it and is what the device layer reads.
 	Int m_msaaLevel;					///< multisampling, as an index into the levels the options menu offers
 	Bool m_fixedFunctionProbe;	///< -ffprobe: count the fixed-function combinations the frame actually uses
+	Bool m_combinerShaders;		///< -ffshader: draw with generated pixel shaders instead of the stage combiners
+	Bool m_direct3D11;			///< -dx11: render through the native Direct3D 11 backend
 	Int m_xResolution;
 	Int m_yResolution;
 	Int m_maxShellScreens;  ///< this many shells layouts can be loaded at once

@@ -49,19 +49,34 @@ static bool contains(const std::string & text, const char * fragment)
 	return text.find(fragment) != std::string::npos;
 }
 
-// 22.8% of every draw call measured: one stage, SELECTARG1 on the texture, coordinate set 2.
+// 22.8% of every draw call measured: one stage, SELECTARG1 on the texture, and a coordinate index
+// of 0x20000 - D3DTSS_TCI_CAMERASPACEPOSITION.  The vertex pipeline computes the coordinate and
+// leaves it in the asking stage's register, which for stage 0 is TexCoord0.
 TEST(ffshader_the_most_used_combination_selects_the_texture)
 {
 	CombinerDescription description;
 	description.StageCount = 1;
 	description.Stages[0] = one_stage(D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT,
-		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 131072 | 2, true);
+		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, D3DTSS_TCI_CAMERASPACEPOSITION, true);
 
 	std::string hlsl;
-	CHECK(CombinerShader_Generate(description, hlsl));
-	CHECK(contains(hlsl, "texel = tex2D(Sampler0, input.TexCoord2)"));
-	CHECK(contains(hlsl, "current.rgb = texel.rgb"));
-	CHECK(contains(hlsl, "current.a   = texel.a"));
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
+	CHECK(contains(hlsl, "texel = tex2D(Sampler0, input.TexCoord0)"));
+	CHECK(contains(hlsl, "current.rgb = saturate(texel).rgb"));
+	CHECK(contains(hlsl, "current.a   = saturate(texel).a"));
+}
+
+// The shader declares two coordinate sets, which is every one the measured maps use.  A third is a
+// refusal, not a sample out of a register the shader never declared.
+TEST(ffshader_refuses_a_coordinate_set_it_does_not_declare)
+{
+	CombinerDescription description;
+	description.StageCount = 1;
+	description.Stages[0] = one_stage(D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT,
+		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 2, true);
+
+	std::string hlsl;
+	CHECK(!CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
 }
 
 // The second most used: MODULATE of the texture against the diffuse colour.
@@ -73,9 +88,9 @@ TEST(ffshader_modulate_multiplies_texture_by_diffuse)
 		D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_DIFFUSE, 0, true);
 
 	std::string hlsl;
-	CHECK(CombinerShader_Generate(description, hlsl));
-	CHECK(contains(hlsl, "(texel * input.Diffuse).rgb"));
-	CHECK(contains(hlsl, "(texel * input.Diffuse).a"));
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
+	CHECK(contains(hlsl, "saturate((texel * input.Diffuse)).rgb"));
+	CHECK(contains(hlsl, "saturate((texel * input.Diffuse)).a"));
 }
 
 // A stage with nothing bound still reads D3DTA_TEXTURE, and the generator has to put something
@@ -88,9 +103,29 @@ TEST(ffshader_an_unbound_stage_samples_opaque_white)
 		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, false);
 
 	std::string hlsl;
-	CHECK(CombinerShader_Generate(description, hlsl));
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
 	CHECK(contains(hlsl, "texel = float4(1.0, 1.0, 1.0, 1.0)"));
 	CHECK(!contains(hlsl, "tex2D"));
+}
+
+// Every program declares the full input signature, including registers it never reads.  The tree
+// shadow pass is the case that settled it: black texture factor for the colour, the texture's own
+// alpha against the factor's for the alpha, no diffuse and no specular anywhere in it, drawn with
+// Trees.vso bound.  Cutting the signature down to what the body names took Flash Effect at frame
+// 400 from 0.25% different against the fixed-function frame to 1.20%.
+TEST(ffshader_declares_the_full_input_signature)
+{
+	CombinerDescription description;
+	description.StageCount = 1;
+	description.Stages[0] = one_stage(D3DTOP_SELECTARG1, D3DTA_TFACTOR, D3DTA_DIFFUSE,
+		D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_TFACTOR, 0, true);
+
+	std::string hlsl;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
+	CHECK(contains(hlsl, "float4 Diffuse   : COLOR0;"));
+	CHECK(contains(hlsl, "float4 Specular  : COLOR1;"));
+	CHECK(contains(hlsl, "float2 TexCoord0 : TEXCOORD0;"));
+	CHECK(contains(hlsl, "float2 TexCoord1 : TEXCOORD1;"));
 }
 
 // The two-stage shroud pass: MULTIPLYADD against an alpha-replicated texture factor, then
@@ -106,7 +141,7 @@ TEST(ffshader_two_stages_with_multiplyadd_and_dotproduct)
 		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 1, false);
 
 	std::string hlsl;
-	CHECK(CombinerShader_Generate(description, hlsl));
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
 	CHECK(contains(hlsl, "(input.Diffuse + texel * (TextureFactor).aaaa)"));
 	CHECK(contains(hlsl, "saturate(dot("));
 }
@@ -122,9 +157,9 @@ TEST(ffshader_argument_modifiers_replicate_before_complementing)
 		D3DTOP_SELECTARG1, D3DTA_TEXTURE | D3DTA_COMPLEMENT, D3DTA_CURRENT, 0, true);
 
 	std::string hlsl;
-	CHECK(CombinerShader_Generate(description, hlsl));
-	CHECK(contains(hlsl, "(1.0 - (texel).aaaa).rgb"));
-	CHECK(contains(hlsl, "(1.0 - texel).a"));
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
+	CHECK(contains(hlsl, "saturate((1.0 - (texel).aaaa)).rgb"));
+	CHECK(contains(hlsl, "saturate((1.0 - texel)).a"));
 }
 
 // An operation the generator does not write has to be refused, not guessed at: the caller keeps
@@ -137,7 +172,7 @@ TEST(ffshader_refuses_an_operation_it_does_not_generate)
 		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
 
 	std::string hlsl;
-	CHECK(!CombinerShader_Generate(description, hlsl));
+	CHECK(!CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
 }
 
 TEST(ffshader_refuses_more_stages_than_the_game_uses)
@@ -148,7 +183,7 @@ TEST(ffshader_refuses_more_stages_than_the_game_uses)
 		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
 
 	std::string hlsl;
-	CHECK(!CombinerShader_Generate(description, hlsl));
+	CHECK(!CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
 }
 
 // Two descriptions that differ only in a stage past StageCount are one shader, or the cache holds
@@ -169,19 +204,155 @@ TEST(ffshader_the_key_ignores_stages_nobody_reads)
 	CHECK_STR(CombinerShader_Key(first).c_str(), CombinerShader_Key(second).c_str());
 }
 
-// The coordinate generation mode rides in the high bits of D3DTSS_TEXCOORDINDEX and the coordinate
-// set in the low ones.  Keying on the whole word would compile the same program twice.
+// A generating D3DTSS_TEXCOORDINDEX still reads the coordinate set its low half names, whatever
+// stage it sits on.  The other reading of the documentation, routing such a stage to its own stage
+// register, was tried on the device: Flash Effect at frame 400 went from 0.25% different against
+// the fixed-function frame to 0.81%.
+TEST(ffshader_a_generated_coordinate_still_reads_the_set_it_names)
+{
+	CombinerDescription description;
+	description.StageCount = 2;
+	description.Stages[0] = one_stage(D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT,
+		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
+	description.Stages[1] = one_stage(D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_CURRENT,
+		D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_CURRENT, 131072, true);
+
+	std::string hlsl;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
+	CHECK(contains(hlsl, "tex2D(Sampler1, input.TexCoord0)"));
+	CHECK(!contains(hlsl, "tex2D(Sampler1, input.TexCoord1)"));
+}
+
+// Two stages that differ only in a generation mode are one program.  Keying on the whole word
+// would compile it twice.
 TEST(ffshader_the_key_reads_the_coordinate_set_not_the_generation_mode)
 {
 	CombinerDescription plain;
 	plain.StageCount = 1;
 	plain.Stages[0] = one_stage(D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_DIFFUSE,
-		D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_DIFFUSE, 1, true);
+		D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_DIFFUSE, 0, true);
 
 	CombinerDescription generated = plain;
-	generated.Stages[0].TextureCoordinateIndex = 131072 | 1;
+	generated.Stages[0].TextureCoordinateIndex = 131072;
 
 	CHECK_STR(CombinerShader_Key(plain).c_str(), CombinerShader_Key(generated).c_str());
+}
+
+// Every stage of the device's combiner writes a clamped result and the next stage reads that.
+// Without the clamp a MODULATE2X above one carries the overflow forward and the frame comes out
+// brighter than the fixed-function pipeline draws it.
+TEST(ffshader_each_stage_clamps_before_the_next_one_reads_it)
+{
+	CombinerDescription description;
+	description.StageCount = 1;
+	description.Stages[0] = one_stage(D3DTOP_MODULATE2X, D3DTA_TEXTURE, D3DTA_DIFFUSE,
+		D3DTOP_MODULATE2X, D3DTA_TEXTURE, D3DTA_DIFFUSE, 0, true);
+
+	std::string hlsl;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
+	CHECK(contains(hlsl, "current.rgb = saturate((texel * input.Diffuse * 2.0)).rgb"));
+	CHECK(contains(hlsl, "current.a   = saturate((texel * input.Diffuse * 2.0)).a"));
+}
+
+// D3D11 has no alpha test, so the comparison becomes a clip and the clip is part of the program.
+// D3D9 still applies its own around a bound pixel shader, so generating one there would apply the
+// test twice and cut a second set of pixels out of an already cut hole.
+TEST(ffshader_the_alpha_test_is_a_clip_on_d3d11_and_nothing_on_d3d9)
+{
+	CombinerDescription description;
+	memset(&description, 0, sizeof(description));
+	description.StageCount = 1;
+	description.Stages[0] = one_stage(D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT,
+		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
+	description.PixelPipeline.AlphaTestEnabled = true;
+	description.PixelPipeline.AlphaFunction = D3DCMP_GREATEREQUAL;
+
+	std::string eleven;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, eleven));
+	CHECK(contains(eleven, "clip(current.a - AlphaReference.x);"));
+
+	std::string nine;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, nine));
+	CHECK(!contains(nine, "clip("));
+	CHECK(!contains(nine, "AlphaReference"));
+}
+
+// clip throws a pixel away when its argument is negative, so each comparison is one subtraction.
+// The two about equality need a tolerance, which is a choice: D3D9 compared eight bit integers and
+// this compares floats.
+TEST(ffshader_each_alpha_comparison_becomes_its_own_clip)
+{
+	CombinerDescription description;
+	memset(&description, 0, sizeof(description));
+	description.StageCount = 1;
+	description.Stages[0] = one_stage(D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT,
+		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
+	description.PixelPipeline.AlphaTestEnabled = true;
+
+	std::string hlsl;
+
+	description.PixelPipeline.AlphaFunction = D3DCMP_LESS;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));
+	CHECK(contains(hlsl, "clip(AlphaReference.x - current.a);"));
+
+	description.PixelPipeline.AlphaFunction = D3DCMP_EQUAL;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));
+	CHECK(contains(hlsl, "abs(current.a - AlphaReference.x)"));
+
+	description.PixelPipeline.AlphaFunction = D3DCMP_NEVER;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));
+	CHECK(contains(hlsl, "clip(-1.0);"));
+
+	// D3DCMP_ALWAYS keeps every pixel, which is the same program as no alpha test at all.
+	description.PixelPipeline.AlphaFunction = D3DCMP_ALWAYS;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));
+	CHECK(!contains(hlsl, "clip("));
+}
+
+// The fog weights the unfogged colour, so a factor of one is no fog, and it never touches the
+// alpha: a fogged pixel is the same shape as an unfogged one.
+TEST(ffshader_the_fog_blends_the_colour_and_leaves_the_alpha)
+{
+	CombinerDescription description;
+	memset(&description, 0, sizeof(description));
+	description.StageCount = 1;
+	description.Stages[0] = one_stage(D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT,
+		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
+	description.PixelPipeline.FogEnabled = true;
+
+	std::string eleven;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, eleven));
+	CHECK(contains(eleven, "current.rgb = lerp(FogColour.rgb, current.rgb, saturate(input.Fog));"));
+	CHECK(!contains(eleven, "current.a = lerp"));
+
+	std::string nine;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, nine));
+	CHECK(!contains(nine, "FogColour"));
+}
+
+// The key decides what the cache hands back, so two programs that differ only in the alpha test
+// must not share one.
+TEST(ffshader_the_key_separates_a_tested_program_from_an_untested_one)
+{
+	CombinerDescription plain;
+	memset(&plain, 0, sizeof(plain));
+	plain.StageCount = 1;
+	plain.Stages[0] = one_stage(D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT,
+		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
+
+	CombinerDescription tested = plain;
+	tested.PixelPipeline.AlphaTestEnabled = true;
+	tested.PixelPipeline.AlphaFunction = D3DCMP_GREATEREQUAL;
+
+	CombinerDescription fogged = plain;
+	fogged.PixelPipeline.FogEnabled = true;
+
+	CHECK_NE(CombinerShader_Key(plain), CombinerShader_Key(tested));
+	CHECK_NE(CombinerShader_Key(plain), CombinerShader_Key(fogged));
+	CHECK_NE(CombinerShader_Key(tested), CombinerShader_Key(fogged));
+
+	// The reference is a uniform, so two draws differing only in it are one program.
+	CHECK_STR(CombinerShader_Key(tested).c_str(), CombinerShader_Key(tested).c_str());
 }
 
 // Every distinct program -ffprobe found has to come out of the generator, or the fixed-function
@@ -245,7 +416,7 @@ TEST(ffshader_generates_every_measured_combination)
 		}
 
 		std::string hlsl;
-		CHECK(CombinerShader_Generate(description, hlsl));
+		CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, hlsl));
 		CHECK(contains(hlsl, "float4 main(Input input) : COLOR"));
 		CHECK(contains(hlsl, "return current;"));
 	}

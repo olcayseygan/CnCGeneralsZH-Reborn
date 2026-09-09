@@ -205,6 +205,59 @@ set_target_properties(ffshader PROPERTIES CXX_STANDARD 17)
 target_include_directories(ffshader PUBLIC ${WW}/WW3D2)
 target_link_libraries(ffshader PUBLIC d3d9)
 
+# ---- ffvertex -------------------------------------------------------------
+# The other half of the same job: the fixed-function vertex pipeline as HLSL.  It
+# generates for both profiles so the D3D9 form can be compared against the pipeline
+# it replaces before the D3D11 one is trusted.
+add_library(ffvertex STATIC ${WW}/WW3D2/ffvertex.cpp)
+set_target_properties(ffvertex PROPERTIES CXX_STANDARD 17)
+target_include_directories(ffvertex PUBLIC ${WW}/WW3D2)
+target_link_libraries(ffvertex PUBLIC d3d9)
+
+# ---- dx11device -----------------------------------------------------------
+# The Direct3D 11 device, its swap chain and the views on it: the bottom of phase 2.
+# Its own library for the same reason ffshader is, and for one more - it links d3d11
+# and dxgi, and nothing else in the tree does yet.  The test creates a real device.
+add_library(dx11device STATIC ${WW}/WW3D2/dx11device.cpp)
+set_target_properties(dx11device PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11device PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11device PUBLIC d3d11 dxgi)
+
+# ---- dx11state ------------------------------------------------------------
+# D3D9's render states turned into D3D11's three state objects.  Pure translation,
+# no device, so the whole table is checked by a test rather than looked at on screen.
+add_library(dx11state STATIC ${WW}/WW3D2/dx11state.cpp)
+set_target_properties(dx11state PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11state PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11state PUBLIC d3d9 d3d11)
+
+# ---- dx11layout -----------------------------------------------------------
+# A D3D9 flexible vertex format read out as a D3D11 input layout.  The vertex buffers
+# keep the bytes they have; this is what tells D3D11 where the fields are.
+add_library(dx11layout STATIC ${WW}/WW3D2/dx11layout.cpp)
+set_target_properties(dx11layout PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11layout PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11layout PUBLIC d3d9 d3d11)
+
+# ---- dx11resource ---------------------------------------------------------
+# The buffers and textures: D3D9's formats, pools and lock flags read as D3D11's
+# formats, usages and map types.  Half a table and half what the device will accept,
+# so the test checks the table and then hands the results to a real device.
+add_library(dx11resource STATIC ${WW}/WW3D2/dx11resource.cpp)
+set_target_properties(dx11resource PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11resource PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11resource PUBLIC d3d9 d3d11)
+
+# ---- dx11backend ----------------------------------------------------------
+# The renderer itself: the engine's D3D9-shaped calls taken as they are and resolved
+# into a D3D11 pipeline at the moment of the draw.  Ties the five pieces above
+# together, which is why it is the last of them and the one with a drawing test.
+add_library(dx11backend STATIC ${WW}/WW3D2/dx11backend.cpp)
+set_target_properties(dx11backend PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11backend PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11backend PUBLIC dx11device dx11state dx11layout dx11resource
+  ffshader ffvertex)
+
 # ---- ww3d2 (renderer core) ------------------------------------------------
 # wwshade is header-only here on purpose: no .dsp links wwshade.lib and its
 # shd*bump* sources need shdpp/NVASM-generated headers.  Revisit at exe link.
@@ -222,7 +275,7 @@ add_library(ww3d2 STATIC
   ${WW}/WW3D2/dx8polygonrenderer.cpp ${WW}/WW3D2/dx8renderer.cpp ${WW}/WW3D2/dx8rendererdebugger.cpp 
   ${WW}/WW3D2/dx8texman.cpp ${WW}/WW3D2/dx8vertexbuffer.cpp ${WW}/WW3D2/dx8webbrowser.cpp 
   ${WW}/WW3D2/dx8wrapper.cpp ${WW}/WW3D2/dynamesh.cpp ${WW}/WW3D2/ffprobe.cpp
-  ${WW}/WW3D2/font3d.cpp 
+  ${WW}/WW3D2/ffshadercache.cpp ${WW}/WW3D2/dx11runtime.cpp ${WW}/WW3D2/font3d.cpp
   ${WW}/WW3D2/formconv.cpp ${WW}/WW3D2/hanim.cpp ${WW}/WW3D2/hanimmgr.cpp 
   ${WW}/WW3D2/hcanim.cpp ${WW}/WW3D2/hlod.cpp ${WW}/WW3D2/hmdldef.cpp 
   ${WW}/WW3D2/hmorphanim.cpp ${WW}/WW3D2/hrawanim.cpp ${WW}/WW3D2/htree.cpp 
@@ -260,7 +313,7 @@ target_include_directories(ww3d2
 # D3DX9 has no import library anywhere and is bound at runtime instead: see
 # WW3D2/d3dx9runtime.h.  vfw32 is FramGrab.cpp writing AVIs.
 target_link_libraries(ww3d2
-  PUBLIC d3d9 dxguid vfw32 d3dx9runtime
+  PUBLIC d3d9 dxguid vfw32 d3dx9runtime ffshader dx11backend
   PRIVATE wwlib wwmath wwdebug wwsaveload)
 # dx8webbrowser.cpp is the one file /MP cannot have: MSVC rejects #import under
 # multi-process compilation (C2813) and finds the directive by a lexical scan, so
@@ -614,6 +667,15 @@ target_include_directories(test_ww3d2 PRIVATE
   ${WW}/WW3D2 ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WWSaveLoad ${WW}/Wwutil)
 
 add_lib_test(test_ffshader ffshader)
+add_lib_test(test_dx11device dx11device)
+add_lib_test(test_dx11state dx11state)
+add_lib_test(test_dx11layout dx11layout)
+add_lib_test(test_ffvertex ffvertex)
+add_lib_test(test_ffvertexcompile ffvertex)
+add_lib_test(test_ffshadercompile ffshader)
+add_lib_test(test_dx11pipeline dx11device dx11state dx11layout ffshader ffvertex)
+add_lib_test(test_dx11resource dx11resource dx11device)
+add_lib_test(test_dx11backend dx11backend)
 
 add_lib_test(test_wwdownload wwdownload)
 target_include_directories(test_wwdownload PRIVATE ${WW}/WWDownload)

@@ -22,6 +22,7 @@
 #include <stdio.h>
 
 D3DXAssembleShaderFunction			D3DXAssembleShader = NULL;
+D3DXCompileShaderFunction			D3DXCompileShader = NULL;
 D3DXDisassembleShaderFunction		D3DXDisassembleShader = NULL;
 D3DXCreateTextureFunction			D3DXCreateTexture = NULL;
 D3DXCreateCubeTextureFunction		D3DXCreateCubeTexture = NULL;
@@ -98,6 +99,8 @@ bool Bind_D3DX9_Runtime(void)
 
 	D3DXAssembleShader = (D3DXAssembleShaderFunction)
 		GetProcAddress(D3DX9Module, "D3DXAssembleShader");
+	D3DXCompileShader = (D3DXCompileShaderFunction)
+		GetProcAddress(D3DX9Module, "D3DXCompileShader");
 	D3DXDisassembleShader = (D3DXDisassembleShaderFunction)
 		GetProcAddress(D3DX9Module, "D3DXDisassembleShader");
 	D3DXCreateTexture = (D3DXCreateTextureFunction)
@@ -133,6 +136,7 @@ bool Bind_D3DX9_Runtime(void)
 		GetProcAddress(D3DX9Module, "D3DXVec3Transform");
 
 	BindSucceeded = D3DXAssembleShader != NULL
+		&& D3DXCompileShader != NULL
 		&& D3DXDisassembleShader != NULL
 		&& D3DXCreateTexture != NULL
 		&& D3DXCreateCubeTexture != NULL
@@ -166,6 +170,7 @@ void Unbind_D3DX9_Runtime(void)
 static void release_module(void)
 {
 	D3DXAssembleShader = NULL;
+	D3DXCompileShader = NULL;
 	D3DXDisassembleShader = NULL;
 	D3DXCreateTexture = NULL;
 	D3DXCreateCubeTexture = NULL;

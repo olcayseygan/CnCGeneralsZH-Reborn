@@ -59,6 +59,7 @@
 #include "vector4.h"
 #include "cpudetect.h"
 #include "dx8caps.h"
+#include "dx11runtime.h"
 
 #include "texture.h"
 #include "dx8vertexbuffer.h"
@@ -830,6 +831,7 @@ WWINLINE void DX8Wrapper::_Set_DX8_Transform(D3DTRANSFORMSTATETYPE transform,con
 		SNAPSHOT_SAY(("DX8 - SetTransform %d [%f,%f,%f,%f][%f,%f,%f,%f][%f,%f,%f,%f][%f,%f,%f,%f]\n",transform,m[0][0],m[0][1],m[0][2],m[0][3],m[1][0],m[1][1],m[1][2],m[1][3],m[2][0],m[2][1],m[2][2],m[2][3],m[3][0],m[3][1],m[3][2],m[3][3]));
 		DX8_RECORD_MATRIX_CHANGE();
 		DX8CALL(SetTransform(transform,(D3DMATRIX*)&m));
+		Direct3D11_Mirror_Transform(transform, (const float*)&DX8Transforms[transform]);
 	}
 }
 
@@ -846,6 +848,7 @@ WWINLINE void DX8Wrapper::_Set_DX8_Transform(D3DTRANSFORMSTATETYPE transform,con
 		SNAPSHOT_SAY(("DX8 - SetTransform %d [%f,%f,%f,%f][%f,%f,%f,%f][%f,%f,%f,%f]\n",transform,m[0][0],m[0][1],m[0][2],m[0][3],m[1][0],m[1][1],m[1][2],m[1][3],m[2][0],m[2][1],m[2][2],m[2][3]));
 		DX8_RECORD_MATRIX_CHANGE();
 		DX8CALL(SetTransform(transform,(D3DMATRIX*)&m));
+		Direct3D11_Mirror_Transform(transform, (const float*)&DX8Transforms[transform]);
 	}
 }
 
@@ -911,6 +914,11 @@ WWINLINE void DX8Wrapper::Set_DX8_Material(const D3DMATERIAL9* mat)
 	WWASSERT(mat);
 	SNAPSHOT_SAY(("DX8 - SetMaterial\n"));
 	DX8CALL(SetMaterial(mat));
+
+	// D3DCOLORVALUE is four floats in red, green, blue, alpha order, which is the order the
+	// generated shader reads them, so each one goes across as it stands.
+	Direct3D11_Mirror_Material((const float*)&mat->Ambient, (const float*)&mat->Diffuse,
+		(const float*)&mat->Specular, (const float*)&mat->Emissive, mat->Power);
 }
 
 WWINLINE void DX8Wrapper::Set_DX8_Light(int index, D3DLIGHT9* light)
@@ -921,11 +929,24 @@ WWINLINE void DX8Wrapper::Set_DX8_Light(int index, D3DLIGHT9* light)
 		DX8CALL(LightEnable(index,TRUE));
 		CurrentDX8LightEnables[index]=true;
 		SNAPSHOT_SAY(("DX8 - SetLight %d\n",index));
+
+		// D3DLIGHT9 keeps the position and the direction as three floats each and the attenuation
+		// and the cone as loose scalars; ffvertex reads six four-float fields, so they are packed
+		// here rather than in the backend, which never sees a D3DLIGHT9.
+		const float position[4] = { light->Position.x, light->Position.y, light->Position.z, 1.0f };
+		const float direction[4] = { light->Direction.x, light->Direction.y, light->Direction.z, 0.0f };
+		const float attenuation[4] = { light->Attenuation0, light->Attenuation1,
+			light->Attenuation2, light->Range };
+		const float spot[4] = { cosf(light->Theta * 0.5f), cosf(light->Phi * 0.5f),
+			light->Falloff, 0.0f };
+		Direct3D11_Mirror_Light(index, light->Type, position, direction,
+			(const float*)&light->Diffuse, (const float*)&light->Specular, attenuation, spot);
 	}
 	else if (CurrentDX8LightEnables[index]) {
 		DX8_RECORD_LIGHT_CHANGE();
 		CurrentDX8LightEnables[index]=false;
 		DX8CALL(LightEnable(index,FALSE));
+		Direct3D11_Mirror_Light_Disabled(index);
 		SNAPSHOT_SAY(("DX8 - DisableLight %d\n",index));
 	}
 }
@@ -947,6 +968,7 @@ WWINLINE void DX8Wrapper::Set_DX8_Render_State(D3DRENDERSTATETYPE state, unsigne
 
 	RenderStates[state]=value;
 	DX8CALL(SetRenderState( state, value ));
+	Direct3D11_Mirror_Render_State(state, value);
 	DX8_RECORD_RENDER_STATE_CHANGE();
 }
 
@@ -977,6 +999,7 @@ WWINLINE void DX8Wrapper::Set_DX8_Texture_Stage_State(unsigned stage, D3DTEXTURE
 
 	TextureStageStates[stage][(unsigned int)state]=value;
 	DX8CALL(SetTextureStageState( stage, state, value ));
+	Direct3D11_Mirror_Texture_Stage_State(stage, state, value);
 	DX8_RECORD_TEXTURE_STAGE_STATE_CHANGE();
 }
 
@@ -1004,6 +1027,7 @@ WWINLINE void DX8Wrapper::Set_DX8_Texture_Stage_State(unsigned stage, D3DSAMPLER
 
 	SamplerStates[stage][(unsigned int)state]=value;
 	DX8CALL(SetSamplerState( stage, state, value ));
+	Direct3D11_Mirror_Sampler_State(stage, state, value);
 	DX8_RECORD_TEXTURE_STAGE_STATE_CHANGE();
 }
 

@@ -1346,6 +1346,32 @@ Int parseFixedFunctionProbe(char *args[], int num)
 	return 1;
 }
 
+/* -ffshader: draw with generated pixel shaders instead of the texture stage combiners.
+	 *
+	 * The other half of -ffprobe, and RENDERER-ROADMAP.md phase 2's way of proving a generator
+	 * before anything is carried to a second backend: D3D11 has no combiners, so what they compute
+	 * has to be written as a shader, and a shader that runs on the existing D3D9 device can be
+	 * compared against the pipeline it replaces with tree-check.ps1.  A draw whose description the
+	 * generator refuses stays on the fixed-function path, and one that brought its own pixel shader
+	 * is left alone.  The counts go to the log at shutdown. */
+Int parseDirect3D11(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_direct3D11 = TRUE;
+	}
+	return 1;
+}
+
+Int parseCombinerShaders(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_combinerShaders = TRUE;
+	}
+	return 1;
+}
+
 /* -camera <x> <y>: point the camera at one map position and leave it there.
 	 *
 	 * -screenshot only made a picture; it could not say of what.  The camera starts at the local
@@ -2102,6 +2128,8 @@ static CommandLineParam params[] =
 	{ "-screenshot", parseScreenShot },
 	{ "-msaa", parseMSAA },
 	{ "-ffprobe", parseFixedFunctionProbe },
+	{ "-ffshader", parseCombinerShaders },
+	{ "-dx11", parseDirect3D11 },
 	{ "-autocamera", parseAutoCamera },
 	{ "-camera", parseCameraLook },
 	{ "-tracemove", parseTraceMove },

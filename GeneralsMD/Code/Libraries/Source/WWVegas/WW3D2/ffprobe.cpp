@@ -58,6 +58,7 @@ static const size_t PIXEL_RENDER_STATE_COUNT = sizeof(PIXEL_RENDER_STATES)/sizeo
 typedef std::vector<DWORD> Combination;
 
 static bool _Enabled = false;
+static bool _CombinerShadersEnabled = false;
 static std::map<Combination, unsigned> _Counts;
 static std::map<IDirect3DPixelShader9 *, unsigned> _PixelShaderIds;
 static unsigned long long _DrawsSeen = 0;
@@ -70,6 +71,16 @@ void FixedFunctionProbe_Enable(bool enabled)
 bool FixedFunctionProbe_Is_Enabled()
 {
 	return _Enabled;
+}
+
+void CombinerShaders_Enable(bool enabled)
+{
+	_CombinerShadersEnabled = enabled;
+}
+
+bool CombinerShaders_Are_Enabled()
+{
+	return _CombinerShadersEnabled;
 }
 
 void FixedFunctionProbe_Record(IDirect3DDevice9 * device)
