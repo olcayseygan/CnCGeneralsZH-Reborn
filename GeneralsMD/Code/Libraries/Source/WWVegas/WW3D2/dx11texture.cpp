@@ -242,6 +242,18 @@ static ID3D11ShaderResourceView * build(ID3D11Device * device, ID3D11DeviceConte
 	const bool render_target = (description.Usage & D3DUSAGE_RENDERTARGET) != 0;
 	const bool empty = render_target || description.Pool == D3DPOOL_DEFAULT;
 	const unsigned level_count = empty ? 1 : two_dimensional->GetLevelCount();
+
+	// A texture made empty keeps one level, and DX11Texture_Update writes subresource zero, so a
+	// mip chain on one of these would be dropped and every distant surface wearing it would sample
+	// the top level and alias.  Nothing in the measured maps has one - the empty ones are the bloom
+	// targets, the reflection and the scene copy, all single level - and this says so out loud
+	// rather than leaving it to be rediscovered from a picture.
+	if (empty && two_dimensional->GetLevelCount() > 1) {
+		char line[128];
+		sprintf(line, "%ux%u default pool with %u levels mirrored as one",
+			description.Width, description.Height, two_dimensional->GetLevelCount());
+		Notes.push_back(line);
+	}
 	const D3DFORMAT copy_format = is_sixteen_bit_colour(description.Format)
 		? D3DFMT_A8R8G8B8
 		: description.Format;
