@@ -37,6 +37,7 @@
 #include <windows.h>
 
 class DX11BackendClass;
+class DX11BufferTwinClass;
 class DX11DeviceClass;
 
 // Asked for on the command line, before any device exists.
@@ -74,10 +75,145 @@ void Direct3D11_Mirror_Light(unsigned index, unsigned type, const float position
 	const float attenuation[4], const float spot[4]);
 void Direct3D11_Mirror_Light_Disabled(unsigned index);
 
+// The Direct3D 11 copy of a vertex or index buffer the engine is about to create, or null on an
+// ordinary run.  The buffer classes own what comes back and free it with themselves.
+DX11BufferTwinClass * Direct3D11_Twin_Vertex_Buffer(unsigned byte_count, bool dynamic);
+DX11BufferTwinClass * Direct3D11_Twin_Index_Buffer(unsigned byte_count, bool dynamic);
+
+// The texture bound to a stage.  The Direct3D 11 copy is built from the Direct3D 9 texture on the
+// first bind and kept on it, so nothing in the loaders has to know this exists.
+void Direct3D11_Mirror_Texture(unsigned stage, struct IDirect3DBaseTexture9 * texture);
+
+// Send the draws into the copy of whatever texture this surface belongs to.  A null surface, or one
+// with no texture behind it, is the back buffer.
+void Direct3D11_Mirror_Render_Target(struct IDirect3DSurface9 * surface);
+
+// One of the engine's surface copies, carried into the copy of the destination texture.  This is
+// how a default-pool texture the CPU cannot read - the shroud - reaches D3D11 at all.
+void Direct3D11_Mirror_Surface_Copy(struct IDirect3DSurface9 * destination,
+	struct IDirect3DSurface9 * source, const struct tagRECT * source_rectangle,
+	const struct tagPOINT * destination_point);
+
+// The frame, alongside Direct3D 9's own.  Begin binds the back buffer and the viewport, Clear
+// takes the same arguments DX8Wrapper::Clear was given, and End presents only when the run asked
+// to see the Direct3D 11 picture - otherwise the frame is drawn into a back buffer nothing shows,
+// which is what makes it safe to leave both paths running.
+void Direct3D11_Begin_Scene();
+void Direct3D11_Mirror_Clear(bool colour, bool depth, float red, float green, float blue,
+	float alpha);
+void Direct3D11_End_Scene(bool flip_frames);
+
+// -dx11present: show the Direct3D 11 frame in the window instead of Direct3D 9's, and read
+// screenshots back from it.  Without it nothing on screen changes when -dx11 is passed.
+// -dx11dump: write every generated program to this directory as it is built.
+void Direct3D11_Dump_Programs_To(const char * directory);
+
+void Direct3D11_Present_Enable(bool enabled);
+bool Direct3D11_Present_Is_Enabled();
+
+// The back buffer as it stands, in the eight-bit blue-green-red-alpha order the screenshot writer
+// wants, top row first.  Has to be called before the present that discards it.  Null when there is
+// nothing to read; what comes back is freed with Direct3D11_Release_Capture and nothing else.
+unsigned char * Direct3D11_Capture_Back_Buffer(unsigned & width, unsigned & height,
+	unsigned & pitch);
+void Direct3D11_Release_Capture(unsigned char * pixels);
+
+// The buffers and the vertex format a draw is about to read, mirrored as DX8Wrapper binds them.
+// A null twin unbinds, which is what a stream with no buffer means.  Index buffers in this engine
+// are 16-bit without exception, so the format is not a parameter.
+void Direct3D11_Mirror_Stream_Source(DX11BufferTwinClass * twin, unsigned stride, unsigned offset);
+void Direct3D11_Mirror_Indices(DX11BufferTwinClass * twin);
+void Direct3D11_Mirror_Vertex_Format(unsigned fvf);
+
+// Whether the engine has one of its own Direct3D 9 shaders bound.  The backend generates its own
+// programs out of the fixed-function state, so a draw made with a shipped .vso or .pso is a draw it
+// has no equivalent for: it refuses that one rather than drawing the fixed-function approximation,
+// which is how the terrain came out white instead of missing.  The exceptions are the shaders
+// engineshader transcribes, which is why the vertex half is mirrored by pointer: the pointer is the
+// only thing that says which file a bound shader came from.
+void Direct3D11_Mirror_Pixel_Shader(const void * shader);
+void Direct3D11_Mirror_Vertex_Shader(const void * shader);
+
+// The engine loaded a shader out of the big archives and the device made it.  Registering it here
+// is what lets a later bind name it; a shader that is never registered is foreign, which is the
+// state everything was in before this existed.
+void Direct3D11_Register_Engine_Shader(const void * shader, const char * file_path);
+
+// The float4 register bank the engine's own shaders read, mirrored as DX8Wrapper sets it.
+void Direct3D11_Mirror_Vertex_Shader_Constant(unsigned first_register, const float * values,
+	unsigned count);
+
+// The draw, made alongside the Direct3D 9 one rather than instead of it: phase 2 is finished when
+// the D3D11 picture can replace the D3D9 one, and until then both have to be able to produce it.
+// False means the backend could not resolve a pipeline for this state and drew nothing, which is
+// counted and reported rather than asserted.
+bool Direct3D11_Draw_Indexed_Triangles(unsigned index_count, unsigned start_index,
+	unsigned base_vertex);
+
+// The same draw over a triangle strip, which is the topology both water grids are indexed for.
+bool Direct3D11_Draw_Indexed_Strip(unsigned index_count, unsigned start_index,
+	unsigned base_vertex);
+
+// How many twins the run made and what they cost in video memory, counted as they are created.  A
+// -dx11 run that mirrors nothing draws exactly like one that mirrors everything until the draws
+// move over, so the count is the only thing that says the buffers went across.
+void Direct3D11_Twin_Statistics(unsigned & buffers_made, unsigned long long & bytes_made);
+
+// The same for textures: how many were copied, how many binds reused a copy, and how many could
+// not be copied.
+void Direct3D11_Texture_Statistics(unsigned & textures_made, unsigned & textures_reused,
+	unsigned & textures_refused);
+const char * Direct3D11_Texture_First_Refusal();
+
+// One line per sixteen bit colour texture copied, naming its size and the average colour of its top
+// level.  The terrain atlas is one of these, and its average is what says whether the copy holds
+// the ground.
+unsigned Direct3D11_Texture_Note_Count();
+const char * Direct3D11_Texture_Note(unsigned index);
+
 // What the run did, for the log: how many pipelines were built and how many draws the backend
 // refused.  A backend that refuses most of the draws looks like a renderer with a lot missing and
 // says nothing about it otherwise.
 void Direct3D11_Statistics(unsigned & pipelines_built, unsigned long long & draws_made,
 	unsigned long long & draws_refused);
+
+// The refusals split by cause: no buffer bound, no texture stage enabled, a vertex format with no
+// input layout, and a program that could not be generated or compiled.
+void Direct3D11_Refusals(unsigned long long & no_buffer, unsigned long long & no_stage,
+	unsigned long long & no_layout, unsigned long long & no_program,
+	unsigned long long & no_object, unsigned long long & foreign_shader,
+	unsigned long long & no_texture);
+
+// The distinct refused states, as the keys the backend cached them under, and the first thing the
+// shader compiler objected to.  Both are strings for the log and nothing else reads them.
+unsigned Direct3D11_Refused_Description_Count();
+const char * Direct3D11_Refused_Description(unsigned index);
+
+// The same listing for the pipelines that did draw, with the draws each took and the size of the
+// texture bound at stage zero the first time it was taken.
+// How many times a texture was bound as the render target, and how many draws landed in one.
+void Direct3D11_Target_Statistics(unsigned long long & bound, unsigned long long & restored,
+	unsigned long long & draws);
+
+// A screen-space quad handed over as vertices rather than as a buffer.  Returns false when the
+// backend refused it, the way the other draw mirrors do.
+bool Direct3D11_Draw_User_Strip(const void * vertices, unsigned primitive_count, unsigned stride);
+
+// One line about the first screen-space quad drawn: where it was, and what was in the texture it
+// sampled.  Empty when none was drawn.
+const char * Direct3D11_Diagnostic();
+
+// The first few target changes in order, each with the draw count when it happened.
+unsigned Direct3D11_Target_Trace_Count();
+const char * Direct3D11_Target_Trace(unsigned index);
+
+unsigned Direct3D11_Pipeline_Report_Count();
+const char * Direct3D11_Pipeline_Report(unsigned index);
+
+// One line per shipped shader the refused draws had bound, with what each cost.  This is the list
+// of what is still to be transcribed, and nothing else in the run names them.
+unsigned Direct3D11_Foreign_Report_Count();
+const char * Direct3D11_Foreign_Report(unsigned index);
+const char * Direct3D11_First_Compiler_Error();
 
 #endif // DX11RUNTIME_H

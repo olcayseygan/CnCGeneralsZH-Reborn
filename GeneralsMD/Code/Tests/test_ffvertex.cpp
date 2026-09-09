@@ -265,25 +265,48 @@ TEST(ffvertex_the_two_profiles_differ_only_where_they_have_to)
 	CHECK(contains(eleven, "output.Position = mul(model_position, WorldViewProjection);"));
 }
 
-TEST(ffvertex_refuses_what_it_cannot_generate)
+TEST(ffvertex_puts_a_pretransformed_vertex_back_into_clip_space)
 {
-	// A pre-transformed vertex has been through the pipeline already.
+	// The screen-space quads - the filter that puts the rendered scene back on the screen, the
+	// smudges - come in with x and y already in pixels.  D3D9 takes them as they are; D3D11 has no
+	// such thing, so the program divides by the viewport and does not touch the world transform.
 	VertexPipelineDescription pretransformed = plain_description();
 	pretransformed.FVF = D3DFVF_XYZRHW|D3DFVF_DIFFUSE|D3DFVF_TEX1;
+
 	std::string hlsl;
-	CHECK(!VertexShader_Generate(pretransformed, VERTEX_SHADER_TARGET_D3D9, hlsl));
+	CHECK(VertexShader_Generate(pretransformed, VERTEX_SHADER_TARGET_D3D11, hlsl));
+	CHECK(contains(hlsl, "float4 Position : POSITION;"));
+	CHECK(contains(hlsl, "input.Position.xy * ViewportInverse.xy"));
+	CHECK(contains(hlsl, "output.TexCoord0 = input.TexCoord0;"));
+	CHECK(contains(hlsl, "output.Diffuse = input.Diffuse;"));
+
+	// The one thing it must not do is transform a position that is already transformed.
+	CHECK(!contains(hlsl, "WorldViewProjection)"));
+}
+
+TEST(ffvertex_reads_zero_for_a_coordinate_set_the_format_lacks)
+{
+	// The shadow quads keep a texture stage on and carry no texture coordinates at all.  D3D9
+	// reads zeroes there and draws them; refusing left 202 draws a match out of the picture.
+	VertexPipelineDescription missing_set = plain_description();
+	missing_set.FVF = D3DFVF_XYZ|D3DFVF_NORMAL;
+	missing_set.Stages[0].TextureCoordinateIndex = D3DTSS_TCI_PASSTHRU | 0;
+
+	std::string hlsl;
+	CHECK(VertexShader_Generate(missing_set, VERTEX_SHADER_TARGET_D3D11, hlsl));
+	CHECK(contains(hlsl, "float4 generated0 = float4(0.0, 0.0, 0.0, 1.0);"));
+	CHECK(!contains(hlsl, "input.TexCoord0"));
+}
+
+TEST(ffvertex_refuses_what_it_cannot_generate)
+{
+	std::string hlsl;
 
 	// Lighting with no normal to light.
 	VertexPipelineDescription unlit_format = plain_description();
 	unlit_format.FVF = D3DFVF_XYZ|D3DFVF_TEX1;
 	unlit_format.LightingEnabled = true;
 	CHECK(!VertexShader_Generate(unlit_format, VERTEX_SHADER_TARGET_D3D9, hlsl));
-
-	// A pass-through set the vertex format does not carry.
-	VertexPipelineDescription missing_set = plain_description();
-	missing_set.FVF = D3DFVF_XYZ|D3DFVF_NORMAL|D3DFVF_TEX1;
-	missing_set.Stages[0].TextureCoordinateIndex = D3DTSS_TCI_PASSTHRU | 1;
-	CHECK(!VertexShader_Generate(missing_set, VERTEX_SHADER_TARGET_D3D9, hlsl));
 
 	// More lights than there are registers for.
 	VertexPipelineDescription too_many = plain_description();

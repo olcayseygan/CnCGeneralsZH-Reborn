@@ -447,6 +447,13 @@ public:
 	// which is what the D3D8 call meant by it too.
 	static void _Set_DX8_Render_Target(IDirect3DSurface9 * render_target, IDirect3DSurface9 * depth_buffer);
 
+	// Every screen-space quad in the game is a four vertex triangle strip drawn straight off the
+	// stack, and there are thirteen of them: the filter that puts the rendered scene back on the
+	// screen, the smudges, the shadow volume's darkening pass.  They went to the device directly
+	// and so were invisible to any second backend; this is the one place they pass through.
+	static void _Draw_DX8_Primitive_UP(D3DPRIMITIVETYPE type, unsigned primitive_count,
+		const void * vertices, unsigned stride);
+
 	static void _Copy_DX8_Rects(
 			IDirect3DSurface9* pSourceSurface,
 			CONST RECT* pSourceRectsArray,
@@ -779,12 +786,15 @@ WWINLINE void DX8Wrapper::Set_Vertex_Format(DWORD fvf)
 	Vertex_Shader=NULL;
 	DX8CALL(SetVertexShader(NULL));
 	DX8CALL(SetFVF(Vertex_Format));
+	Direct3D11_Mirror_Vertex_Shader(NULL);
+	Direct3D11_Mirror_Vertex_Format(Vertex_Format);
 }
 
 WWINLINE void DX8Wrapper::Set_Vertex_Shader(IDirect3DVertexShader9 * vertex_shader)
 {
 	Vertex_Shader=vertex_shader;
 	DX8CALL(SetVertexShader(Vertex_Shader));
+	Direct3D11_Mirror_Vertex_Shader(vertex_shader);
 }
 
 WWINLINE void DX8Wrapper::Set_Pixel_Shader(IDirect3DPixelShader9 * pixel_shader)
@@ -794,11 +804,18 @@ WWINLINE void DX8Wrapper::Set_Pixel_Shader(IDirect3DPixelShader9 * pixel_shader)
 
 	Pixel_Shader=pixel_shader;
 	DX8CALL(SetPixelShader(Pixel_Shader));
+	Direct3D11_Mirror_Pixel_Shader(pixel_shader);
 }
 
 WWINLINE void DX8Wrapper::Set_Vertex_Shader_Constant(int reg, const void* data, int count)
 {
 	int memsize=sizeof(Vector4)*count;
+
+	// Ahead of the comparison below, not behind it.  Invalidate_Cached_Render_States zeroes this
+	// cache without zeroing the device, so a set that writes zeros after one of those is skipped
+	// here while the device really does hold zeros - and the backend, which is not reset by that
+	// call, would keep whatever it was last told.
+	Direct3D11_Mirror_Vertex_Shader_Constant((unsigned)reg, (const float*)data, (unsigned)count);
 
 	// may be incorrect if shaders are created and destroyed dynamically
 	if (memcmp(data, &Vertex_Shader_Constants[reg],memsize)==0) return;
@@ -1046,6 +1063,7 @@ WWINLINE void DX8Wrapper::Set_DX8_Texture(unsigned int stage, IDirect3DBaseTextu
 	Textures[stage] = texture;
 	if (Textures[stage]) Textures[stage]->AddRef();
 	DX8CALL(SetTexture(stage, texture));
+	Direct3D11_Mirror_Texture(stage, texture);
 	DX8_RECORD_TEXTURE_CHANGE();
 }
 
@@ -1344,9 +1362,11 @@ WWINLINE void DX8Wrapper::Set_Projection_Transform_With_Z_Bias(const Matrix4x4& 
 		tmp_zbias*=1.0f / (ZFar - ZNear);
 		tmp[2][2]-=tmp_zbias*tmp[3][2];
 		DX8CALL(SetTransform(D3DTS_PROJECTION,(D3DMATRIX*)&tmp));
+		Direct3D11_Mirror_Transform(D3DTS_PROJECTION,(const float*)&tmp);
 	}
 	else {
 		DX8CALL(SetTransform(D3DTS_PROJECTION,(D3DMATRIX*)&ProjectionMatrix));
+		Direct3D11_Mirror_Transform(D3DTS_PROJECTION,(const float*)&ProjectionMatrix);
 	}
 }
 
@@ -1364,6 +1384,7 @@ WWINLINE void DX8Wrapper::Set_DX8_ZBias(int zbias)
 		tmp_zbias*=1.0f / (ZFar - ZNear);
 		tmp[2][2]-=tmp_zbias*tmp[3][2];
 		DX8CALL(SetTransform(D3DTS_PROJECTION,(D3DMATRIX*)&tmp));
+		Direct3D11_Mirror_Transform(D3DTS_PROJECTION,(const float*)&tmp);
 	}
 	else {
 		// D3D8's D3DRS_ZBIAS took a level from 0 to 16; D3D9's D3DRS_DEPTHBIAS takes a
@@ -1395,6 +1416,7 @@ WWINLINE void DX8Wrapper::Set_Transform(D3DTRANSFORMSTATETYPE transform,const Ma
 			ZFar=0.0f;
 			ZNear=0.0f;
 			DX8CALL(SetTransform(D3DTS_PROJECTION,(D3DMATRIX*)&ProjectionMatrix));
+			Direct3D11_Mirror_Transform(D3DTS_PROJECTION,(const float*)&ProjectionMatrix);
 		}
 		break;
 	default:

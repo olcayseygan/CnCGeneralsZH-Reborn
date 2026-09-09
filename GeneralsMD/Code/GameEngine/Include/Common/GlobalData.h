@@ -124,6 +124,8 @@ public:
 	Bool m_fixedFunctionProbe;	///< -ffprobe: count the fixed-function combinations the frame actually uses
 	Bool m_combinerShaders;		///< -ffshader: draw with generated pixel shaders instead of the stage combiners
 	Bool m_direct3D11;			///< -dx11: render through the native Direct3D 11 backend
+	Bool m_direct3D11Present;	///< -dx11present: show that backend's frame instead of Direct3D 9's
+	AsciiString m_direct3D11DumpPath;	///< -dx11dump: where to write each generated program
 	Int m_xResolution;
 	Int m_yResolution;
 	Int m_maxShellScreens;  ///< this many shells layouts can be loaded at once

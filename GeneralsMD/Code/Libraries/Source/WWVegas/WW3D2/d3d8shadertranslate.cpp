@@ -135,7 +135,7 @@ static size_t instruction_count_of(const std::string & source, const char * coun
 }
 
 HRESULT Create_Translated_Pixel_Shader(IDirect3DDevice9 * device, const DWORD * function,
-	IDirect3DPixelShader9 ** shader)
+	IDirect3DPixelShader9 ** shader, std::string * translated_source)
 {
 	if (device == NULL || function == NULL || shader == NULL) {
 		return D3DERR_INVALIDCALL;
@@ -177,6 +177,10 @@ HRESULT Create_Translated_Pixel_Shader(IDirect3DDevice9 * device, const DWORD * 
 		std::regex("(add)([_satxd248]*) (r[0-9][\\.wxyz]*), ((1-|)[crtv][0-9][\\.wxyz_abdis2]*), (-)(c[0-9][\\.wxyz]*)(_bx2|_bias|_x2|_d[zbwa]|)(?![_\\.wxyz])"),
 		"sub$2 $3, $4, $7$8");
 
+	if (translated_source != NULL) {
+		*translated_source = source;
+	}
+
 	ID3DXBuffer * assembly = NULL;
 	ID3DXBuffer * errors = NULL;
 	result = D3DXAssembleShader(source.data(), static_cast<UINT>(source.size()), NULL, NULL, 0,
@@ -195,7 +199,7 @@ HRESULT Create_Translated_Pixel_Shader(IDirect3DDevice9 * device, const DWORD * 
 
 HRESULT Create_Translated_Vertex_Shader(IDirect3DDevice9 * device, const DWORD * d3d8_declaration,
 	const DWORD * function, IDirect3DVertexShader9 ** shader,
-	IDirect3DVertexDeclaration9 ** vertex_declaration)
+	IDirect3DVertexDeclaration9 ** vertex_declaration, std::string * translated_source)
 {
 	if (device == NULL || d3d8_declaration == NULL || function == NULL
 		|| shader == NULL || vertex_declaration == NULL) {
@@ -377,6 +381,10 @@ HRESULT Create_Translated_Vertex_Shader(IDirect3DDevice9 * device, const DWORD *
 			source = std::regex_replace(source,
 				std::regex("    ([a-z2-4]*) (oPos\\.[x|y|z|w]*,) ([^\\n]*)\\n"), "    $1 oPos, $3\n");
 		}
+	}
+
+	if (translated_source != NULL) {
+		*translated_source = source;
 	}
 
 	ID3DXBuffer * assembly = NULL;

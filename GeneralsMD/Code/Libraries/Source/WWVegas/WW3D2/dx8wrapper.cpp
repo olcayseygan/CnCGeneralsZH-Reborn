@@ -169,6 +169,19 @@ void DX8Wrapper::_Set_DX8_Render_Target(IDirect3DSurface9 * render_target, IDire
 {
 	DX8CALL(SetRenderTarget(PRIMARY_RENDER_TARGET,render_target));
 	DX8CALL(SetDepthStencilSurface(depth_buffer));
+	// Every render target the engine sets passes through here, the device's own back buffer
+	// included; the backend works out which is which from whether the surface has a texture behind
+	// it.
+	Direct3D11_Mirror_Render_Target(render_target);
+}
+
+void DX8Wrapper::_Draw_DX8_Primitive_UP(D3DPRIMITIVETYPE type, unsigned primitive_count,
+	const void * vertices, unsigned stride)
+{
+	DX8CALL(DrawPrimitiveUP(type, primitive_count, vertices, stride));
+	if (type == D3DPT_TRIANGLESTRIP) {
+		Direct3D11_Draw_User_Strip(vertices, primitive_count, stride);
+	}
 }
 
 // D3D9 has no CopyRects.  Which call replaces it depends on where the two surfaces live,
@@ -248,6 +261,13 @@ void DX8Wrapper::_Copy_DX8_Rects(
 			Non_Fatal_Log_DX8_ErrorCode(hr,__FILE__,__LINE__);
 			return;
 		}
+
+		// The same copy into the D3D11 twin of whatever texture the destination belongs to.  It
+		// reads the source surface rather than the destination, because a default-pool destination
+		// is exactly the one D3D9 will not let anything read back.
+		const POINT destination_point={destination_rect.left,destination_rect.top};
+		Direct3D11_Mirror_Surface_Copy(pDestinationSurface,pSourceSurface,&source_rect,
+			&destination_point);
 	}
 }
 IDirect3DBaseTexture9 *		DX8Wrapper::Textures[MAX_TEXTURE_STAGES];
@@ -1907,6 +1927,7 @@ void DX8Wrapper::Begin_Scene(void)
 #endif
 	
 	DX8CALL(BeginScene());
+	Direct3D11_Begin_Scene();
 
 	DX8WebBrowser::Update();
 }
@@ -1915,6 +1936,7 @@ void DX8Wrapper::End_Scene(bool flip_frames)
 {
 	DX8_THREAD_ASSERT();
 	DX8CALL(EndScene());
+	Direct3D11_End_Scene(flip_frames);
 
 	DX8WebBrowser::Render(0);
 
@@ -2061,6 +2083,7 @@ void DX8Wrapper::Clear(bool clear_color, bool clear_z_stencil, const Vector3 &co
 	{
 		DX8CALL(Clear(0, NULL, flags, Convert_Color(color,dest_alpha), z, stencil));
 	}
+	Direct3D11_Mirror_Clear(clear_color, clear_z_stencil, color.X, color.Y, color.Z, dest_alpha);
 }
 
 void DX8Wrapper::Set_Viewport(CONST D3DVIEWPORT9* pViewport)
@@ -2443,6 +2466,16 @@ void DX8Wrapper::Draw(
 					vertex_count,
 					start_index+render_state.iba_offset,
 					polygon_count));
+
+				// The same draw through the Direct3D 11 backend, into its own back buffer.  Only
+				// triangle lists go: a strip or a fan would need its indices rebuilt, and the
+				// engine's own strips are already lists by the time they reach here.
+				if (primitive_type==D3DPT_TRIANGLELIST) {
+					Direct3D11_Draw_Indexed_Triangles(
+						polygon_count*3,
+						start_index+render_state.iba_offset,
+						render_state.index_base_offset+render_state.vba_offset);
+				}
 			}
 			break;
 		case BUFFER_TYPE_SORTING:
@@ -2628,6 +2661,14 @@ void DX8Wrapper::Apply_Render_State_Changes()
 						0,	// OffsetInBytes, D3D9's extra parameter
 						render_state.vertex_buffers[i]->FVF_Info().Get_FVF_Size()));
 					DX8_RECORD_VERTEX_BUFFER_CHANGE();
+					// The backend reads one stream.  Streams above the first carry the skinning
+					// and shadow data the .vso files take, and nothing generated consumes them yet.
+					if (i==0) {
+						Direct3D11_Mirror_Stream_Source(
+							static_cast<DX8VertexBufferClass*>(render_state.vertex_buffers[i])->Get_DX11_Twin(),
+							render_state.vertex_buffers[i]->FVF_Info().Get_FVF_Size(),
+							0);
+					}
 					{
 						// If the VB format is FVF, set the FVF as a vertex shader
 						unsigned fvf=render_state.vertex_buffers[i]->FVF_Info().Get_FVF();
@@ -2644,6 +2685,9 @@ void DX8Wrapper::Apply_Render_State_Changes()
 				}
 			} else {
 				DX8CALL(SetStreamSource(i,NULL,0,0));
+				if (i==0) {
+					Direct3D11_Mirror_Stream_Source(NULL,0,0);
+				}
 				DX8_RECORD_VERTEX_BUFFER_CHANGE();
 			}
 		}
@@ -2657,6 +2701,8 @@ void DX8Wrapper::Apply_Render_State_Changes()
 				// The base vertex index that used to travel here now goes on the draw call.
 				DX8CALL(SetIndices(
 					static_cast<DX8IndexBufferClass*>(render_state.index_buffer)->Get_DX8_Index_Buffer()));
+				Direct3D11_Mirror_Indices(
+					static_cast<DX8IndexBufferClass*>(render_state.index_buffer)->Get_DX11_Twin());
 				DX8_RECORD_INDEX_BUFFER_CHANGE();
 				break;
 			case BUFFER_TYPE_SORTING:
@@ -2668,6 +2714,7 @@ void DX8Wrapper::Apply_Render_State_Changes()
 		}
 		else {
 			DX8CALL(SetIndices(NULL));
+			Direct3D11_Mirror_Indices(NULL);
 			DX8_RECORD_INDEX_BUFFER_CHANGE();
 		}
 	}

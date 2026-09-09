@@ -43,9 +43,10 @@
 
 #include <string>
 
-// The engine's widest vertex format carries four coordinate sets and its texture stage code never
-// looks past two, so two is what a generated shader writes and a third is a refusal.
-const unsigned MAXIMUM_VERTEX_STAGES = 2;
+// The engine's widest vertex format carries four coordinate sets and the water uses all four
+// stages: the river texture, the sparkles, the noise generated from the camera space position, and
+// the shroud.  Everything else in the game sets two.  A fifth is a refusal.
+const unsigned MAXIMUM_VERTEX_STAGES = 4;
 
 // D3D9 allows eight simultaneous lights.  The scenes measured never light a draw with more than
 // three, and every register past this one is a register the D3D9 profile does not have to spare.

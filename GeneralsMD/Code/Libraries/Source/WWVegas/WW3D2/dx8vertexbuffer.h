@@ -48,6 +48,7 @@
 #include "wwdebug.h"
 #include "refcount.h"
 #include "dx8fvf.h"
+#include "dx11twin.h"
 
 const unsigned dynamic_fvf_type=D3DFVF_XYZ|D3DFVF_NORMAL|D3DFVF_TEX2|D3DFVF_DIFFUSE;
 
@@ -99,6 +100,7 @@ public:
 
 	class WriteLockClass : public VertexBufferLockClass
 	{
+		DX11BufferLockClass DX11Lock;
 	public:
 		WriteLockClass(VertexBufferClass* vertex_buffer, int flags=0);
 		~WriteLockClass();
@@ -106,6 +108,7 @@ public:
 
 	class AppendLockClass : public VertexBufferLockClass
 	{
+		DX11BufferLockClass DX11Lock;
 	public:
 		AppendLockClass(VertexBufferClass* vertex_buffer,unsigned start_index, unsigned index_range);
 		~AppendLockClass();
@@ -176,6 +179,7 @@ public:
 	{
 		DynamicVBAccessClass* DynamicVBAccess;
 		VertexFormatXYZNDUV2 * Vertices;
+		DX11BufferLockClass DX11Lock;
 	public:
 		WriteLockClass(DynamicVBAccessClass* vb_access);
 		~WriteLockClass();
@@ -229,6 +233,10 @@ public:
 	// DX8IndexBufferClass::Get_Scratch_Indices for why a run with no picture still fills buffers.
 	unsigned char* Get_Scratch_Vertices() { return ScratchVertices; }
 
+	// The Direct3D 11 copy of this buffer, or null on a run without -dx11.  A lock hands out the
+	// twin's mirror instead of the D3D9 pointer; see dx11twin.h.
+	DX11BufferTwinClass* Get_DX11_Twin() { return DX11Twin; }
+
 	void Copy(const Vector3* loc, unsigned first_vertex, unsigned count);
 	void Copy(const Vector3* loc, const Vector2* uv, unsigned first_vertex, unsigned count);
 	void Copy(const Vector3* loc, const Vector3* norm, unsigned first_vertex, unsigned count);
@@ -239,6 +247,7 @@ public:
 protected:
 	IDirect3DVertexBuffer9*		VertexBuffer;
 	unsigned char*				ScratchVertices;	// used instead when there is no device
+	DX11BufferTwinClass*		DX11Twin;			// the Direct3D 11 copy, null without -dx11
 
 	void Create_Vertex_Buffer(UsageType usage);
 };

@@ -43,6 +43,7 @@
 #include "dx8wrapper.h"
 #include "dx8fvf.h"
 #include "dx8caps.h"
+#include "dx11runtime.h"
 #include "thread.h"
 #include "wwmemlog.h"
 #include "d3dx9runtime.h"
@@ -184,6 +185,11 @@ VertexBufferClass::WriteLockClass::WriteLockClass(VertexBufferClass* VertexBuffe
 			0,
 			(void**)&Vertices,
 			flags));	//flags
+		{
+			void* mirror=DX11Lock.Begin(
+				static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX11_Twin(),Vertices,0,0,flags);
+			if (mirror) Vertices=mirror;
+		}
 		break;
 	case BUFFER_TYPE_SORTING:
 		Vertices=static_cast<SortingVertexBufferClass*>(VertexBuffer)->VertexBuffer;
@@ -206,6 +212,7 @@ VertexBufferClass::WriteLockClass::~WriteLockClass()
 #endif
 		DX8_Assert();
 		if (static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()==NULL) break;
+		DX11Lock.End();
 		DX8_ErrorCode(static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()->Unlock());
 		break;
 	case BUFFER_TYPE_SORTING:
@@ -256,6 +263,15 @@ VertexBufferClass::AppendLockClass::AppendLockClass(VertexBufferClass* VertexBuf
 			index_range*VertexBuffer->FVF_Info().Get_FVF_Size(),
 			(void**)&Vertices,
 			0));	// Default (no) flags
+		{
+			void* mirror=DX11Lock.Begin(
+				static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX11_Twin(),
+				Vertices,
+				start_index*VertexBuffer->FVF_Info().Get_FVF_Size(),
+				index_range*VertexBuffer->FVF_Info().Get_FVF_Size(),
+				0);	// Default (no) flags, as above
+			if (mirror) Vertices=mirror;
+		}
 		break;
 	case BUFFER_TYPE_SORTING:
 		Vertices=static_cast<SortingVertexBufferClass*>(VertexBuffer)->VertexBuffer+start_index;
@@ -278,6 +294,7 @@ VertexBufferClass::AppendLockClass::~AppendLockClass()
 		WWDEBUG_SAY(("VertexBuffer->Unlock()\n"));
 #endif
 		if (static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()==NULL) break;
+		DX11Lock.End();
 		DX8_ErrorCode(static_cast<DX8VertexBufferClass*>(VertexBuffer)->Get_DX8_Vertex_Buffer()->Unlock());
 		break;
 	case BUFFER_TYPE_SORTING:
@@ -418,6 +435,7 @@ DX8VertexBufferClass::~DX8VertexBufferClass()
 #endif
 	if (VertexBuffer) VertexBuffer->Release();
 	if (ScratchVertices) delete [] ScratchVertices;
+	if (DX11Twin) delete DX11Twin;
 }
 
 // ----------------------------------------------------------------------------
@@ -430,6 +448,7 @@ void DX8VertexBufferClass::Create_Vertex_Buffer(UsageType usage)
 {
 	DX8_THREAD_ASSERT();
 	WWASSERT(!VertexBuffer);
+	DX11Twin=NULL;
 
 #ifdef VERTEX_BUFFER_LOG
 	StringClass fvf_name;
@@ -454,6 +473,8 @@ void DX8VertexBufferClass::Create_Vertex_Buffer(UsageType usage)
 		return;
 	}
 	ScratchVertices=NULL;
+	DX11Twin=Direct3D11_Twin_Vertex_Buffer(FVF_Info().Get_FVF_Size()*VertexCount,
+		(usage&USAGE_DYNAMIC)!=0);
 
 	unsigned usage_flags=
 		D3DUSAGE_WRITEONLY|
@@ -886,6 +907,15 @@ DynamicVBAccessClass::WriteLockClass::WriteLockClass(DynamicVBAccessClass* dynam
 			DynamicVBAccess->Get_Vertex_Count()*DynamicVBAccess->VertexBuffer->FVF_Info().Get_FVF_Size(),
 			(void**)&Vertices,
 			D3DLOCK_NOSYSLOCK | (!DynamicVBAccess->VertexBufferOffset ? D3DLOCK_DISCARD : D3DLOCK_NOOVERWRITE)));
+		{
+			void* mirror=DX11Lock.Begin(
+				static_cast<DX8VertexBufferClass*>(DynamicVBAccess->VertexBuffer)->Get_DX11_Twin(),
+				Vertices,
+				DynamicVBAccess->VertexBufferOffset*DynamicVBAccess->VertexBuffer->FVF_Info().Get_FVF_Size(),
+				DynamicVBAccess->Get_Vertex_Count()*DynamicVBAccess->VertexBuffer->FVF_Info().Get_FVF_Size(),
+				!DynamicVBAccess->VertexBufferOffset ? D3DLOCK_DISCARD : D3DLOCK_NOOVERWRITE);
+			if (mirror) Vertices=(VertexFormatXYZNDUV2*)mirror;
+		}
 		break;
 	case BUFFER_TYPE_DYNAMIC_SORTING:
 		Vertices=static_cast<SortingVertexBufferClass*>(DynamicVBAccess->VertexBuffer)->VertexBuffer;
@@ -912,6 +942,7 @@ DynamicVBAccessClass::WriteLockClass::~WriteLockClass()
 */
 #endif
 		DX8_Assert();
+		DX11Lock.End();
 		DX8_ErrorCode(static_cast<DX8VertexBufferClass*>(DynamicVBAccess->VertexBuffer)->Get_DX8_Vertex_Buffer()->Unlock());
 		break;
 	case BUFFER_TYPE_DYNAMIC_SORTING:

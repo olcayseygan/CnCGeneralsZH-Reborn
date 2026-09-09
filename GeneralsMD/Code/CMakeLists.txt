@@ -214,6 +214,16 @@ set_target_properties(ffvertex PROPERTIES CXX_STANDARD 17)
 target_include_directories(ffvertex PUBLIC ${WW}/WW3D2)
 target_link_libraries(ffvertex PUBLIC d3d9)
 
+# ---- engineshader ---------------------------------------------------------
+# The shipped .vso and .pso files transcribed as HLSL, for the draws that bind one
+# of the engine's own shaders and set no fixed-function state a generator could read.
+# Its own library for the same reason ffvertex is: string building over an enum, and
+# the test compiles what it writes without a device anywhere near it.
+add_library(engineshader STATIC ${WW}/WW3D2/engineshader.cpp)
+set_target_properties(engineshader PROPERTIES CXX_STANDARD 17)
+target_include_directories(engineshader PUBLIC ${WW}/WW3D2)
+target_link_libraries(engineshader PUBLIC ffshader)
+
 # ---- dx11device -----------------------------------------------------------
 # The Direct3D 11 device, its swap chain and the views on it: the bottom of phase 2.
 # Its own library for the same reason ffshader is, and for one more - it links d3d11
@@ -248,6 +258,24 @@ set_target_properties(dx11resource PROPERTIES CXX_STANDARD 17)
 target_include_directories(dx11resource PUBLIC ${WW}/WW3D2)
 target_link_libraries(dx11resource PUBLIC d3d9 d3d11)
 
+# ---- dx11twin -------------------------------------------------------------
+# The D3D11 copy of a vertex or index buffer and the heap block both copies are
+# written through.  A D3D9 buffer is write-only, so the copy cannot be built after
+# the fact and the lock has to be moved instead; the test proves the same bytes end
+# up on both sides.
+add_library(dx11twin STATIC ${WW}/WW3D2/dx11twin.cpp)
+set_target_properties(dx11twin PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11twin PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11twin PUBLIC dx11resource d3d11)
+
+# ---- dx11texture ----------------------------------------------------------
+# The D3D11 copy of a texture the engine already built in D3D9, read back off the
+# managed original at the first bind and kept on it as private data.
+add_library(dx11texture STATIC ${WW}/WW3D2/dx11texture.cpp)
+set_target_properties(dx11texture PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11texture PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11texture PUBLIC dx11resource d3d9 d3d11 dxguid)
+
 # ---- dx11backend ----------------------------------------------------------
 # The renderer itself: the engine's D3D9-shaped calls taken as they are and resolved
 # into a D3D11 pipeline at the moment of the draw.  Ties the five pieces above
@@ -256,7 +284,7 @@ add_library(dx11backend STATIC ${WW}/WW3D2/dx11backend.cpp)
 set_target_properties(dx11backend PROPERTIES CXX_STANDARD 17)
 target_include_directories(dx11backend PUBLIC ${WW}/WW3D2)
 target_link_libraries(dx11backend PUBLIC dx11device dx11state dx11layout dx11resource
-  ffshader ffvertex)
+  engineshader ffshader ffvertex)
 
 # ---- ww3d2 (renderer core) ------------------------------------------------
 # wwshade is header-only here on purpose: no .dsp links wwshade.lib and its
@@ -313,7 +341,7 @@ target_include_directories(ww3d2
 # D3DX9 has no import library anywhere and is bound at runtime instead: see
 # WW3D2/d3dx9runtime.h.  vfw32 is FramGrab.cpp writing AVIs.
 target_link_libraries(ww3d2
-  PUBLIC d3d9 dxguid vfw32 d3dx9runtime ffshader dx11backend
+  PUBLIC d3d9 dxguid vfw32 d3dx9runtime ffshader dx11backend dx11twin dx11texture
   PRIVATE wwlib wwmath wwdebug wwsaveload)
 # dx8webbrowser.cpp is the one file /MP cannot have: MSVC rejects #import under
 # multi-process compilation (C2813) and finds the directive by a lexical scan, so
@@ -675,7 +703,10 @@ add_lib_test(test_ffvertexcompile ffvertex)
 add_lib_test(test_ffshadercompile ffshader)
 add_lib_test(test_dx11pipeline dx11device dx11state dx11layout ffshader ffvertex)
 add_lib_test(test_dx11resource dx11resource dx11device)
+add_lib_test(test_engineshader engineshader)
 add_lib_test(test_dx11backend dx11backend)
+add_lib_test(test_dx11twin dx11twin dx11device)
+add_lib_test(test_dx11texture dx11texture dx11device user32)
 
 add_lib_test(test_wwdownload wwdownload)
 target_include_directories(test_wwdownload PRIVATE ${WW}/WWDownload)

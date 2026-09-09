@@ -456,10 +456,72 @@ W3DDisplay::~W3DDisplay()
 		unsigned pipelines = 0;
 		unsigned long long drawsMade = 0;
 		unsigned long long drawsRefused = 0;
+		unsigned twinBuffers = 0;
+		unsigned long long twinBytes = 0;
+		unsigned texturesMirrored = 0;
+		unsigned texturesReused = 0;
+		unsigned texturesRefused = 0;
 		Direct3D11_Statistics( pipelines, drawsMade, drawsRefused );
-		DEBUG_LOG(("-dx11: device %s; %u pipelines built, %I64u draws made, %I64u refused\n",
+		Direct3D11_Twin_Statistics( twinBuffers, twinBytes );
+		Direct3D11_Texture_Statistics( texturesMirrored, texturesReused, texturesRefused );
+		DEBUG_LOG(("-dx11: device %s; %u buffers mirrored (%I64u KB); %u textures mirrored, "
+			"%u reused, %u refused; %u pipelines built, %I64u draws made, %I64u refused\n",
 			Direct3D11_Is_Active() ? "created" : "REFUSED",
+			twinBuffers, twinBytes / 1024,
+			texturesMirrored, texturesReused, texturesRefused,
 			pipelines, drawsMade, drawsRefused));
+
+		unsigned long long noBuffer = 0;
+		unsigned long long noStage = 0;
+		unsigned long long noLayout = 0;
+		unsigned long long noProgram = 0;
+		unsigned long long noObject = 0;
+		unsigned long long foreignShader = 0;
+		unsigned long long noTexture = 0;
+		Direct3D11_Refusals( noBuffer, noStage, noLayout, noProgram, noObject, foreignShader,
+			noTexture );
+		DEBUG_LOG(("-dx11 refusals: %I64u no buffer, %I64u no texture stage, %I64u no input layout, "
+			"%I64u no program, %I64u no device object, %I64u engine shader bound, "
+			"%I64u unmirrored texture\n",
+			noBuffer, noStage, noLayout, noProgram, noObject, foreignShader, noTexture));
+
+		// The distinct states behind those counts.  There are a few dozen at most - the engine sets
+		// the same handful over and over - and each one names what is missing from the picture.
+		const unsigned refusedCount = Direct3D11_Refused_Description_Count();
+		for( unsigned refused = 0; refused < refusedCount; refused++ )
+			DEBUG_LOG(("-dx11 refused: %s\n", Direct3D11_Refused_Description( refused )));
+
+		if( Direct3D11_Texture_First_Refusal()[0] != '\0' )
+			DEBUG_LOG(("-dx11 texture: %s\n", Direct3D11_Texture_First_Refusal()));
+
+		unsigned long long targetsBound = 0;
+		unsigned long long targetsRestored = 0;
+		unsigned long long drawsIntoTargets = 0;
+		Direct3D11_Target_Statistics( targetsBound, targetsRestored, drawsIntoTargets );
+		DEBUG_LOG(("-dx11 targets: %I64u binds, %I64u restores, %I64u draws landed in a texture\n",
+			targetsBound, targetsRestored, drawsIntoTargets));
+
+		if( Direct3D11_Diagnostic()[0] != '\0' )
+			DEBUG_LOG(("-dx11 note: %s\n", Direct3D11_Diagnostic()));
+
+		const unsigned traceCount = Direct3D11_Target_Trace_Count();
+		for( unsigned trace = 0; trace < traceCount; trace++ )
+			DEBUG_LOG(("-dx11 target trace: %s\n", Direct3D11_Target_Trace( trace )));
+
+		const unsigned pipelineCount = Direct3D11_Pipeline_Report_Count();
+		for( unsigned pipeline = 0; pipeline < pipelineCount; pipeline++ )
+			DEBUG_LOG(("-dx11 drew: %s\n", Direct3D11_Pipeline_Report( pipeline )));
+
+		const unsigned foreignCount = Direct3D11_Foreign_Report_Count();
+		for( unsigned foreign = 0; foreign < foreignCount; foreign++ )
+			DEBUG_LOG(("-dx11 foreign: %s\n", Direct3D11_Foreign_Report( foreign )));
+
+		const unsigned noteCount = Direct3D11_Texture_Note_Count();
+		for( unsigned note = 0; note < noteCount; note++ )
+			DEBUG_LOG(("-dx11 16bit: %s\n", Direct3D11_Texture_Note( note )));
+
+		if( Direct3D11_First_Compiler_Error()[0] != '\0' )
+			DEBUG_LOG(("-dx11 compiler: %s\n", Direct3D11_First_Compiler_Error()));
 	}
 
 	// get rid of the debug display
@@ -960,6 +1022,8 @@ void W3DDisplay::init( void )
 	FixedFunctionProbe_Enable( TheGlobalData->m_fixedFunctionProbe != FALSE );
 	CombinerShaders_Enable( TheGlobalData->m_combinerShaders != FALSE );
 	Direct3D11_Enable( TheGlobalData->m_direct3D11 != FALSE );
+	Direct3D11_Present_Enable( TheGlobalData->m_direct3D11Present != FALSE );
+	Direct3D11_Dump_Programs_To( TheGlobalData->m_direct3D11DumpPath.str() );
 
 	// Same problem, same answer: the filter table is built the moment the device exists and WW3D2
 	// cannot see GlobalData, so the player's texture filtering goes in here. Nothing in the game
@@ -3522,6 +3586,43 @@ static void saveScreenShot(void)
 		strlcat(pathname, leafname, ARRAY_SIZE(pathname));
 		if (_access( pathname, 0 ) == -1)
 			done = true;
+	}
+
+	// With -dx11present the picture on the screen is the Direct3D 11 one, so that is what a
+	// screenshot has to be: reading the D3D9 back buffer here would photograph a frame nobody saw
+	// and quietly compare the old renderer against itself.  This runs before End_Render, while the
+	// D3D11 back buffer still holds the frame.
+	if (Direct3D11_Present_Is_Enabled())
+	{
+		unsigned captureWidth = 0;
+		unsigned captureHeight = 0;
+		unsigned capturePitch = 0;
+		unsigned char *captured =
+			Direct3D11_Capture_Back_Buffer(captureWidth, captureHeight, capturePitch);
+		if (captured != NULL)
+		{
+			char *rows = NEW char[3*captureWidth*captureHeight];
+			for (unsigned row = 0; row < captureHeight; row++)
+			{
+				// Bottom row first, which is the order a .bmp stores them.
+				const unsigned char *in = captured + (captureHeight-1-row)*capturePitch;
+				char *out = rows + row*captureWidth*3;
+				for (unsigned column = 0; column < captureWidth; column++)
+				{
+					out[column*3+0] = (char)in[column*4+0];
+					out[column*3+1] = (char)in[column*4+1];
+					out[column*3+2] = (char)in[column*4+2];
+				}
+			}
+			CreateBMPFile(pathname, rows, captureWidth, captureHeight);
+			delete [] rows;
+			Direct3D11_Release_Capture(captured);
+
+			UnicodeString dx11FileName;
+			dx11FileName.translate(leafname);
+			TheInGameUI->message(TheGameText->fetch("GUI:ScreenCapture"), dx11FileName.str());
+		}
+		return;
 	}
 
 	RECT bounds;

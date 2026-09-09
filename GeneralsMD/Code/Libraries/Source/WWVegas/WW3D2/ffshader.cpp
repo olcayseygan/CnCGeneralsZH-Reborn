@@ -106,6 +106,52 @@ static bool operation_expression(DWORD operation, const std::string & argument0,
 	case D3DTOP_LERP:
 		expression = "lerp(" + argument2 + ", " + argument1 + ", " + argument0 + ")";
 		return true;
+	case D3DTOP_ADDSIGNED2X:
+		expression = "((" + argument1 + " + " + argument2 + " - 0.5) * 2.0)";
+		return true;
+	case D3DTOP_ADDSMOOTH:
+		expression = "(" + argument1 + " + " + argument2 + " - " + argument1 + " * " + argument2
+			+ ")";
+		return true;
+
+	// The four alpha blends differ only in where the blending alpha comes from, and the terrain
+	// uses three of them: the ground layers are blended by the vertex alpha and the noise layers by
+	// the alpha carried in the stage before them.
+	case D3DTOP_BLENDDIFFUSEALPHA:
+		expression = "lerp(" + argument2 + ", " + argument1 + ", input.Diffuse.a)";
+		return true;
+	case D3DTOP_BLENDTEXTUREALPHA:
+		expression = "lerp(" + argument2 + ", " + argument1 + ", texel.a)";
+		return true;
+	case D3DTOP_BLENDFACTORALPHA:
+		expression = "lerp(" + argument2 + ", " + argument1 + ", TextureFactor.a)";
+		return true;
+	case D3DTOP_BLENDCURRENTALPHA:
+		expression = "lerp(" + argument2 + ", " + argument1 + ", current.a)";
+		return true;
+
+	// Premultiplied: the first argument already carries its own alpha, so it is added rather than
+	// interpolated and only the second is faded out.
+	case D3DTOP_BLENDTEXTUREALPHAPM:
+		expression = "(" + argument1 + " + " + argument2 + " * (1.0 - texel.a))";
+		return true;
+
+	// The four modulate-and-add operations, which write a colour built from one argument's alpha
+	// and the other's colour.  D3D9 leaves the alpha channel of the result undefined for these and
+	// the engine does not read it, so the alpha here is whatever the arithmetic produces.
+	case D3DTOP_MODULATEALPHA_ADDCOLOR:
+		expression = "(" + argument1 + " + " + argument1 + ".a * " + argument2 + ")";
+		return true;
+	case D3DTOP_MODULATECOLOR_ADDALPHA:
+		expression = "(" + argument1 + " * " + argument2 + " + " + argument1 + ".a)";
+		return true;
+	case D3DTOP_MODULATEINVALPHA_ADDCOLOR:
+		expression = "((1.0 - " + argument1 + ".a) * " + argument2 + " + " + argument1 + ")";
+		return true;
+	case D3DTOP_MODULATEINVCOLOR_ADDALPHA:
+		expression = "((1.0 - " + argument1 + ") * " + argument2 + " + " + argument1 + ".a)";
+		return true;
+
 	case D3DTOP_DOTPRODUCT3:
 		// The device works on signed values here and saturates the result into all four channels.
 		expression = "saturate(dot((" + argument1 + ").rgb * 2.0 - 1.0, ("
@@ -204,10 +250,18 @@ bool CombinerShader_Generate(const CombinerDescription & description, CombinerSh
 		}
 
 		std::string colour_expression;
-		std::string alpha_expression;
 		if (!operation_expression(source.ColourOperation, colour_argument0, colour_argument1,
-				colour_argument2, colour_expression)
-			|| !operation_expression(source.AlphaOperation, alpha_argument0, alpha_argument1,
+				colour_argument2, colour_expression)) {
+			return false;
+		}
+
+		// A stage may disable its alpha operation while its colour operation runs on: the alpha
+		// channel then keeps whatever the stage before it left there.  D3D9 says so in one line and
+		// the terrain relies on it, blending its ground layers by an alpha two stages older than
+		// the colour being written.
+		std::string alpha_expression = "current";
+		if (source.AlphaOperation != D3DTOP_DISABLE
+			&& !operation_expression(source.AlphaOperation, alpha_argument0, alpha_argument1,
 				alpha_argument2, alpha_expression)) {
 			return false;
 		}
@@ -228,11 +282,15 @@ bool CombinerShader_Generate(const CombinerDescription & description, CombinerSh
 	if (target == COMBINER_SHADER_TARGET_D3D11) {
 		// A texture and the sampler that reads it are separate objects here, and the texture
 		// factor is a constant buffer field rather than a register.
+		for (unsigned stage = 0; stage < MAXIMUM_COMBINER_STAGES; ++stage) {
+			char line[128];
+			snprintf(line, sizeof(line),
+				"Texture2D Texture%u : register(t%u);\n"
+				"SamplerState Sampler%u : register(s%u);\n",
+				stage, stage, stage, stage);
+			hlsl += line;
+		}
 		hlsl +=
-			"Texture2D Texture0 : register(t0);\n"
-			"Texture2D Texture1 : register(t1);\n"
-			"SamplerState Sampler0 : register(s0);\n"
-			"SamplerState Sampler1 : register(s1);\n"
 			"cbuffer CombinerConstants : register(b0)\n"
 			"{\n"
 			"    float4 TextureFactor;\n"
@@ -241,10 +299,12 @@ bool CombinerShader_Generate(const CombinerDescription & description, CombinerSh
 			"};\n";
 	}
 	else {
-		hlsl +=
-			"sampler2D Sampler0 : register(s0);\n"
-			"sampler2D Sampler1 : register(s1);\n"
-			"float4 TextureFactor : register(";
+		for (unsigned stage = 0; stage < MAXIMUM_COMBINER_STAGES; ++stage) {
+			char line[64];
+			snprintf(line, sizeof(line), "sampler2D Sampler%u : register(s%u);\n", stage, stage);
+			hlsl += line;
+		}
+		hlsl += "float4 TextureFactor : register(";
 		hlsl += TEXTURE_FACTOR_REGISTER;
 		hlsl += ");\n";
 	}
@@ -264,9 +324,12 @@ bool CombinerShader_Generate(const CombinerDescription & description, CombinerSh
 	}
 	hlsl +=
 		"    float4 Diffuse   : COLOR0;\n"
-		"    float4 Specular  : COLOR1;\n"
-		"    float2 TexCoord0 : TEXCOORD0;\n"
-		"    float2 TexCoord1 : TEXCOORD1;\n";
+		"    float4 Specular  : COLOR1;\n";
+	for (unsigned stage = 0; stage < MAXIMUM_COMBINER_STAGES; ++stage) {
+		char line[64];
+		snprintf(line, sizeof(line), "    float2 TexCoord%u : TEXCOORD%u;\n", stage, stage);
+		hlsl += line;
+	}
 	if (target == COMBINER_SHADER_TARGET_D3D11) {
 		hlsl += "    float Fog        : FOG;\n";
 	}
@@ -282,30 +345,47 @@ bool CombinerShader_Generate(const CombinerDescription & description, CombinerSh
 		"    float4 current = input.Diffuse;\n";
 	hlsl += body;
 
-	if (target == COMBINER_SHADER_TARGET_D3D11) {
-		// The fog is applied after the combiners and before the alpha test, which is the order the
-		// D3D9 pipeline applies them in.  The factor is the weight of the unfogged colour, so one
-		// is no fog, and it never touches the alpha - a fogged pixel is the same shape as an
-		// unfogged one.
-		if (description.PixelPipeline.FogEnabled) {
-			hlsl += "    current.rgb = lerp(FogColour.rgb, current.rgb, saturate(input.Fog));\n";
-		}
-
-		if (description.PixelPipeline.AlphaTestEnabled) {
-			std::string clip;
-			if (!alpha_test_expression(description.PixelPipeline.AlphaFunction, clip)) {
-				return false;
-			}
-			if (!clip.empty()) {
-				hlsl += "    " + clip;
-			}
-		}
+	if (target == COMBINER_SHADER_TARGET_D3D11
+		&& !CombinerShader_Append_Pixel_Pipeline(description.PixelPipeline, hlsl)) {
+		return false;
 	}
 
 	hlsl +=
 		"    return current;\n"
 		"}\n";
 	return true;
+}
+
+// The fog is applied after the combiners and before the alpha test, which is the order the D3D9
+// pipeline applies them in.  The factor is the weight of the unfogged colour, so one is no fog, and
+// it never touches the alpha - a fogged pixel is the same shape as an unfogged one.
+bool CombinerShader_Append_Pixel_Pipeline(const PixelPipelineDescription & pipeline,
+	std::string & hlsl)
+{
+	if (pipeline.FogEnabled) {
+		hlsl += "    current.rgb = lerp(FogColour.rgb, current.rgb, saturate(input.Fog));\n";
+	}
+
+	if (pipeline.AlphaTestEnabled) {
+		std::string clip;
+		if (!alpha_test_expression(pipeline.AlphaFunction, clip)) {
+			return false;
+		}
+		if (!clip.empty()) {
+			hlsl += "    " + clip;
+		}
+	}
+	return true;
+}
+
+std::string CombinerShader_Pipeline_Key(const PixelPipelineDescription & pipeline)
+{
+	char field[32];
+	snprintf(field, sizeof(field), ":A%u,%lu,F%u",
+		pipeline.AlphaTestEnabled ? 1u : 0u,
+		pipeline.AlphaTestEnabled ? pipeline.AlphaFunction : 0ul,
+		pipeline.FogEnabled ? 1u : 0u);
+	return field;
 }
 
 std::string CombinerShader_Key(const CombinerDescription & description)
@@ -333,10 +413,6 @@ std::string CombinerShader_Key(const CombinerDescription & description)
 	// The alpha test and the fog change the program on the D3D11 profile.  They are in the key on
 	// both, which costs a D3D9 cache entry that generates the same text as another and buys one
 	// cache that is right for either profile.
-	snprintf(field, sizeof(field), ":A%u,%lu,F%u",
-		description.PixelPipeline.AlphaTestEnabled ? 1u : 0u,
-		description.PixelPipeline.AlphaTestEnabled ? description.PixelPipeline.AlphaFunction : 0ul,
-		description.PixelPipeline.FogEnabled ? 1u : 0u);
-	key += field;
+	key += CombinerShader_Pipeline_Key(description.PixelPipeline);
 	return key;
 }

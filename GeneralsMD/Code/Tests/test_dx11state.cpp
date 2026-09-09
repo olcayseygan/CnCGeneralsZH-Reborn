@@ -74,6 +74,25 @@ TEST(dx11state_the_blend_the_game_uses_most_translates)
 	CHECK_EQ(blend.RenderTarget[0].DestBlendAlpha, blend.RenderTarget[0].DestBlend);
 }
 
+TEST(dx11state_a_colour_factor_becomes_its_alpha_channel_in_the_alpha_slots)
+{
+	// The terrain's cloud pass multiplies itself into the frame buffer with D3DBLEND_DESTCOLOR.
+	// D3D11 refuses a colour factor in SrcBlendAlpha or DestBlendAlpha outright - CreateBlendState
+	// fails, the draw then runs with the default state, and the pass paints over the ground
+	// instead of darkening it.  D3D9 reads the factor's own alpha channel, so these do too.
+	DX11StateBlockClass block;
+	block.Set_Render_State(D3DRS_ALPHABLENDENABLE, TRUE);
+	block.Set_Render_State(D3DRS_SRCBLEND, D3DBLEND_DESTCOLOR);
+	block.Set_Render_State(D3DRS_DESTBLEND, D3DBLEND_INVSRCCOLOR);
+
+	D3D11_BLEND_DESC blend;
+	block.Build_Blend_Description(blend);
+	CHECK_EQ(blend.RenderTarget[0].SrcBlend, D3D11_BLEND_DEST_COLOR);
+	CHECK_EQ(blend.RenderTarget[0].DestBlend, D3D11_BLEND_INV_SRC_COLOR);
+	CHECK_EQ(blend.RenderTarget[0].SrcBlendAlpha, D3D11_BLEND_DEST_ALPHA);
+	CHECK_EQ(blend.RenderTarget[0].DestBlendAlpha, D3D11_BLEND_INV_SRC_ALPHA);
+}
+
 TEST(dx11state_every_blend_factor_has_a_translation)
 {
 	CHECK_EQ(DX11State_Translate_Blend(D3DBLEND_ZERO), D3D11_BLEND_ZERO);

@@ -27,21 +27,28 @@ static const DWORD COORDINATE_SET_MASK = 0xffff;
 static const DWORD TEXTURE_TRANSFORM_COUNT_MASK = 0x07;
 
 // The constant registers the D3D9 profile uses, in the order they are declared.  A vs_2_0 shader
-// has 256 float4 registers and this uses 34 of them, so the layout is written for reading rather
-// than for packing.
+// has 256 float4 registers and this uses fewer than 70 of them, so the layout is written for
+// reading rather than for packing.  Everything after the texture matrices is derived from where
+// they end, because how many there are follows MAXIMUM_VERTEX_STAGES.
+static const unsigned REGISTERS_PER_MATRIX = 4;
 static const unsigned REGISTER_WORLD_VIEW_PROJECTION = 0;
 static const unsigned REGISTER_WORLD_VIEW = 4;
 static const unsigned REGISTER_NORMAL_TRANSFORM = 8;
-static const unsigned REGISTER_TEXTURE_MATRIX_0 = 12;
-static const unsigned REGISTER_TEXTURE_MATRIX_1 = 16;
-static const unsigned REGISTER_MATERIAL_AMBIENT = 20;
-static const unsigned REGISTER_MATERIAL_DIFFUSE = 21;
-static const unsigned REGISTER_MATERIAL_SPECULAR = 22;
-static const unsigned REGISTER_MATERIAL_EMISSIVE = 23;
-static const unsigned REGISTER_MATERIAL_POWER = 24;
-static const unsigned REGISTER_GLOBAL_AMBIENT = 25;
-static const unsigned REGISTER_FOG_PARAMETERS = 26;
-static const unsigned REGISTER_LIGHTS = 27;
+static const unsigned REGISTER_TEXTURE_MATRICES = 12;
+static const unsigned REGISTER_MATERIAL_AMBIENT =
+	REGISTER_TEXTURE_MATRICES + MAXIMUM_VERTEX_STAGES * REGISTERS_PER_MATRIX;
+static const unsigned REGISTER_MATERIAL_DIFFUSE = REGISTER_MATERIAL_AMBIENT + 1;
+static const unsigned REGISTER_MATERIAL_SPECULAR = REGISTER_MATERIAL_AMBIENT + 2;
+static const unsigned REGISTER_MATERIAL_EMISSIVE = REGISTER_MATERIAL_AMBIENT + 3;
+static const unsigned REGISTER_MATERIAL_POWER = REGISTER_MATERIAL_AMBIENT + 4;
+static const unsigned REGISTER_GLOBAL_AMBIENT = REGISTER_MATERIAL_AMBIENT + 5;
+static const unsigned REGISTER_FOG_PARAMETERS = REGISTER_MATERIAL_AMBIENT + 6;
+// The reciprocal of the viewport's width and height, which is all a pre-transformed vertex needs:
+// its position is already in pixels and the shader has to put it back into clip space.  It sits
+// before the lights because the D3D11 block declares only as many lights as the description has,
+// and anything after them would move with that count.
+static const unsigned REGISTER_VIEWPORT = REGISTER_MATERIAL_AMBIENT + 7;
+static const unsigned REGISTER_LIGHTS = REGISTER_MATERIAL_AMBIENT + 8;
 
 // Six registers a light, the same six whatever type it is: where it is, which way it points, its
 // diffuse and specular colours, its three attenuation terms with its range, and its cone.  A
@@ -168,12 +175,17 @@ static bool append_texture_coordinates(std::string & body,
 		switch (generation) {
 		case D3DTSS_TCI_PASSTHRU:
 			if (set >= texture_coordinate_set_count(description.FVF)) {
-				// The format does not carry the set the stage is asking for.  D3D9 reads zeroes;
-				// refusing says so instead of drawing something that looks nearly right.
-				return false;
+				// The format does not carry the set the stage is asking for, which the engine does
+				// on purpose: a shadow quad has a texture stage on and no coordinates in its
+				// vertices.  D3D9 reads zeroes there, so this does too.  Refusing instead left 202
+				// draws a match out of the picture.
+				snprintf(line, sizeof(line),
+					"    float4 generated%u = float4(0.0, 0.0, 0.0, 1.0);\n", stage);
 			}
-			snprintf(line, sizeof(line), "    float4 generated%u = float4(input.TexCoord%u, 0.0, 1.0);\n",
-				stage, set);
+			else {
+				snprintf(line, sizeof(line),
+					"    float4 generated%u = float4(input.TexCoord%u, 0.0, 1.0);\n", stage, set);
+			}
 			break;
 
 		case D3DTSS_TCI_CAMERASPACEPOSITION:
@@ -229,12 +241,15 @@ static void append_constants_d3d9(std::string & hlsl, const VertexPipelineDescri
 	snprintf(line, sizeof(line),
 		"row_major float4x4 WorldViewProjection : register(c%u);\n"
 		"row_major float4x4 WorldView : register(c%u);\n"
-		"row_major float4x4 NormalTransform : register(c%u);\n"
-		"row_major float4x4 TextureMatrix0 : register(c%u);\n"
-		"row_major float4x4 TextureMatrix1 : register(c%u);\n",
-		REGISTER_WORLD_VIEW_PROJECTION, REGISTER_WORLD_VIEW, REGISTER_NORMAL_TRANSFORM,
-		REGISTER_TEXTURE_MATRIX_0, REGISTER_TEXTURE_MATRIX_1);
+		"row_major float4x4 NormalTransform : register(c%u);\n",
+		REGISTER_WORLD_VIEW_PROJECTION, REGISTER_WORLD_VIEW, REGISTER_NORMAL_TRANSFORM);
 	hlsl += line;
+
+	for (unsigned stage = 0; stage < MAXIMUM_VERTEX_STAGES; ++stage) {
+		snprintf(line, sizeof(line), "row_major float4x4 TextureMatrix%u : register(c%u);\n",
+			stage, REGISTER_TEXTURE_MATRICES + stage * REGISTERS_PER_MATRIX);
+		hlsl += line;
+	}
 
 	snprintf(line, sizeof(line),
 		"float4 MaterialAmbient : register(c%u);\n"
@@ -243,10 +258,11 @@ static void append_constants_d3d9(std::string & hlsl, const VertexPipelineDescri
 		"float4 MaterialEmissive : register(c%u);\n"
 		"float4 MaterialPower : register(c%u);\n"
 		"float4 GlobalAmbient : register(c%u);\n"
-		"float4 FogParameters : register(c%u);\n",
+		"float4 FogParameters : register(c%u);\n"
+		"float4 ViewportInverse : register(c%u);\n",
 		REGISTER_MATERIAL_AMBIENT, REGISTER_MATERIAL_DIFFUSE, REGISTER_MATERIAL_SPECULAR,
 		REGISTER_MATERIAL_EMISSIVE, REGISTER_MATERIAL_POWER, REGISTER_GLOBAL_AMBIENT,
-		REGISTER_FOG_PARAMETERS);
+		REGISTER_FOG_PARAMETERS, REGISTER_VIEWPORT);
 	hlsl += line;
 
 	for (unsigned index = 0; index < description.LightCount; ++index) {
@@ -276,16 +292,23 @@ static void append_constants_d3d11(std::string & hlsl,
 		"{\n"
 		"    row_major float4x4 WorldViewProjection;\n"
 		"    row_major float4x4 WorldView;\n"
-		"    row_major float4x4 NormalTransform;\n"
-		"    row_major float4x4 TextureMatrix0;\n"
-		"    row_major float4x4 TextureMatrix1;\n"
+		"    row_major float4x4 NormalTransform;\n";
+
+	for (unsigned stage = 0; stage < MAXIMUM_VERTEX_STAGES; ++stage) {
+		char matrix[64];
+		snprintf(matrix, sizeof(matrix), "    row_major float4x4 TextureMatrix%u;\n", stage);
+		hlsl += matrix;
+	}
+
+	hlsl +=
 		"    float4 MaterialAmbient;\n"
 		"    float4 MaterialDiffuse;\n"
 		"    float4 MaterialSpecular;\n"
 		"    float4 MaterialEmissive;\n"
 		"    float4 MaterialPower;\n"
 		"    float4 GlobalAmbient;\n"
-		"    float4 FogParameters;\n";
+		"    float4 FogParameters;\n"
+		"    float4 ViewportInverse;\n";
 
 	for (unsigned index = 0; index < description.LightCount; ++index) {
 		char line[1024];
@@ -302,6 +325,112 @@ static void append_constants_d3d11(std::string & hlsl,
 	hlsl += "};\n";
 }
 
+// The coordinate sets the vertex format actually carries.  Direct3D 9 let a shader declare an
+// input the format did not supply; D3D11 refuses the input layout for it.
+static void append_input_coordinate_sets(std::string & hlsl, unsigned coordinate_sets)
+{
+	for (unsigned set = 0; set < coordinate_sets && set < MAXIMUM_VERTEX_STAGES; ++set) {
+		char line[64];
+		snprintf(line, sizeof(line), "    float2 TexCoord%u : TEXCOORD%u;\n", set, set);
+		hlsl += line;
+	}
+}
+
+// What every generated vertex program writes, whatever it was generated from.  Shader model 4
+// links the stages by slot in declaration order, so this structure and ffshader's input structure
+// are one thing in two files: a program that writes a different set links against nothing.
+static void append_output_structure(std::string & hlsl, bool for_d3d11)
+{
+	hlsl +=
+		"struct Output\n"
+		"{\n";
+	hlsl += for_d3d11 ? "    float4 Position : SV_Position;\n" : "    float4 Position : POSITION;\n";
+	hlsl +=
+		"    float4 Diffuse  : COLOR0;\n"
+		"    float4 Specular : COLOR1;\n";
+
+	for (unsigned stage = 0; stage < MAXIMUM_VERTEX_STAGES; ++stage) {
+		char line[64];
+		snprintf(line, sizeof(line), "    float2 TexCoord%u : TEXCOORD%u;\n", stage, stage);
+		hlsl += line;
+	}
+
+	hlsl +=
+		"    float Fog : FOG;\n"
+		"};\n"
+		"\n";
+}
+
+// The whole program for a pre-transformed vertex.  D3D9 takes x and y as pixels inside the
+// viewport, z as the depth it will write and the fourth float as the reciprocal of w; clip space
+// wants the opposite of all four, so the position is mapped back and multiplied by w, which is what
+// keeps the texture coordinates perspective correct on the rare quad whose w is not one.
+static bool generate_pretransformed(const VertexPipelineDescription & description,
+	VertexShaderTarget target, std::string & hlsl)
+{
+	const bool for_d3d11 = (target == VERTEX_SHADER_TARGET_D3D11);
+	const unsigned coordinate_sets = texture_coordinate_set_count(description.FVF);
+
+	hlsl = "// Generated from a fixed-function vertex pipeline description.  See ffvertex.h.\n";
+	if (for_d3d11) {
+		append_constants_d3d11(hlsl, description);
+	}
+	else {
+		append_constants_d3d9(hlsl, description);
+	}
+
+	hlsl +=
+		"\n"
+		"struct Input\n"
+		"{\n"
+		"    float4 Position : POSITION;\n";
+	if (has_diffuse(description.FVF)) {
+		hlsl += "    float4 Diffuse  : COLOR0;\n";
+	}
+	append_input_coordinate_sets(hlsl, coordinate_sets);
+	hlsl +=
+		"};\n"
+		"\n";
+	append_output_structure(hlsl, for_d3d11);
+	hlsl +=
+		"Output main(Input input)\n"
+		"{\n"
+		"    Output output;\n"
+		"    float reciprocal_w = (input.Position.w == 0.0) ? 1.0 : input.Position.w;\n"
+		"    float w = 1.0 / reciprocal_w;\n"
+		"    float2 normalised = input.Position.xy * ViewportInverse.xy;\n"
+		"    output.Position = float4((normalised.x * 2.0 - 1.0) * w,\n"
+		"        (1.0 - normalised.y * 2.0) * w, input.Position.z * w, w);\n";
+
+	for (unsigned stage = 0; stage < MAXIMUM_VERTEX_STAGES; ++stage) {
+		const unsigned set = (stage < description.StageCount)
+			? (description.Stages[stage].TextureCoordinateIndex & COORDINATE_SET_MASK)
+			: 0;
+		char line[128];
+		if (stage < description.StageCount && set < coordinate_sets) {
+			snprintf(line, sizeof(line), "    output.TexCoord%u = input.TexCoord%u;\n", stage, set);
+		}
+		else {
+			snprintf(line, sizeof(line), "    output.TexCoord%u = float2(0.0, 0.0);\n", stage);
+		}
+		hlsl += line;
+	}
+
+	if (has_diffuse(description.FVF)) {
+		hlsl += "    output.Diffuse = input.Diffuse;\n";
+	}
+	else {
+		hlsl += "    output.Diffuse = float4(1.0, 1.0, 1.0, 1.0);\n";
+	}
+
+	hlsl +=
+		"    output.Specular = float4(0.0, 0.0, 0.0, 0.0);\n"
+		"    output.Fog = 1.0;\n"
+		"    return output;\n"
+		"}\n";
+	return true;
+}
+
 bool VertexShader_Generate(const VertexPipelineDescription & description,
 	VertexShaderTarget target, std::string & hlsl)
 {
@@ -316,10 +445,13 @@ bool VertexShader_Generate(const VertexPipelineDescription & description,
 		return false;
 	}
 
-	// A pre-transformed vertex has been through all of this already.  The 2D passes draw that way
-	// and a generated shader for one would be a transform applied twice.
+	// A pre-transformed vertex has been through the transform, the lighting and the coordinate
+	// generation already: its position is in pixels, its colour is in the vertex, and D3D9 reads
+	// the texture coordinates straight out of the format whatever the stage's generation mode
+	// says.  All the shader has to do is put the pixels back into clip space, so it is written
+	// here whole rather than sharing the body below.
 	if (is_pretransformed(description.FVF)) {
-		return false;
+		return generate_pretransformed(description, target, hlsl);
 	}
 
 	for (unsigned index = 0; index < description.LightCount; ++index) {
@@ -428,29 +560,33 @@ bool VertexShader_Generate(const VertexPipelineDescription & description,
 		append_constants_d3d9(hlsl, description);
 	}
 
+	// The input signature carries exactly what the vertex format carries, and no more.  Direct3D 9
+	// let a shader declare an input the format did not supply and read zeroes out of it; D3D11
+	// refuses the input layout outright, which is a draw that does not happen rather than a draw
+	// that looks slightly wrong - 62534 of them in two minutes of Tournament Desert, which is every
+	// model in the game.  What the format leaves out is filled in below with the value the fixed
+	// function pipeline would have used.
+	const unsigned coordinate_sets = texture_coordinate_set_count(description.FVF);
+
 	hlsl +=
 		"\n"
 		"struct Input\n"
-		"{\n"
-		"    float3 Position : POSITION;\n"
-		"    float3 Normal   : NORMAL;\n"
-		"    float4 Diffuse  : COLOR0;\n"
-		"    float2 TexCoord0 : TEXCOORD0;\n"
-		"    float2 TexCoord1 : TEXCOORD1;\n"
-		"};\n"
-		"\n"
-		"struct Output\n"
 		"{\n";
-	hlsl += for_d3d11 ? "    float4 Position : SV_Position;\n" : "    float4 Position : POSITION;\n";
-	hlsl +=
-		"    float4 Diffuse  : COLOR0;\n"
-		"    float4 Specular : COLOR1;\n"
-		"    float2 TexCoord0 : TEXCOORD0;\n"
-		"    float2 TexCoord1 : TEXCOORD1;\n";
-	hlsl += for_d3d11 ? "    float Fog : FOG;\n" : "    float Fog : FOG;\n";
+	// Position stays three floats even for a pretransformed format, where the layout element has
+	// four: the extra one is the reciprocal homogeneous w and the body does not read it.
+	hlsl += "    float3 Position : POSITION;\n";
+	if (has_normal(description.FVF)) {
+		hlsl += "    float3 Normal   : NORMAL;\n";
+	}
+	if (has_diffuse(description.FVF)) {
+		hlsl += "    float4 Diffuse  : COLOR0;\n";
+	}
+	append_input_coordinate_sets(hlsl, coordinate_sets);
 	hlsl +=
 		"};\n"
-		"\n"
+		"\n";
+	append_output_structure(hlsl, for_d3d11);
+	hlsl +=
 		"Output main(Input input)\n"
 		"{\n"
 		"    Output output;\n";

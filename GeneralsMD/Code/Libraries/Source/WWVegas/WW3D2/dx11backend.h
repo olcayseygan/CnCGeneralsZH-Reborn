@@ -43,16 +43,19 @@
 
 #include "dx11device.h"
 #include "dx11state.h"
+#include "engineshader.h"
 #include "ffshader.h"
 #include "ffvertex.h"
 
 #include <d3d9.h>
 #include <map>
 #include <string>
+#include <vector>
 
-// The engine never binds more than two textures at once, which is what -ffprobe measured and what
-// ffshader will generate for.  A third is a draw this refuses rather than draws wrongly.
-const unsigned DX11_BACKEND_TEXTURE_STAGES = 2;
+// Two everywhere except the water, which binds four: the river texture, the sparkles, the noise
+// and the shroud.  This is what ffshader and ffvertex generate for, and a fifth is a draw this
+// refuses rather than draws wrongly.
+const unsigned DX11_BACKEND_TEXTURE_STAGES = 4;
 
 // D3DTSS_CONSTANT is the highest texture stage state at 32, so the block is indexed by the state
 // itself and has to reach one past it.
@@ -74,7 +77,24 @@ public:
 	void Set_Texture_Stage_State(unsigned stage, D3DTEXTURESTAGESTATETYPE state, DWORD value);
 	void Set_Sampler_State(unsigned sampler, D3DSAMPLERSTATETYPE state, DWORD value);
 	void Set_Texture(unsigned stage, ID3D11ShaderResourceView * texture);
+
+	// The engine bound a texture at this stage that has no D3D11 copy - a render target it drew
+	// into, most often.  Sampling white there paints a full screen quad over the frame, so a draw
+	// that reads one is refused instead.
+	void Set_Texture_Missing(unsigned stage, bool missing);
 	void Set_Vertex_Format(DWORD fvf);
+
+	// One of the engine's own D3D9 shaders is bound.  Most of the shipped .vso and .pso files have
+	// no D3D11 counterpart, so a draw made while one is bound is refused and counted apart; the
+	// ones engineshader transcribes are named instead and the draw takes that program.  The file
+	// name comes with it because a refusal count says how much is missing and only the name says
+	// which shader has to be written next.
+	void Set_Pixel_Program(EngineShaderProgram program, bool bound, const char * file_name);
+	void Set_Vertex_Program(EngineShaderProgram program, bool bound, const char * file_name);
+
+	// The engine's own float4 shader constant bank, as it sets it.  The transcribed programs index
+	// it by the same register number the SetVertexShaderConstantF call used.
+	void Set_Vertex_Program_Constant(unsigned first_register, const float * values, unsigned count);
 	void Set_Stream_Source(ID3D11Buffer * buffer, unsigned stride, unsigned offset);
 	void Set_Indices(ID3D11Buffer * buffer, DXGI_FORMAT format);
 
@@ -92,8 +112,24 @@ public:
 		const float spot[4]);
 	void Disable_Light(unsigned index);
 
+	// Write every program this builds to a file in this directory, named by the state it was built
+	// from.  A generated program that draws the wrong thing is unreadable from the outside: the
+	// description is a key, and the key is not the code.
+	void Set_Dump_Directory(const char * directory);
+
+	// Binds the swap chain's back buffer and depth buffer and sets the viewport over the whole of
+	// it.  D3D11 keeps no default target: without this every draw is complete, legal, and lands
+	// nowhere.  Called at the start of each scene rather than once, because a resize replaces both
+	// views and nothing tells the backend when that happens.
+	void Begin_Scene();
+
 	void Set_Viewport(unsigned x, unsigned y, unsigned width, unsigned height);
 	void Clear(bool colour, bool depth, const float colour_value[4]);
+
+	// Draw into a texture instead of into the back buffer.  A null target goes back to the back
+	// buffer.  D3D11 wants the depth buffer to match the target's size, so one is made for each
+	// size a target comes in and kept; the engine uses two or three of them in a match.
+	void Set_Render_Target(ID3D11RenderTargetView * target);
 
 	// The two draws.  Both resolve the shadow state into a pipeline first, and both return false
 	// when some part of that state has no D3D11 answer, which leaves the draw undone rather than
@@ -101,11 +137,57 @@ public:
 	bool Draw_Indexed_Triangles(unsigned index_count, unsigned start_index, unsigned base_vertex);
 	bool Draw_Triangles(unsigned vertex_count, unsigned start_vertex);
 
+	// The same indexed draw over a triangle strip, which is how the water lays out both of its
+	// grids.  A strip drawn as a list reads three indices where the strip meant one triangle and
+	// paints a third of the surface in torn triangles, so the topology cannot be assumed.
+	bool Draw_Indexed_Strip(unsigned index_count, unsigned start_index, unsigned base_vertex);
+
+	// A triangle strip handed over as vertices rather than as a buffer, which is how the engine
+	// draws every screen-space quad it has.
+	bool Draw_User_Strip(const void * vertices, unsigned primitive_count, unsigned stride);
+
 	// How many pipelines were built and how many draws were refused, which is the same pair
 	// -ffshader reports and the same thing it is for: a backend that silently refuses half the
 	// draws looks like a renderer with a lot missing and no error anywhere.
 	void Statistics(unsigned & pipelines_built, unsigned long long & draws_made,
 		unsigned long long & draws_refused) const;
+
+	// Why the refusals happened, in the order Draw checks them: no buffer bound, no texture stage
+	// enabled, a vertex format with no input layout, and a program the generator or the compiler
+	// would not produce.  "Half the draws are refused" is not a finding; which half is.
+	void Refusals(unsigned long long & no_buffer, unsigned long long & no_stage,
+		unsigned long long & no_layout, unsigned long long & no_program,
+		unsigned long long & no_object, unsigned long long & foreign_shader,
+		unsigned long long & no_texture) const;
+
+	// The distinct states that were refused, as the keys they were cached under, and whatever the
+	// shader compiler said about the first one it rejected.  A count says how much is missing; the
+	// key says what, and it is the only thing that does.
+	unsigned Refused_Description_Count() const;
+	const char * Refused_Description(unsigned index) const;
+
+	// What each pipeline that did draw actually painted with: how many draws took it, and the size
+	// of the texture bound at stage zero the first time one did.  A count of draws made says the
+	// picture was drawn; it does not say what was drawn into it, and a ground that comes out white
+	// looks exactly like a ground that came out right from every other number here.
+	unsigned Pipeline_Report_Count() const;
+	const char * Pipeline_Report(unsigned index);
+
+	// The shipped shaders the refused draws had bound, and how many draws each cost.  This is the
+	// list of what engineshader still has to transcribe, in the order worth doing it.
+	unsigned Foreign_Report_Count() const;
+	const char * Foreign_Report(unsigned index);
+
+	// How many times the draws were sent into a texture instead of the back buffer, and how many
+	// landed there.  A scene that comes back black usually means a target was set and not unset.
+	void Target_Statistics(unsigned long long & bound, unsigned long long & restored,
+		unsigned long long & draws) const
+		{ bound = TargetsBound; restored = TargetsRestored; draws = DrawsIntoTargets; }
+	const char * Diagnostic_Line() const { return Diagnostic.c_str(); }
+	unsigned Target_Trace_Count() const { return (unsigned)TargetTrace.size(); }
+	const char * Target_Trace(unsigned index) const
+		{ return (index < TargetTrace.size()) ? TargetTrace[index].c_str() : ""; }
+	const char * First_Compiler_Error() const { return CompilerError.c_str(); }
 
 private:
 	DX11BackendClass(const DX11BackendClass &);
@@ -122,6 +204,14 @@ private:
 	bool Build_Vertex_Description(VertexPipelineDescription & description) const;
 	bool Build_Combiner_Description(CombinerDescription & description) const;
 	void Upload_Constants();
+
+	// Both indexed draws land here; only the topology differs.
+	bool Draw_Indexed(unsigned index_count, unsigned start_index, unsigned base_vertex,
+		D3D11_PRIMITIVE_TOPOLOGY topology);
+
+	// Which bank the vertex half is reading: the engine's own registers while a transcribed
+	// program is bound, the generated block otherwise.
+	ID3D11Buffer * Vertex_Constants() const;
 	void Bind_State_Objects();
 	void Release_Cached();
 
@@ -147,6 +237,15 @@ private:
 	float World[16];
 	float View[16];
 	float Projection[16];
+	// The per-stage texture transforms.  Two of them, because ffvertex writes two and the game sets
+	// no more than two stages in any state the probe counted.  These are what turn a camera space
+	// position into the cloud shadow's coordinates, and with an identity in their place the whole
+	// terrain samples one texel of it.
+	float TextureTransforms[DX11_BACKEND_TEXTURE_STAGES][16];
+
+	// What the viewport is, so a pre-transformed vertex can be put back into clip space.
+	unsigned ViewportWidth;
+	unsigned ViewportHeight;
 
 	float MaterialAmbient[4];
 	float MaterialDiffuse[4];
@@ -170,7 +269,57 @@ private:
 	ID3D11Buffer * VertexConstantBuffer;
 	ID3D11Buffer * PixelConstantBuffer;
 
+	// The engine's own constant bank and the buffer it is uploaded through.  It replaces the
+	// generated vertex block at slot zero while a transcribed program is bound, because that
+	// program reads registers and not the fixed-function fields.
+	ID3D11Buffer * EngineConstantBuffer;
+	float EngineConstants[ENGINE_SHADER_CONSTANTS][4];
+	EngineShaderProgram VertexProgram;
+	EngineShaderProgram PixelProgram;
+
+	// Where the screen quads are copied to, grown to fit and never shrunk.
+	ID3D11Buffer * UserBuffer;
+	unsigned UserBufferBytes;
+	bool Reserve_User_Buffer(unsigned byte_count);
+
 	std::map<std::string, Pipeline> Pipelines;
+	// The state combinations that could not be built.  A refusal costs two HLSL generations and two
+	// D3DCompile calls, and the states that produce one are produced again on the next frame by the
+	// same object: a scene with a hundred and thirty of them a frame spent a second a frame
+	// compiling shaders it had already failed to compile.
+	std::map<std::string, unsigned> RefusedPipelines;
+
+	// What a pipeline drew with, kept beside the pipeline itself rather than in it, because a draw
+	// holds a copy of the pipeline and would be updating the copy.
+	struct PipelineUse
+	{
+		unsigned long long Draws;
+		unsigned TextureWidth;
+		unsigned TextureHeight;
+	};
+	std::map<std::string, PipelineUse> PipelineUses;
+	std::string ReportLine;
+	void Record_Use(const std::string & key);
+
+	// Where the draws are landing.  Null means the device's own back buffer and depth buffer.
+	// The first few target changes, in order, with the draw count at each one.  Which target is
+	// bound when the scene is drawn is the whole question and no total answers it.
+	static const unsigned TARGET_TRACE_LIMIT = 24;
+	std::vector<std::string> TargetTrace;
+	void Trace_Target(const char * what, unsigned width, unsigned height);
+	bool TracedUserStrip;
+	DWORD MaskWhileTargeted;
+	std::string Diagnostic;
+	std::string Texture_Average(unsigned stage);
+
+	unsigned long long TargetsBound;
+	unsigned long long TargetsRestored;
+	unsigned long long DrawsIntoTargets;
+	ID3D11RenderTargetView * CurrentTarget;
+	ID3D11DepthStencilView * CurrentDepth;
+	std::map<unsigned long long, ID3D11DepthStencilView *> TargetDepths;
+	ID3D11DepthStencilView * Depth_For(unsigned width, unsigned height);
+
 	std::map<std::string, ID3D11BlendState *> BlendStates;
 	std::map<std::string, ID3D11DepthStencilState *> DepthStencilStates;
 	std::map<std::string, ID3D11RasterizerState *> RasterizerStates;
@@ -179,6 +328,38 @@ private:
 	unsigned PipelinesBuilt;
 	unsigned long long DrawsMade;
 	unsigned long long DrawsRefused;
+	enum RefusalReason { REFUSED_NO_STAGE, REFUSED_NO_LAYOUT, REFUSED_NO_PROGRAM,
+		REFUSED_NO_OBJECT };
+
+	void Refuse(const std::string & key, RefusalReason reason);
+	void Record_Compiler_Error(const char * which, ID3DBlob * errors);
+	void Note_Refusal(const char * reason);
+	bool Any_Missing_Texture() const;
+	void Dump_Program(const std::string & key, const std::string & vertex_hlsl,
+		const std::string & pixel_hlsl);
+
+	std::string CompilerError;
+	std::string DumpDirectory;
+
+	unsigned long long RefusedNoBuffer;
+	unsigned long long RefusedNoStage;
+	unsigned long long RefusedNoLayout;
+	unsigned long long RefusedNoProgram;
+	unsigned long long RefusedNoObject;
+	unsigned long long RefusedForeignShader;
+	unsigned long long RefusedNoTexture;
+
+	bool MissingTexture[DX11_BACKEND_TEXTURE_STAGES];
+	bool ForeignPixelShader;
+	bool ForeignVertexShader;
+	std::string ForeignPixelName;
+	std::string ForeignVertexName;
+
+	// Which shipped shader the refusals are on, counted by file name.  Nothing else says it: the
+	// refusal happens before there is a pipeline key, so the state that would describe the draw is
+	// never built.
+	std::map<std::string, unsigned long long> ForeignRefusals;
+	void Note_Foreign_Refusal();
 };
 
 #endif // DX11BACKEND_H

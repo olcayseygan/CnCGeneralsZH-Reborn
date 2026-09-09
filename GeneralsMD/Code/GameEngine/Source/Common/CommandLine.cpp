@@ -1363,6 +1363,38 @@ Int parseDirect3D11(char *args[], int num)
 	return 1;
 }
 
+/* -dx11present: put the Direct3D 11 frame on the screen, and read screenshots back from it.
+	 *
+	 * Implies -dx11.  Without it the backend draws into a back buffer nothing ever shows, which is
+	 * how both renderers can run in the same frame while phase 2 is unfinished; with it the window
+	 * and the .bmp are the D3D11 picture, so tree-check.ps1 can photograph one against the other.
+	 * A frame the backend refuses parts of is a frame with those parts missing - that is the point
+	 * of looking. */
+/* -dx11dump <directory>: write every program the Direct3D 11 backend generates into that
+	 * directory as it is built, named by the order it was built in with the state it came from on
+	 * its first line.  Implies -dx11.  A generated program that draws the wrong thing cannot be read
+	 * any other way: the state is a key and the key is not the code. */
+Int parseDirect3D11Dump(char *args[], int num)
+{
+	if (num > 1 && TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_direct3D11 = TRUE;
+		TheWritableGlobalData->m_direct3D11DumpPath = args[1];
+		return 2;
+	}
+	return 1;
+}
+
+Int parseDirect3D11Present(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_direct3D11 = TRUE;
+		TheWritableGlobalData->m_direct3D11Present = TRUE;
+	}
+	return 1;
+}
+
 Int parseCombinerShaders(char *args[], int num)
 {
 	if (TheWritableGlobalData)
@@ -2130,6 +2162,8 @@ static CommandLineParam params[] =
 	{ "-ffprobe", parseFixedFunctionProbe },
 	{ "-ffshader", parseCombinerShaders },
 	{ "-dx11", parseDirect3D11 },
+	{ "-dx11present", parseDirect3D11Present },
+	{ "-dx11dump", parseDirect3D11Dump },
 	{ "-autocamera", parseAutoCamera },
 	{ "-camera", parseCameraLook },
 	{ "-tracemove", parseTraceMove },

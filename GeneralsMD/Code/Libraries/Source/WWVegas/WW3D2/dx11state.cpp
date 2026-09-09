@@ -49,6 +49,25 @@ D3D11_BLEND DX11State_Translate_Blend(DWORD d3d9_blend)
 	}
 }
 
+// D3D11 refuses a colour factor in either alpha slot: CreateBlendState fails outright for a
+// SrcBlendAlpha of DEST_COLOR, and a failed create leaves the draw with no blend state at all,
+// which is the default one - no blending.  D3D9 has no such rule and takes the colour factor's
+// alpha channel, so that is what each of these maps to.  The terrain's cloud pass sets
+// D3DBLEND_DESTCOLOR, and with the create failing it stopped multiplying the ground and painted
+// over it instead.
+static D3D11_BLEND alpha_equivalent(D3D11_BLEND blend)
+{
+	switch (blend) {
+	case D3D11_BLEND_SRC_COLOR:       return D3D11_BLEND_SRC_ALPHA;
+	case D3D11_BLEND_INV_SRC_COLOR:   return D3D11_BLEND_INV_SRC_ALPHA;
+	case D3D11_BLEND_DEST_COLOR:      return D3D11_BLEND_DEST_ALPHA;
+	case D3D11_BLEND_INV_DEST_COLOR:  return D3D11_BLEND_INV_DEST_ALPHA;
+	case D3D11_BLEND_SRC1_COLOR:      return D3D11_BLEND_SRC1_ALPHA;
+	case D3D11_BLEND_INV_SRC1_COLOR:  return D3D11_BLEND_INV_SRC1_ALPHA;
+	default:                          return blend;
+	}
+}
+
 D3D11_BLEND_OP DX11State_Translate_Blend_Operation(DWORD d3d9_operation)
 {
 	switch (d3d9_operation) {
@@ -180,9 +199,10 @@ void DX11StateBlockClass::Build_Blend_Description(D3D11_BLEND_DESC & description
 	target.BlendOp = DX11State_Translate_Blend_Operation(RenderStates[D3DRS_BLENDOP]);
 
 	// D3D9 blends the alpha channel with the colour terms unless D3DRS_SEPARATEALPHABLENDENABLE
-	// says otherwise, and nothing in the engine sets that, so the alpha terms are the colour ones.
-	target.SrcBlendAlpha = target.SrcBlend;
-	target.DestBlendAlpha = target.DestBlend;
+	// says otherwise, and nothing in the engine sets that, so the alpha terms are the colour ones
+	// with a colour factor read as its own alpha channel.
+	target.SrcBlendAlpha = alpha_equivalent(target.SrcBlend);
+	target.DestBlendAlpha = alpha_equivalent(target.DestBlend);
 	target.BlendOpAlpha = target.BlendOp;
 
 	target.RenderTargetWriteMask =

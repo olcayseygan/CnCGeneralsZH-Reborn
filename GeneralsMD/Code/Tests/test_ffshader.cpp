@@ -162,6 +162,61 @@ TEST(ffshader_argument_modifiers_replicate_before_complementing)
 	CHECK(contains(hlsl, "saturate((1.0 - texel)).a"));
 }
 
+// The terrain blends its ground layers by the vertex alpha and its noise layers by the alpha the
+// stage before them left in current.  Both were refusals until the operations below existed, and a
+// refused terrain draw is a hole where the ground is.
+TEST(ffshader_blends_by_diffuse_and_by_current_alpha)
+{
+	CombinerDescription description;
+	memset(&description, 0, sizeof(description));
+	description.StageCount = 2;
+	description.Stages[0] = one_stage(D3DTOP_BLENDDIFFUSEALPHA, D3DTA_TEXTURE, D3DTA_CURRENT,
+		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
+	description.Stages[1] = one_stage(D3DTOP_BLENDCURRENTALPHA, D3DTA_TEXTURE, D3DTA_CURRENT,
+		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 1, true);
+
+	std::string hlsl;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));
+	CHECK(contains(hlsl, "lerp(current, texel, input.Diffuse.a)"));
+	CHECK(contains(hlsl, "lerp(current, texel, current.a)"));
+}
+
+// A stage that disables only its alpha operation keeps the alpha it was handed.  Refusing these
+// cost the whole terrain: every one of its blending stages leaves the alpha alone.
+TEST(ffshader_a_disabled_alpha_operation_keeps_the_alpha_it_was_given)
+{
+	CombinerDescription description;
+	memset(&description, 0, sizeof(description));
+	description.StageCount = 1;
+	description.Stages[0] = one_stage(D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_CURRENT,
+		D3DTOP_DISABLE, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
+
+	std::string hlsl;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));
+	CHECK(contains(hlsl, "current.a   = saturate(current).a;"));
+}
+
+// The rest of the blending family, so that a stage program built out of any of them is written
+// rather than refused.  What each one computes is D3D9's own definition and nothing here chooses.
+TEST(ffshader_writes_every_blending_operation_the_device_had)
+{
+	static const DWORD operations[] = {
+		D3DTOP_ADDSIGNED2X, D3DTOP_ADDSMOOTH, D3DTOP_BLENDTEXTUREALPHA, D3DTOP_BLENDFACTORALPHA,
+		D3DTOP_BLENDTEXTUREALPHAPM, D3DTOP_MODULATEALPHA_ADDCOLOR, D3DTOP_MODULATECOLOR_ADDALPHA,
+		D3DTOP_MODULATEINVALPHA_ADDCOLOR, D3DTOP_MODULATEINVCOLOR_ADDALPHA };
+
+	for (unsigned index = 0; index < sizeof(operations) / sizeof(operations[0]); ++index) {
+		CombinerDescription description;
+		memset(&description, 0, sizeof(description));
+		description.StageCount = 1;
+		description.Stages[0] = one_stage(operations[index], D3DTA_TEXTURE, D3DTA_DIFFUSE,
+			D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
+
+		std::string hlsl;
+		CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));
+	}
+}
+
 // An operation the generator does not write has to be refused, not guessed at: the caller keeps
 // that draw on the fixed-function path, which is the only reason meeting one is safe.
 TEST(ffshader_refuses_an_operation_it_does_not_generate)

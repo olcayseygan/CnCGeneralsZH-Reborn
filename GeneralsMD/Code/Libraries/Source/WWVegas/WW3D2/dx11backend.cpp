@@ -19,6 +19,7 @@
 #include "dx11backend.h"
 
 #include "dx11layout.h"
+#include "dx11resource.h"
 
 #include <d3dcommon.h>
 #include <stdio.h>
@@ -45,8 +46,7 @@ struct VertexConstantBlock
 	float WorldViewProjection[16];
 	float WorldView[16];
 	float NormalTransform[16];
-	float TextureMatrix0[16];
-	float TextureMatrix1[16];
+	float TextureMatrix[MAXIMUM_VERTEX_STAGES][16];
 	float MaterialAmbient[4];
 	float MaterialDiffuse[4];
 	float MaterialSpecular[4];
@@ -54,8 +54,19 @@ struct VertexConstantBlock
 	float MaterialPower[4];
 	float GlobalAmbient[4];
 	float FogParameters[4];
+	// One over the viewport's width and height, for the pre-transformed draws.  It goes before the
+	// lights because the generated block declares only as many lights as the state has.
+	float ViewportInverse[4];
 	float LightFields[MAXIMUM_VERTEX_LIGHTS][6][4];
 };
+
+// The three stage counts are one count in three headers.  The block above is copied wholesale out
+// of the backend's own texture transforms, the generated pixel shader declares one sampler per
+// texture the backend binds, and a mismatch is a silent overrun rather than a build failure.
+static_assert(MAXIMUM_VERTEX_STAGES == DX11_BACKEND_TEXTURE_STAGES,
+	"ffvertex declares one texture matrix per stage and the backend uploads one per stage");
+static_assert(MAXIMUM_COMBINER_STAGES == DX11_BACKEND_TEXTURE_STAGES,
+	"ffshader declares one sampler per stage and the backend binds one per stage");
 
 struct PixelConstantBlock
 {
@@ -143,12 +154,35 @@ DX11BackendClass::DX11BackendClass()
 	, MaterialPower(0.0f)
 	, VertexConstantBuffer(NULL)
 	, PixelConstantBuffer(NULL)
+	, EngineConstantBuffer(NULL)
+	, VertexProgram(ENGINE_SHADER_NONE)
+	, PixelProgram(ENGINE_SHADER_NONE)
+	, UserBuffer(NULL)
+	, UserBufferBytes(0)
 	, PipelinesBuilt(0)
+	, TracedUserStrip(false)
+	, MaskWhileTargeted(0)
+	, TargetsBound(0)
+	, TargetsRestored(0)
+	, DrawsIntoTargets(0)
+	, CurrentTarget(NULL)
+	, CurrentDepth(NULL)
 	, DrawsMade(0)
 	, DrawsRefused(0)
+	, RefusedNoBuffer(0)
+	, RefusedNoStage(0)
+	, RefusedNoLayout(0)
+	, RefusedNoProgram(0)
+	, RefusedNoObject(0)
+	, RefusedForeignShader(0)
+	, RefusedNoTexture(0)
+	, ForeignPixelShader(false)
+	, ForeignVertexShader(false)
 {
 	memset(StageStates, 0, sizeof(StageStates));
 	memset(Textures, 0, sizeof(Textures));
+	memset(EngineConstants, 0, sizeof(EngineConstants));
+	memset(MissingTexture, 0, sizeof(MissingTexture));
 	memset(Lights, 0, sizeof(Lights));
 	memset(MaterialAmbient, 0, sizeof(MaterialAmbient));
 	memset(MaterialDiffuse, 0, sizeof(MaterialDiffuse));
@@ -158,6 +192,11 @@ DX11BackendClass::DX11BackendClass()
 	set_identity(World);
 	set_identity(View);
 	set_identity(Projection);
+	for (unsigned stage = 0; stage < DX11_BACKEND_TEXTURE_STAGES; ++stage) {
+		set_identity(TextureTransforms[stage]);
+	}
+	ViewportWidth = 1;
+	ViewportHeight = 1;
 
 	// The device's own defaults, so a stage nobody has written to is a stage that is off.
 	for (unsigned stage = 0; stage < DX11_BACKEND_TEXTURE_STAGES; ++stage) {
@@ -192,7 +231,12 @@ bool DX11BackendClass::Initialise(DX11DeviceClass * device)
 	}
 
 	description.ByteWidth = sizeof(PixelConstantBlock);
-	return SUCCEEDED(Device->Get_Device()->CreateBuffer(&description, NULL, &PixelConstantBuffer));
+	if (FAILED(Device->Get_Device()->CreateBuffer(&description, NULL, &PixelConstantBuffer))) {
+		return false;
+	}
+
+	description.ByteWidth = sizeof(EngineConstants);
+	return SUCCEEDED(Device->Get_Device()->CreateBuffer(&description, NULL, &EngineConstantBuffer));
 }
 
 void DX11BackendClass::Release_Cached()
@@ -223,6 +267,16 @@ void DX11BackendClass::Release_Cached()
 	}
 	RasterizerStates.clear();
 
+	for (std::map<unsigned long long, ID3D11DepthStencilView *>::iterator entry
+			= TargetDepths.begin(); entry != TargetDepths.end(); ++entry) {
+		if (entry->second != NULL) {
+			entry->second->Release();
+		}
+	}
+	TargetDepths.clear();
+	CurrentTarget = NULL;
+	CurrentDepth = NULL;
+
 	for (std::map<std::string, ID3D11SamplerState *>::iterator entry = SamplerStates.begin();
 			entry != SamplerStates.end(); ++entry) {
 		entry->second->Release();
@@ -234,6 +288,10 @@ void DX11BackendClass::Shutdown()
 {
 	Release_Cached();
 
+	if (EngineConstantBuffer != NULL) {
+		EngineConstantBuffer->Release();
+		EngineConstantBuffer = NULL;
+	}
 	if (PixelConstantBuffer != NULL) {
 		PixelConstantBuffer->Release();
 		PixelConstantBuffer = NULL;
@@ -241,6 +299,11 @@ void DX11BackendClass::Shutdown()
 	if (VertexConstantBuffer != NULL) {
 		VertexConstantBuffer->Release();
 		VertexConstantBuffer = NULL;
+	}
+	if (UserBuffer != NULL) {
+		UserBuffer->Release();
+		UserBuffer = NULL;
+		UserBufferBytes = 0;
 	}
 	Device = NULL;
 }
@@ -277,6 +340,65 @@ void DX11BackendClass::Set_Vertex_Format(DWORD fvf)
 	VertexFormat = fvf;
 }
 
+void DX11BackendClass::Set_Pixel_Program(EngineShaderProgram program, bool bound,
+	const char * file_name)
+{
+	PixelProgram = bound ? program : ENGINE_SHADER_NONE;
+	ForeignPixelShader = bound && program == ENGINE_SHADER_NONE;
+	ForeignPixelName = ForeignPixelShader ? file_name : "";
+}
+
+void DX11BackendClass::Set_Vertex_Program(EngineShaderProgram program, bool bound,
+	const char * file_name)
+{
+	VertexProgram = bound ? program : ENGINE_SHADER_NONE;
+	ForeignVertexShader = bound && program == ENGINE_SHADER_NONE;
+	ForeignVertexName = ForeignVertexShader ? file_name : "";
+}
+
+// Named by whichever half has no program, and by both when neither does.
+void DX11BackendClass::Note_Foreign_Refusal()
+{
+	std::string which = ForeignVertexShader ? ForeignVertexName : std::string();
+	if (ForeignPixelShader) {
+		if (!which.empty()) {
+			which += " with ";
+		}
+		which += ForeignPixelName;
+	}
+	++ForeignRefusals[which];
+}
+
+unsigned DX11BackendClass::Foreign_Report_Count() const
+{
+	return (unsigned)ForeignRefusals.size();
+}
+
+const char * DX11BackendClass::Foreign_Report(unsigned index)
+{
+	std::map<std::string, unsigned long long>::const_iterator entry = ForeignRefusals.begin();
+	for (unsigned step = 0; step < index && entry != ForeignRefusals.end(); ++step) {
+		++entry;
+	}
+	if (entry == ForeignRefusals.end()) {
+		return "";
+	}
+
+	char tail[64];
+	snprintf(tail, sizeof(tail), " -> %llu draws", entry->second);
+	ReportLine = entry->first + tail;
+	return ReportLine.c_str();
+}
+
+void DX11BackendClass::Set_Vertex_Program_Constant(unsigned first_register, const float * values,
+	unsigned count)
+{
+	if (first_register + count > ENGINE_SHADER_CONSTANTS) {
+		return;
+	}
+	memcpy(EngineConstants[first_register], values, sizeof(float) * 4 * count);
+}
+
 void DX11BackendClass::Set_Stream_Source(ID3D11Buffer * buffer, unsigned stride, unsigned offset)
 {
 	StreamBuffer = buffer;
@@ -296,7 +418,12 @@ void DX11BackendClass::Set_Transform(D3DTRANSFORMSTATETYPE state, const float ma
 	case D3DTS_WORLD:       memcpy(World, matrix, sizeof(World)); break;
 	case D3DTS_VIEW:        memcpy(View, matrix, sizeof(View)); break;
 	case D3DTS_PROJECTION:  memcpy(Projection, matrix, sizeof(Projection)); break;
-	default:                break;
+	default:
+		if (state >= D3DTS_TEXTURE0
+			&& state < D3DTS_TEXTURE0 + (int)DX11_BACKEND_TEXTURE_STAGES) {
+			memcpy(TextureTransforms[state - D3DTS_TEXTURE0], matrix, sizeof(float) * 16);
+		}
+		break;
 	}
 }
 
@@ -336,6 +463,181 @@ void DX11BackendClass::Disable_Light(unsigned index)
 	}
 }
 
+void DX11BackendClass::Set_Texture_Missing(unsigned stage, bool missing)
+{
+	if (stage < DX11_BACKEND_TEXTURE_STAGES) {
+		MissingTexture[stage] = missing;
+	}
+}
+
+// A stage only matters while its colour operation is on: the engine leaves textures bound at stages
+// it has switched off, and refusing for one of those would refuse most of the frame.
+bool DX11BackendClass::Any_Missing_Texture() const
+{
+	for (unsigned stage = 0; stage < DX11_BACKEND_TEXTURE_STAGES; ++stage) {
+		if (StageStates[stage][D3DTSS_COLOROP] == D3DTOP_DISABLE) {
+			break;
+		}
+		if (MissingTexture[stage]) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void DX11BackendClass::Set_Dump_Directory(const char * directory)
+{
+	DumpDirectory = directory == NULL ? "" : directory;
+}
+
+// The key has characters a file name cannot carry, so it becomes the file's first line and the
+// name is a number.  Both programs of one pipeline go in one file, in the order they run.
+void DX11BackendClass::Dump_Program(const std::string & key, const std::string & vertex_hlsl,
+	const std::string & pixel_hlsl)
+{
+	if (DumpDirectory.empty()) {
+		return;
+	}
+
+	char path[512];
+	snprintf(path, sizeof(path), "%s/pipeline%03u.hlsl", DumpDirectory.c_str(), PipelinesBuilt);
+	FILE * file = fopen(path, "wb");
+	if (file == NULL) {
+		return;
+	}
+
+	fprintf(file, "// state: %s\n\n// ---- vertex ----\n%s\n// ---- pixel ----\n%s\n",
+		key.c_str(), vertex_hlsl.c_str(), pixel_hlsl.c_str());
+	fclose(file);
+}
+
+void DX11BackendClass::Begin_Scene()
+{
+	// A scene can begin with a render target already set: the water's reflection and the shadow
+	// projector both set theirs and then call WW3D::Begin_Render, and forcing the back buffer here
+	// sent the reflection scene, and its clear, over the picture that was already drawn.
+	if (CurrentTarget != NULL) {
+		return;
+	}
+
+	ID3D11RenderTargetView * target = Device->Get_Back_Buffer_View();
+	if (target == NULL) {
+		return;
+	}
+
+	Device->Get_Context()->OMSetRenderTargets(1, &target, Device->Get_Depth_Stencil_View());
+	Set_Viewport(0, 0, Device->Get_Width(), Device->Get_Height());
+}
+
+ID3D11DepthStencilView * DX11BackendClass::Depth_For(unsigned width, unsigned height)
+{
+	// A target the size of the back buffer shares the back buffer's depth, because that is what
+	// the Direct3D 9 device does: the screen filters redirect the scene into a texture and hand
+	// SetRenderTarget the depth surface the frame's Begin_Render already cleared.  Made separately
+	// here, nothing ever cleared it, every triangle in the scene failed the depth test, and the
+	// texture the composite sampled held its clear colour and nothing else - a black world under a
+	// live command bar, which is what the bloom looked like for two sessions.
+	if (width == Device->Get_Width() && height == Device->Get_Height()) {
+		return Device->Get_Depth_Stencil_View();
+	}
+
+	const unsigned long long key = (static_cast<unsigned long long>(width) << 32) | height;
+	std::map<unsigned long long, ID3D11DepthStencilView *>::const_iterator existing
+		= TargetDepths.find(key);
+	if (existing != TargetDepths.end()) {
+		return existing->second;
+	}
+
+	ID3D11Texture2D * texture = NULL;
+	ID3D11ShaderResourceView * unused = NULL;
+	if (!DX11Resource_Create_Texture(Device->Get_Device(), width, height, 1, D3DFMT_D24S8,
+			D3DPOOL_DEFAULT, D3DUSAGE_DEPTHSTENCIL, &texture, &unused)) {
+		Note_Refusal("the device refused a depth buffer for a render target");
+		TargetDepths[key] = NULL;
+		return NULL;
+	}
+
+	ID3D11DepthStencilView * view = NULL;
+	if (FAILED(Device->Get_Device()->CreateDepthStencilView(texture, NULL, &view))) {
+		Note_Refusal("the device refused a depth view for a render target");
+		view = NULL;
+	}
+	else {
+		// A new depth texture holds whatever the driver left in it, which reads as everything being
+		// nearer than anything about to be drawn.  Nothing else clears this one: the engine's own
+		// clear goes to whichever surface Direct3D 9 has bound, and this surface has no D3D9 twin.
+		Device->Get_Context()->ClearDepthStencilView(view,
+			D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	}
+	texture->Release();
+
+	TargetDepths[key] = view;
+	return view;
+}
+
+// The last few target changes rather than the first few: the first are the loading screen's, and
+// the question is which target the scene itself is drawn into.
+void DX11BackendClass::Trace_Target(const char * what, unsigned width, unsigned height)
+{
+	char line[80];
+	if (width == 0) {
+		snprintf(line, sizeof(line), "%s after %llu draws", what, DrawsMade);
+	}
+	else {
+		snprintf(line, sizeof(line), "%s %ux%u after %llu draws", what, width, height, DrawsMade);
+	}
+	TargetTrace.push_back(line);
+	if (TargetTrace.size() > TARGET_TRACE_LIMIT) {
+		TargetTrace.erase(TargetTrace.begin());
+	}
+}
+
+void DX11BackendClass::Set_Render_Target(ID3D11RenderTargetView * target)
+{
+	if (target == NULL) {
+		++TargetsRestored;
+		Trace_Target("back buffer", 0, 0);
+		CurrentTarget = NULL;
+		CurrentDepth = NULL;
+		ID3D11RenderTargetView * back_buffer = Device->Get_Back_Buffer_View();
+		if (back_buffer != NULL) {
+			Device->Get_Context()->OMSetRenderTargets(1, &back_buffer,
+				Device->Get_Depth_Stencil_View());
+			Set_Viewport(0, 0, Device->Get_Width(), Device->Get_Height());
+		}
+		return;
+	}
+
+	ID3D11Resource * resource = NULL;
+	target->GetResource(&resource);
+	if (resource == NULL) {
+		return;
+	}
+
+	unsigned width = 0;
+	unsigned height = 0;
+	ID3D11Texture2D * texture = NULL;
+	if (SUCCEEDED(resource->QueryInterface(__uuidof(ID3D11Texture2D), (void **)&texture))) {
+		D3D11_TEXTURE2D_DESC description;
+		texture->GetDesc(&description);
+		width = description.Width;
+		height = description.Height;
+		texture->Release();
+	}
+	resource->Release();
+
+	if (width == 0 || height == 0) {
+		return;
+	}
+
+	++TargetsBound;
+	Trace_Target("texture", width, height);
+	CurrentTarget = target;
+	CurrentDepth = Depth_For(width, height);
+	Device->Get_Context()->OMSetRenderTargets(1, &CurrentTarget, CurrentDepth);
+	Set_Viewport(0, 0, width, height);
+}
+
 void DX11BackendClass::Set_Viewport(unsigned x, unsigned y, unsigned width, unsigned height)
 {
 	D3D11_VIEWPORT viewport;
@@ -346,15 +648,25 @@ void DX11BackendClass::Set_Viewport(unsigned x, unsigned y, unsigned width, unsi
 	viewport.MinDepth = 0.0f;
 	viewport.MaxDepth = 1.0f;
 	Device->Get_Context()->RSSetViewports(1, &viewport);
+
+	ViewportWidth = (width == 0) ? 1 : width;
+	ViewportHeight = (height == 0) ? 1 : height;
 }
 
 void DX11BackendClass::Clear(bool colour, bool depth, const float colour_value[4])
 {
-	if (colour && Device->Get_Back_Buffer_View() != NULL) {
-		Device->Get_Context()->ClearRenderTargetView(Device->Get_Back_Buffer_View(), colour_value);
+	// Whatever the draws are landing in is what a clear clears; a pass that clears its own render
+	// target and then draws into it would otherwise clear the picture instead.
+	ID3D11RenderTargetView * target = (CurrentTarget != NULL)
+		? CurrentTarget : Device->Get_Back_Buffer_View();
+	ID3D11DepthStencilView * depth_view = (CurrentTarget != NULL)
+		? CurrentDepth : Device->Get_Depth_Stencil_View();
+
+	if (colour && target != NULL) {
+		Device->Get_Context()->ClearRenderTargetView(target, colour_value);
 	}
-	if (depth && Device->Get_Depth_Stencil_View() != NULL) {
-		Device->Get_Context()->ClearDepthStencilView(Device->Get_Depth_Stencil_View(),
+	if (depth && depth_view != NULL) {
+		Device->Get_Context()->ClearDepthStencilView(depth_view,
 			D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 	}
 }
@@ -415,9 +727,14 @@ bool DX11BackendClass::Build_Vertex_Description(VertexPipelineDescription & desc
 		}
 	}
 
+	// With a pixel shader bound the colour operations mean nothing - the shader replaces the
+	// combiners and reads whatever coordinate sets it likes - so the walk cannot stop at a
+	// disabled one.  The water leaves stages one to three disabled and samples all four.
+	const bool every_stage = PixelProgram != ENGINE_SHADER_NONE;
+
 	description.StageCount = 0;
 	for (unsigned stage = 0; stage < MAXIMUM_VERTEX_STAGES; ++stage) {
-		if (StageStates[stage][D3DTSS_COLOROP] == D3DTOP_DISABLE) {
+		if (!every_stage && StageStates[stage][D3DTSS_COLOROP] == D3DTOP_DISABLE) {
 			break;
 		}
 		description.Stages[stage].TextureCoordinateIndex = StageStates[stage][D3DTSS_TEXCOORDINDEX];
@@ -435,52 +752,101 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 {
 	VertexPipelineDescription vertex_description;
 	CombinerDescription combiner_description;
+	const bool built_combiners = Build_Combiner_Description(combiner_description);
 	if (!Build_Vertex_Description(vertex_description)
-		|| !Build_Combiner_Description(combiner_description)) {
+		|| (!built_combiners && PixelProgram == ENGINE_SHADER_NONE)) {
+		// Stage zero's colour operation is disabled, so there is no texture stage to write a
+		// program from.  A transcribed pixel program does not need one: it is the combiners.  There
+		// is no key yet at this point.
+		++RefusedNoStage;
 		return false;
 	}
 
 	char format[32];
 	snprintf(format, sizeof(format), "|%lu", VertexFormat);
-	const std::string key = VertexShader_Key(vertex_description)
-		+ CombinerShader_Key(combiner_description) + format;
+
+	// A transcribed program is the whole half it replaces: the fixed-function description says
+	// nothing about it and two draws with the same shader and different stage state are the same
+	// program, so its name replaces that description in the key rather than joining it.  The alpha
+	// test and the fog stay in the pixel one, because they are still written into the program.
+	const std::string vertex_key = (VertexProgram != ENGINE_SHADER_NONE)
+		? std::string(EngineShader_Name(VertexProgram))
+		: VertexShader_Key(vertex_description);
+	const std::string pixel_key = (PixelProgram != ENGINE_SHADER_NONE)
+		? EngineShader_Name(PixelProgram)
+			+ CombinerShader_Pipeline_Key(combiner_description.PixelPipeline)
+		: CombinerShader_Key(combiner_description);
+	const std::string key = vertex_key + pixel_key + format;
 
 	std::map<std::string, Pipeline>::const_iterator existing = Pipelines.find(key);
 	if (existing != Pipelines.end()) {
 		pipeline = existing->second;
+		Record_Use(key);
 		return true;
+	}
+	std::map<std::string, unsigned>::const_iterator refused = RefusedPipelines.find(key);
+	if (refused != RefusedPipelines.end()) {
+		Refuse(key, static_cast<RefusalReason>(refused->second));
+		return false;
 	}
 
 	D3DCompileFunction compiler = compiler_function();
 	if (compiler == NULL) {
+		Refuse(key, REFUSED_NO_PROGRAM);
 		return false;
 	}
 
 	std::string vertex_hlsl;
 	std::string pixel_hlsl;
-	if (!VertexShader_Generate(vertex_description, VERTEX_SHADER_TARGET_D3D11, vertex_hlsl)
-		|| !CombinerShader_Generate(combiner_description, COMBINER_SHADER_TARGET_D3D11,
-				pixel_hlsl)) {
+	const bool wrote_vertex = (VertexProgram != ENGINE_SHADER_NONE)
+		? EngineShader_Vertex_Program(VertexProgram, vertex_hlsl)
+		: VertexShader_Generate(vertex_description, VERTEX_SHADER_TARGET_D3D11, vertex_hlsl);
+	if (!wrote_vertex) {
+		Note_Refusal("the vertex half would not generate this description");
+		Refuse(key, REFUSED_NO_PROGRAM);
 		return false;
 	}
+	const bool wrote_pixel = (PixelProgram != ENGINE_SHADER_NONE)
+		? EngineShader_Pixel_Program(PixelProgram, combiner_description.PixelPipeline, pixel_hlsl)
+		: CombinerShader_Generate(combiner_description, COMBINER_SHADER_TARGET_D3D11, pixel_hlsl);
+	if (!wrote_pixel) {
+		Note_Refusal("the pixel half would not generate this description");
+		Refuse(key, REFUSED_NO_PROGRAM);
+		return false;
+	}
+
+	Dump_Program(key, vertex_hlsl, pixel_hlsl);
 
 	D3D11_INPUT_ELEMENT_DESC elements[MAXIMUM_LAYOUT_ELEMENTS];
 	unsigned element_count = 0;
 	unsigned stride = 0;
 	if (!DX11Layout_From_FVF(VertexFormat, elements, element_count, stride)) {
+		Refuse(key, REFUSED_NO_LAYOUT);
 		return false;
 	}
 
 	ID3DBlob * vertex_code = NULL;
 	ID3DBlob * pixel_code = NULL;
+	ID3DBlob * errors = NULL;
 	if (FAILED(compiler(vertex_hlsl.c_str(), vertex_hlsl.size(), "ffvertex", NULL, NULL,
-			ENTRY_POINT, VERTEX_PROFILE, 0, 0, &vertex_code, NULL))) {
+			ENTRY_POINT, VERTEX_PROFILE, 0, 0, &vertex_code, &errors))) {
+		Record_Compiler_Error("ffvertex", errors);
+		Refuse(key, REFUSED_NO_PROGRAM);
 		return false;
 	}
+	if (errors != NULL) {
+		errors->Release();
+		errors = NULL;
+	}
 	if (FAILED(compiler(pixel_hlsl.c_str(), pixel_hlsl.size(), "ffshader", NULL, NULL,
-			ENTRY_POINT, PIXEL_PROFILE, 0, 0, &pixel_code, NULL))) {
+			ENTRY_POINT, PIXEL_PROFILE, 0, 0, &pixel_code, &errors))) {
+		Record_Compiler_Error("ffshader", errors);
 		vertex_code->Release();
+		Refuse(key, REFUSED_NO_PROGRAM);
 		return false;
+	}
+	if (errors != NULL) {
+		errors->Release();
 	}
 
 	Pipeline built;
@@ -509,13 +875,68 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 		if (built.VertexShader != NULL) {
 			built.VertexShader->Release();
 		}
+		Note_Refusal("the device would not make the shaders or the input layout");
+		Refuse(key, REFUSED_NO_OBJECT);
 		return false;
 	}
 
 	Pipelines[key] = built;
 	++PipelinesBuilt;
 	pipeline = built;
+	Record_Use(key);
 	return true;
+}
+
+void DX11BackendClass::Record_Use(const std::string & key)
+{
+	PipelineUse & use = PipelineUses[key];
+	if (use.Draws++ != 0) {
+		return;
+	}
+
+	use.TextureWidth = 0;
+	use.TextureHeight = 0;
+	if (Textures[0] == NULL) {
+		return;
+	}
+
+	ID3D11Resource * resource = NULL;
+	Textures[0]->GetResource(&resource);
+	if (resource == NULL) {
+		return;
+	}
+
+	ID3D11Texture2D * texture = NULL;
+	if (SUCCEEDED(resource->QueryInterface(__uuidof(ID3D11Texture2D), (void **)&texture))) {
+		D3D11_TEXTURE2D_DESC description;
+		texture->GetDesc(&description);
+		use.TextureWidth = description.Width;
+		use.TextureHeight = description.Height;
+		texture->Release();
+	}
+	resource->Release();
+}
+
+unsigned DX11BackendClass::Pipeline_Report_Count() const
+{
+	return (unsigned)PipelineUses.size();
+}
+
+const char * DX11BackendClass::Pipeline_Report(unsigned index)
+{
+	std::map<std::string, PipelineUse>::const_iterator entry = PipelineUses.begin();
+	for (unsigned step = 0; step < index && entry != PipelineUses.end(); ++step) {
+		++entry;
+	}
+	if (entry == PipelineUses.end()) {
+		return "";
+	}
+
+	char tail[96];
+	snprintf(tail, sizeof(tail), " -> %llu draws, stage 0 texture %ux%u",
+		entry->second.Draws, entry->second.TextureWidth, entry->second.TextureHeight);
+	ReportLine = entry->first + tail;
+	return ReportLine.c_str();
 }
 
 void DX11BackendClass::Upload_Constants()
@@ -530,8 +951,10 @@ void DX11BackendClass::Upload_Constants()
 	multiply(world_view, Projection, vertex_block.WorldViewProjection);
 	memcpy(vertex_block.WorldView, world_view, sizeof(world_view));
 	inverse_transpose(world_view, vertex_block.NormalTransform);
-	set_identity(vertex_block.TextureMatrix0);
-	set_identity(vertex_block.TextureMatrix1);
+	vertex_block.ViewportInverse[0] = 1.0f / static_cast<float>(ViewportWidth);
+	vertex_block.ViewportInverse[1] = 1.0f / static_cast<float>(ViewportHeight);
+
+	memcpy(vertex_block.TextureMatrix, TextureTransforms, sizeof(vertex_block.TextureMatrix));
 
 	memcpy(vertex_block.MaterialAmbient, MaterialAmbient, sizeof(MaterialAmbient));
 	memcpy(vertex_block.MaterialDiffuse, MaterialDiffuse, sizeof(MaterialDiffuse));
@@ -576,6 +999,14 @@ void DX11BackendClass::Upload_Constants()
 		context->Unmap(VertexConstantBuffer, 0);
 	}
 
+	// A transcribed program reads the engine's own register bank instead of the block above, so
+	// that bank goes up only on the draws that take one.
+	if (VertexProgram != ENGINE_SHADER_NONE
+		&& SUCCEEDED(context->Map(EngineConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+		memcpy(mapped.pData, EngineConstants, sizeof(EngineConstants));
+		context->Unmap(EngineConstantBuffer, 0);
+	}
+
 	PixelConstantBlock pixel_block;
 	memset(&pixel_block, 0, sizeof(pixel_block));
 	RenderStates.Get_Texture_Factor(pixel_block.TextureFactor);
@@ -609,6 +1040,10 @@ ID3D11BlendState * DX11BackendClass::Blend_State()
 
 	ID3D11BlendState * state = NULL;
 	if (FAILED(Device->Get_Device()->CreateBlendState(&description, &state))) {
+		// A null blend state is not a refused draw: the draw goes ahead with the default state,
+		// which blends nothing, so a pass that was multiplying itself into the frame buffer paints
+		// over it instead.  That is invisible in every count, hence the line.
+		Note_Refusal("the device refused a blend state");
 		return NULL;
 	}
 	BlendStates[key] = state;
@@ -629,6 +1064,7 @@ ID3D11DepthStencilState * DX11BackendClass::Depth_Stencil_State()
 
 	ID3D11DepthStencilState * state = NULL;
 	if (FAILED(Device->Get_Device()->CreateDepthStencilState(&description, &state))) {
+		Note_Refusal("the device refused a depth stencil state");
 		return NULL;
 	}
 	DepthStencilStates[key] = state;
@@ -649,6 +1085,7 @@ ID3D11RasterizerState * DX11BackendClass::Rasterizer_State()
 
 	ID3D11RasterizerState * state = NULL;
 	if (FAILED(Device->Get_Device()->CreateRasterizerState(&description, &state))) {
+		Note_Refusal("the device refused a rasterizer state");
 		return NULL;
 	}
 	RasterizerStates[key] = state;
@@ -668,10 +1105,16 @@ ID3D11SamplerState * DX11BackendClass::Sampler_State(unsigned sampler)
 
 	ID3D11SamplerState * state = NULL;
 	if (FAILED(Device->Get_Device()->CreateSamplerState(&description, &state))) {
+		Note_Refusal("the device refused a sampler state");
 		return NULL;
 	}
 	SamplerStates[key] = state;
 	return state;
+}
+
+ID3D11Buffer * DX11BackendClass::Vertex_Constants() const
+{
+	return (VertexProgram != ENGINE_SHADER_NONE) ? EngineConstantBuffer : VertexConstantBuffer;
 }
 
 void DX11BackendClass::Bind_State_Objects()
@@ -693,8 +1136,38 @@ void DX11BackendClass::Bind_State_Objects()
 bool DX11BackendClass::Draw_Indexed_Triangles(unsigned index_count, unsigned start_index,
 	unsigned base_vertex)
 {
+	return Draw_Indexed(index_count, start_index, base_vertex,
+		D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+}
+
+bool DX11BackendClass::Draw_Indexed_Strip(unsigned index_count, unsigned start_index,
+	unsigned base_vertex)
+{
+	return Draw_Indexed(index_count, start_index, base_vertex,
+		D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+}
+
+bool DX11BackendClass::Draw_Indexed(unsigned index_count, unsigned start_index,
+	unsigned base_vertex, D3D11_PRIMITIVE_TOPOLOGY topology)
+{
 	Pipeline pipeline;
-	if (StreamBuffer == NULL || IndexBuffer == NULL || !Resolve(pipeline)) {
+	if (StreamBuffer == NULL || IndexBuffer == NULL) {
+		++RefusedNoBuffer;
+		++DrawsRefused;
+		return false;
+	}
+	if (ForeignPixelShader || ForeignVertexShader) {
+		Note_Foreign_Refusal();
+		++RefusedForeignShader;
+		++DrawsRefused;
+		return false;
+	}
+	if (Any_Missing_Texture()) {
+		++RefusedNoTexture;
+		++DrawsRefused;
+		return false;
+	}
+	if (!Resolve(pipeline)) {
 		++DrawsRefused;
 		return false;
 	}
@@ -708,21 +1181,42 @@ bool DX11BackendClass::Draw_Indexed_Triangles(unsigned index_count, unsigned sta
 	context->IASetInputLayout(pipeline.Layout);
 	context->IASetVertexBuffers(0, 1, &StreamBuffer, &stride, &offset);
 	context->IASetIndexBuffer(IndexBuffer, IndexFormat, 0);
-	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	context->IASetPrimitiveTopology(topology);
 	context->VSSetShader(pipeline.VertexShader, NULL, 0);
-	context->VSSetConstantBuffers(0, 1, &VertexConstantBuffer);
+	ID3D11Buffer * vertex_constants = Vertex_Constants();
+	context->VSSetConstantBuffers(0, 1, &vertex_constants);
 	context->PSSetShader(pipeline.PixelShader, NULL, 0);
 	context->PSSetConstantBuffers(0, 1, &PixelConstantBuffer);
 	context->DrawIndexed(index_count, start_index, base_vertex);
 
 	++DrawsMade;
+	if (CurrentTarget != NULL) {
+		++DrawsIntoTargets;
+		MaskWhileTargeted |= RenderStates.Get_Render_State(D3DRS_COLORWRITEENABLE);
+	}
 	return true;
 }
 
 bool DX11BackendClass::Draw_Triangles(unsigned vertex_count, unsigned start_vertex)
 {
 	Pipeline pipeline;
-	if (StreamBuffer == NULL || !Resolve(pipeline)) {
+	if (StreamBuffer == NULL) {
+		++RefusedNoBuffer;
+		++DrawsRefused;
+		return false;
+	}
+	if (ForeignPixelShader || ForeignVertexShader) {
+		Note_Foreign_Refusal();
+		++RefusedForeignShader;
+		++DrawsRefused;
+		return false;
+	}
+	if (Any_Missing_Texture()) {
+		++RefusedNoTexture;
+		++DrawsRefused;
+		return false;
+	}
+	if (!Resolve(pipeline)) {
 		++DrawsRefused;
 		return false;
 	}
@@ -737,13 +1231,276 @@ bool DX11BackendClass::Draw_Triangles(unsigned vertex_count, unsigned start_vert
 	context->IASetVertexBuffers(0, 1, &StreamBuffer, &stride, &offset);
 	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	context->VSSetShader(pipeline.VertexShader, NULL, 0);
-	context->VSSetConstantBuffers(0, 1, &VertexConstantBuffer);
+	ID3D11Buffer * vertex_constants = Vertex_Constants();
+	context->VSSetConstantBuffers(0, 1, &vertex_constants);
 	context->PSSetShader(pipeline.PixelShader, NULL, 0);
 	context->PSSetConstantBuffers(0, 1, &PixelConstantBuffer);
 	context->Draw(vertex_count, start_vertex);
 
 	++DrawsMade;
+	if (CurrentTarget != NULL) {
+		++DrawsIntoTargets;
+		MaskWhileTargeted |= RenderStates.Get_Render_State(D3DRS_COLORWRITEENABLE);
+	}
 	return true;
+}
+
+// What is actually in the texture bound at a stage, read back through a staging copy.  A draw that
+// samples a texture nobody filled looks exactly like a draw that never happened, and no count tells
+// them apart.  This costs a full stall and is only ever called once.
+std::string DX11BackendClass::Texture_Average(unsigned stage)
+{
+	if (stage >= DX11_BACKEND_TEXTURE_STAGES || Textures[stage] == NULL) {
+		return "no texture";
+	}
+
+	ID3D11Resource * resource = NULL;
+	Textures[stage]->GetResource(&resource);
+	if (resource == NULL) {
+		return "no resource";
+	}
+
+	ID3D11Texture2D * texture = NULL;
+	if (FAILED(resource->QueryInterface(__uuidof(ID3D11Texture2D), (void **)&texture))) {
+		resource->Release();
+		return "not a 2D texture";
+	}
+
+	D3D11_TEXTURE2D_DESC description;
+	texture->GetDesc(&description);
+	description.Usage = D3D11_USAGE_STAGING;
+	description.BindFlags = 0;
+	description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	description.MiscFlags = 0;
+	description.MipLevels = 1;
+
+	ID3D11Texture2D * staging = NULL;
+	if (FAILED(Device->Get_Device()->CreateTexture2D(&description, NULL, &staging))) {
+		texture->Release();
+		resource->Release();
+		return "no staging copy";
+	}
+
+	Device->Get_Context()->CopySubresourceRegion(staging, 0, 0, 0, 0, resource, 0, NULL);
+
+	std::string answer = "unreadable";
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	if (SUCCEEDED(Device->Get_Context()->Map(staging, 0, D3D11_MAP_READ, 0, &mapped))) {
+		double blue = 0.0, green = 0.0, red = 0.0, alpha = 0.0;
+		const unsigned pixels = description.Width * description.Height;
+		for (unsigned row = 0; row < description.Height; ++row) {
+			const unsigned char * line = (const unsigned char *)mapped.pData + row * mapped.RowPitch;
+			for (unsigned column = 0; column < description.Width; ++column) {
+				blue  += line[column * 4 + 0];
+				green += line[column * 4 + 1];
+				red   += line[column * 4 + 2];
+				alpha += line[column * 4 + 3];
+			}
+		}
+		Device->Get_Context()->Unmap(staging, 0);
+
+		char line[128];
+		snprintf(line, sizeof(line), "%ux%u average rgba %.0f,%.0f,%.0f,%.0f",
+			description.Width, description.Height, red / pixels, green / pixels, blue / pixels,
+			alpha / pixels);
+		answer = line;
+	}
+
+	staging->Release();
+	texture->Release();
+	resource->Release();
+	return answer;
+}
+
+// The screen-space quads the engine draws with DrawPrimitiveUP - the filter that puts the rendered
+// scene back on the screen, the smudges, the shadow volume's darkening pass - come as four
+// vertices in a strip and no buffer at all.  D3D11 has no equivalent, so they are copied into a
+// dynamic buffer the backend owns and drawn as a list, which is also what turns the strip's
+// alternating winding into triangles.
+bool DX11BackendClass::Draw_User_Strip(const void * vertices, unsigned primitive_count,
+	unsigned stride)
+{
+	if (vertices == NULL || primitive_count == 0 || stride == 0) {
+		return false;
+	}
+
+	Pipeline pipeline;
+	if (ForeignPixelShader || ForeignVertexShader) {
+		Note_Foreign_Refusal();
+		++RefusedForeignShader;
+		++DrawsRefused;
+		return false;
+	}
+	if (Any_Missing_Texture()) {
+		++RefusedNoTexture;
+		++DrawsRefused;
+		return false;
+	}
+
+	// Not the first quad of the run: that one is the loading screen's, drawn before anything has
+	// been rendered into the texture it samples, and reading it back proves nothing.
+	const unsigned long long DRAWS_BEFORE_TRACING = 50000;
+	const DWORD SCREEN_QUAD_FVF = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;
+	if (!TracedUserStrip && DrawsMade > DRAWS_BEFORE_TRACING && Textures[0] != NULL
+		&& VertexFormat == SCREEN_QUAD_FVF) {
+		TracedUserStrip = true;
+		const float * corner = static_cast<const float *>(vertices);
+		char line[192];
+		snprintf(line, sizeof(line),
+			"quad %.0f,%.0f fvf %lu viewport %ux%u, colour write %lu, into targets %lu, stage 0 %s",
+			corner[0], corner[1], VertexFormat, ViewportWidth, ViewportHeight,
+			(unsigned long)RenderStates.Get_Render_State(D3DRS_COLORWRITEENABLE),
+			(unsigned long)MaskWhileTargeted, Texture_Average(0).c_str());
+		Diagnostic = line;
+	}
+
+	const unsigned list_vertex_count = primitive_count * 3;
+	const unsigned byte_count = list_vertex_count * stride;
+	if (!Reserve_User_Buffer(byte_count)) {
+		++RefusedNoBuffer;
+		++DrawsRefused;
+		return false;
+	}
+
+	ID3D11DeviceContext * context = Device->Get_Context();
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	if (FAILED(context->Map(UserBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+		++RefusedNoBuffer;
+		++DrawsRefused;
+		return false;
+	}
+
+	const unsigned char * source = static_cast<const unsigned char *>(vertices);
+	unsigned char * destination = static_cast<unsigned char *>(mapped.pData);
+	for (unsigned primitive = 0; primitive < primitive_count; ++primitive) {
+		// A strip alternates winding: the odd triangle takes its first two vertices the other way
+		// round, which is what keeps every triangle facing the same way.
+		const unsigned order[3] = {
+			(primitive % 2 == 0) ? primitive : primitive + 1,
+			(primitive % 2 == 0) ? primitive + 1 : primitive,
+			primitive + 2 };
+		for (unsigned corner = 0; corner < 3; ++corner) {
+			memcpy(destination + (primitive * 3 + corner) * stride,
+				source + order[corner] * stride, stride);
+		}
+	}
+	context->Unmap(UserBuffer, 0);
+
+	// The pipeline is resolved after the copy so a refusal does not leave a mapped buffer behind.
+	if (!Resolve(pipeline)) {
+		++DrawsRefused;
+		return false;
+	}
+
+	Upload_Constants();
+	Bind_State_Objects();
+
+	const UINT vertex_stride = stride;
+	const UINT offset = 0;
+	context->IASetInputLayout(pipeline.Layout);
+	context->IASetVertexBuffers(0, 1, &UserBuffer, &vertex_stride, &offset);
+	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	context->VSSetShader(pipeline.VertexShader, NULL, 0);
+	ID3D11Buffer * vertex_constants = Vertex_Constants();
+	context->VSSetConstantBuffers(0, 1, &vertex_constants);
+	context->PSSetShader(pipeline.PixelShader, NULL, 0);
+	context->PSSetConstantBuffers(0, 1, &PixelConstantBuffer);
+	context->Draw(list_vertex_count, 0);
+
+	++DrawsMade;
+	if (CurrentTarget != NULL) {
+		++DrawsIntoTargets;
+		MaskWhileTargeted |= RenderStates.Get_Render_State(D3DRS_COLORWRITEENABLE);
+	}
+	return true;
+}
+
+bool DX11BackendClass::Reserve_User_Buffer(unsigned byte_count)
+{
+	if (UserBuffer != NULL && UserBufferBytes >= byte_count) {
+		return true;
+	}
+
+	if (UserBuffer != NULL) {
+		UserBuffer->Release();
+		UserBuffer = NULL;
+		UserBufferBytes = 0;
+	}
+
+	if (!DX11Resource_Create_Vertex_Buffer(Device->Get_Device(), byte_count, D3DPOOL_DEFAULT,
+			D3DUSAGE_DYNAMIC, NULL, &UserBuffer)) {
+		Note_Refusal("the device refused the buffer the screen quads are copied into");
+		return false;
+	}
+	UserBufferBytes = byte_count;
+	return true;
+}
+
+// The first thing the compiler complained about, kept whole.  A generated program that will not
+// compile is a defect in the generator, and the message names the line of it.
+void DX11BackendClass::Record_Compiler_Error(const char * which, ID3DBlob * errors)
+{
+	if (!CompilerError.empty()) {
+		return;
+	}
+	CompilerError = which;
+	CompilerError += ": ";
+	if (errors != NULL) {
+		CompilerError.append((const char *)errors->GetBufferPointer(), errors->GetBufferSize());
+		errors->Release();
+	}
+	else {
+		CompilerError += "no message";
+	}
+}
+
+unsigned DX11BackendClass::Refused_Description_Count() const
+{
+	return (unsigned)RefusedPipelines.size();
+}
+
+const char * DX11BackendClass::Refused_Description(unsigned index) const
+{
+	std::map<std::string, unsigned>::const_iterator entry = RefusedPipelines.begin();
+	for (unsigned step = 0; step < index && entry != RefusedPipelines.end(); ++step) {
+		++entry;
+	}
+	return entry == RefusedPipelines.end() ? "" : entry->first.c_str();
+}
+
+// The first refusal that was not the compiler's doing, in the same field the compiler's message
+// uses: a generator that declines a description and a device that declines the program it produced
+// are different defects and the count alone tells them apart from nothing.
+void DX11BackendClass::Note_Refusal(const char * reason)
+{
+	if (CompilerError.empty()) {
+		CompilerError = reason;
+	}
+}
+
+void DX11BackendClass::Refuse(const std::string & key, RefusalReason reason)
+{
+	RefusedPipelines[key] = reason;
+	switch (reason) {
+	case REFUSED_NO_STAGE:   ++RefusedNoStage; break;
+	case REFUSED_NO_LAYOUT:  ++RefusedNoLayout; break;
+	case REFUSED_NO_PROGRAM: ++RefusedNoProgram; break;
+	case REFUSED_NO_OBJECT:  ++RefusedNoObject; break;
+	}
+}
+
+void DX11BackendClass::Refusals(unsigned long long & no_buffer, unsigned long long & no_stage,
+	unsigned long long & no_layout, unsigned long long & no_program,
+	unsigned long long & no_object, unsigned long long & foreign_shader,
+	unsigned long long & no_texture) const
+{
+	no_buffer = RefusedNoBuffer;
+	no_stage = RefusedNoStage;
+	no_layout = RefusedNoLayout;
+	no_program = RefusedNoProgram;
+	no_object = RefusedNoObject;
+	foreign_shader = RefusedForeignShader;
+	no_texture = RefusedNoTexture;
 }
 
 void DX11BackendClass::Statistics(unsigned & pipelines_built, unsigned long long & draws_made,

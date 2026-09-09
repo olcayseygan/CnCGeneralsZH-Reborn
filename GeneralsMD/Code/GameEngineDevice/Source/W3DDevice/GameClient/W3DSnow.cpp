@@ -54,6 +54,19 @@ W3DSnowManager::~W3DSnowManager()
 	ReleaseResources();
 }
 
+// Direct3D 11 has no point sprites at all: the fixed-function primitive that expands one vertex
+// into a screen-aligned quad was taken out of the API, and the replacement is a geometry shader the
+// backend does not have.  The snow already carries a second path that builds those quads on the CPU
+// and draws them through DX8Wrapper, so a presenting D3D11 run takes that one and gets its snow.
+static Bool snowUsesPointSprites(void)
+{
+	if (Direct3D11_Present_Is_Enabled())
+		return FALSE;
+
+	return TheWeatherSetting->m_usePointSprites
+		&& DX8Wrapper::Get_Current_Caps()->Support_PointSprites();
+}
+
 void W3DSnowManager::init( void )
 {
 	SnowManager::init();
@@ -81,7 +94,7 @@ Bool W3DSnowManager::ReAcquireResources(void)
 	if (!TheWeatherSetting->m_snowEnabled)
 		return TRUE;	//no need for resources if snow is disabled.
 
-	if (TheWeatherSetting->m_usePointSprites && DX8Wrapper::Get_Current_Caps()->Support_PointSprites())
+	if (snowUsesPointSprites())
 	{
 		LPDIRECT3DDEVICE9 m_pDev=DX8Wrapper::_Get_D3D_Device();
 
@@ -331,7 +344,7 @@ void W3DSnowManager::render(RenderInfoClass &rinfo)
 	if (!TheWeatherSetting->m_snowEnabled || !m_isVisible)
 		return;
 
-	Int usePointSprites = DX8Wrapper::Get_Current_Caps()->Support_PointSprites() && TheWeatherSetting->m_usePointSprites;
+	Int usePointSprites = snowUsesPointSprites();
 
 	//make sure the noise table is powers of 2 in dimensions.
 	WWASSERT(ISPOW2(SNOW_NOISE_X) && ISPOW2(SNOW_NOISE_Y));

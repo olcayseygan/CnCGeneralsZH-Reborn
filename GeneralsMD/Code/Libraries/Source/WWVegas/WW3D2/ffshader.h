@@ -39,9 +39,10 @@
 
 #include <string>
 
-// Two is what the game uses.  The generator refuses a description with more rather than emitting a
-// shader nobody has compared against anything.
-const unsigned MAXIMUM_COMBINER_STAGES = 2;
+// Two is what the game uses everywhere except the water, which sets four: the river texture, the
+// sparkles, the noise and the shroud.  The generator refuses a description with more rather than
+// emitting a shader nobody has compared against anything.
+const unsigned MAXIMUM_COMBINER_STAGES = 4;
 
 // One texture stage, in the terms D3D8 set it in.  Arguments carry D3DTA_COMPLEMENT and
 // D3DTA_ALPHAREPLICATE the way the device does; the generator applies both.
@@ -103,5 +104,16 @@ bool CombinerShader_Generate(const CombinerDescription & description, CombinerSh
 // The description two draws share iff they can share a compiled shader.  Stages past StageCount are
 // zeroed, so two descriptions that differ only in a stage nobody reads compare equal.
 std::string CombinerShader_Key(const CombinerDescription & description);
+
+// The alpha test and the fog written into the program, applied to a float4 named current in the
+// order the D3D9 pipeline applies them.  Public because a hand-written pixel program has to apply
+// them too: D3D9 does both around a bound pixel shader and D3D11 does neither.  False when the
+// comparison function is not one this writes.
+bool CombinerShader_Append_Pixel_Pipeline(const PixelPipelineDescription & pipeline,
+	std::string & hlsl);
+
+// The same two, as the part of a key they account for.  Two draws differing in either are two
+// programs on the D3D11 profile whatever else they share.
+std::string CombinerShader_Pipeline_Key(const PixelPipelineDescription & pipeline);
 
 #endif

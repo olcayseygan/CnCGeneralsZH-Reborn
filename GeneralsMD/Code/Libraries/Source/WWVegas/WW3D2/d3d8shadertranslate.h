@@ -43,6 +43,7 @@
 #define D3D8SHADERTRANSLATE_H
 
 #include <d3d9.h>
+#include <string>
 
 // The D3D8 vertex declaration tokens, so the declaration arrays the engine already
 // writes keep compiling.  D3D9 has no such tokens; Create_Translated_Vertex_Shader
@@ -80,9 +81,12 @@
 #define D3DVSDT_SHORT4		0x07
 
 // Translates ps_1_x bytecode compiled for D3D8 and creates the shader.  Returns
-// D3DERR_INVALIDCALL for anything that is not ps_1_0 to ps_1_4.
+// D3DERR_INVALIDCALL for anything that is not ps_1_0 to ps_1_4.  translated_source, when given,
+// comes back holding the assembly the shader was built from: the .vso and .pso files ship as
+// bytecode and this is the only place their source exists, which is what anything rewriting them
+// for another API has to read.
 HRESULT Create_Translated_Pixel_Shader(IDirect3DDevice9 * device, const DWORD * function,
-	IDirect3DPixelShader9 ** shader);
+	IDirect3DPixelShader9 ** shader, std::string * translated_source = NULL);
 
 // Translates vs_1_x bytecode and its D3D8 declaration array, and creates both the shader
 // and the D3D9 vertex declaration that has to be bound with it.  Either output may come
@@ -90,6 +94,6 @@ HRESULT Create_Translated_Pixel_Shader(IDirect3DDevice9 * device, const DWORD * 
 // to release.
 HRESULT Create_Translated_Vertex_Shader(IDirect3DDevice9 * device, const DWORD * d3d8_declaration,
 	const DWORD * function, IDirect3DVertexShader9 ** shader,
-	IDirect3DVertexDeclaration9 ** vertex_declaration);
+	IDirect3DVertexDeclaration9 ** vertex_declaration, std::string * translated_source = NULL);
 
 #endif // D3D8SHADERTRANSLATE_H
