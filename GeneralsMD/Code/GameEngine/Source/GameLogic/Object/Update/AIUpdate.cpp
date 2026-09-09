@@ -6846,12 +6846,14 @@ void AIUpdateInterface::crc( Xfer *x )
 	* Version Info:
 	* 1: Initial version
 	* 5: the production rally point and its flag
-	* 6: the out-of-bounds xfer of m_guardTargetType is fixed */
+	* 6: the out-of-bounds xfer of m_guardTargetType is fixed
+	* 11: m_isMoving, which the duplicated m_isSafePath used to stand in place of
+	* 12: m_allowedToChase */
 // ------------------------------------------------------------------------------------------------
 void AIUpdateInterface::xfer( Xfer *xfer )
 {
   // version
-  const XferVersion currentVersion = 11;
+  const XferVersion currentVersion = 12;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
  
@@ -6979,6 +6981,12 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 		// as standing still.
 		Bool safePathWrittenTwice = m_isSafePath;
 		xfer->xferBool(&safePathWrittenTwice);
+	}
+	if (version >= 12)
+	{
+		// A unit saved while closing with something it picked out for itself keeps the permission
+		// to close with it; before this it loaded as FALSE and turned back.
+		xfer->xferBool(&m_allowedToChase);
 	}
 	xfer->xferBool(&m_upgradedLocomotors);
 	xfer->xferBool(&m_canPathThroughUnits);
