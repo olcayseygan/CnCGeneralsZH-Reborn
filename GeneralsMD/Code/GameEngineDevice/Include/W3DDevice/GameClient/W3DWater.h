@@ -159,16 +159,17 @@ protected:
 		float tu, tv;
 	}; 
 
-	LPDIRECT3DDEVICE8 m_pDev;						///<pointer to D3D Device
-	LPDIRECT3DVERTEXBUFFER8 m_vertexBufferD3D;		///<D3D vertex buffer
-	LPDIRECT3DINDEXBUFFER8	m_indexBufferD3D;	///<D3D index buffer
+	LPDIRECT3DDEVICE9 m_pDev;						///<pointer to D3D Device
+	LPDIRECT3DVERTEXBUFFER9 m_vertexBufferD3D;		///<D3D vertex buffer
+	LPDIRECT3DINDEXBUFFER9	m_indexBufferD3D;	///<D3D index buffer
 	Int						m_vertexBufferD3DOffset;	///<location to start writing vertices
-	DWORD					m_dwWavePixelShader;	///<handle to D3D pixel shader
-	DWORD					m_dwWaveVertexShader;	///<handle to D3D vertex shader
+	IDirect3DPixelShader9 *	m_dwWavePixelShader;	///<D3D pixel shader
+	IDirect3DVertexShader9 * m_dwWaveVertexShader;	///<D3D vertex shader
+	IDirect3DVertexDeclaration9 * m_waveVertexDeclaration;	///<what D3D8 carried beside the shader
 	Int	m_numVertices;				///<number of vertices in D3D vertex buffer
 	Int m_numIndices;				///<number of indices in D3D index buffer
-	LPDIRECT3DTEXTURE8 m_pBumpTexture[NUM_BUMP_FRAMES]; ///<animation frames
-	LPDIRECT3DTEXTURE8 m_pBumpTexture2[NUM_BUMP_FRAMES]; ///<animation frames
+	LPDIRECT3DTEXTURE9 m_pBumpTexture[NUM_BUMP_FRAMES]; ///<animation frames
+	LPDIRECT3DTEXTURE9 m_pBumpTexture2[NUM_BUMP_FRAMES]; ///<animation frames
 	Int					m_iBumpFrame;	///<current animation frame
 	Real				m_bumpFrameAccum;	///<fractional carry, so the flipbook can run slower than one frame per tick
 	Real				m_fBumpScale;	///<scales bump map uv perturbation
@@ -212,9 +213,9 @@ protected:
 	TextureClass *m_riverTexture;
 	TextureClass *m_whiteTexture;		///< a texture containing only white used for NULL pixel shader stages.
 	TextureClass *m_waterNoiseTexture;
-	DWORD	m_waterPixelShader;		///<D3D handle to pixel shader.
-	DWORD	m_riverWaterPixelShader;		///<D3D handle to pixel shader.
-	DWORD	m_trapezoidWaterPixelShader;	///<handle to D3D vertex shader
+	IDirect3DPixelShader9 *	m_waterPixelShader;		///<D3D pixel shader.
+	IDirect3DPixelShader9 *	m_riverWaterPixelShader;		///<D3D pixel shader.
+	IDirect3DPixelShader9 *	m_trapezoidWaterPixelShader;	///<D3D pixel shader
 	TextureClass *m_waterSparklesTexture;
 	Real m_riverXOffset;
 	Real m_riverYOffset;
@@ -248,7 +249,7 @@ protected:
 	void testCurvedWater(void);	///<draw the sky layer (clouds, stars, etc.)
 	void renderSkyBody(Matrix3D *mat);	///<draw the sky body (sun, moon, etc.)
 	void renderWaterMesh(void);			///<draw the water surface mesh (deformed 3d mesh).
-	HRESULT initBumpMap(LPDIRECT3DTEXTURE8 *pTex, TextureClass *pBumpSource);	///<copies data into bump-map format.
+	HRESULT initBumpMap(LPDIRECT3DTEXTURE9 *pTex, TextureClass *pBumpSource);	///<copies data into bump-map format.
 	void renderMirror(CameraClass *cam);	///< Draw reflected scene into texture
 	void drawSea(RenderInfoClass & rinfo);	///< Draw the surface of the water
 	///bounding box of frustum clipped polygon plane

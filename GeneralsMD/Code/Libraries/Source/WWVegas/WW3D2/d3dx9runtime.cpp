@@ -190,6 +190,14 @@ static void release_module(void)
 	}
 }
 
+UINT Get_FVF_Vertex_Size(DWORD fvf)
+{
+	if (!Bind_D3DX9_Runtime()) {
+		return 0;
+	}
+	return D3DXGetFVFVertexSize(fvf);
+}
+
 const char * Get_D3D_Error_String(HRESULT result)
 {
 	for (int index = 0; index < ERROR_NAME_COUNT; ++index) {

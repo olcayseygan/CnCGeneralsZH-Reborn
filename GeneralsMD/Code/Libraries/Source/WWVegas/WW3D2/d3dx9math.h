@@ -90,6 +90,10 @@ public:
 
 	FLOAT & operator()(UINT row, UINT column) { return m[row][column]; }
 	FLOAT operator()(UINT row, UINT column) const { return m[row][column]; }
+
+	// Defined below, once D3DXMatrixMultiply has been declared.
+	D3DXMATRIX operator*(const D3DXMATRIX & right) const;
+	D3DXMATRIX & operator*=(const D3DXMATRIX & right);
 };
 
 typedef HRESULT (WINAPI * D3DXMatrixInverseFunction)(D3DXMATRIX * out, FLOAT * determinant,
@@ -126,6 +130,22 @@ extern D3DXVec3TransformFunction	D3DXVec3Transform;
 // These eight are bound by Bind_D3DX9_Runtime in d3dx9runtime.h, along with the texture
 // and shader entry points: one place decides whether D3DX9 is present, and one answer
 // covers all of it.  Every pointer is null until it succeeds.
+
+// The D3DX matrix product, which is D3DXMatrixMultiply and nothing else: writing the
+// sixty-four multiplies out here instead would put a second, differently rounded matrix
+// product in the same renderer.
+inline D3DXMATRIX D3DXMATRIX::operator*(const D3DXMATRIX & right) const
+{
+	D3DXMATRIX product;
+	D3DXMatrixMultiply(&product, this, &right);
+	return product;
+}
+
+inline D3DXMATRIX & D3DXMATRIX::operator*=(const D3DXMATRIX & right)
+{
+	D3DXMatrixMultiply(this, this, &right);
+	return *this;
+}
 
 // The two the DirectX SDK inlined, copied from d3dx8math.inl so the arithmetic that
 // reaches a replay CRC is the arithmetic that always reached it.

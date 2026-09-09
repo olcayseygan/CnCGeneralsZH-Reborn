@@ -2217,7 +2217,7 @@ void DX8MeshRendererClass::Render_Decal_Meshes(void)
 	DecalMeshClass * decal_mesh = visible_decal_meshes;
 	if (!decal_mesh) return;
 
-	DX8Wrapper::Set_DX8_Render_State(D3DRS_ZBIAS,8);
+	DX8Wrapper::Set_DX8_ZBias(8);
 	
 	while (decal_mesh != NULL) {
 		decal_mesh->Render();
@@ -2225,7 +2225,7 @@ void DX8MeshRendererClass::Render_Decal_Meshes(void)
 	}
 	visible_decal_meshes = NULL;
 
-	DX8Wrapper::Set_DX8_Render_State(D3DRS_ZBIAS,0);
+	DX8Wrapper::Set_DX8_ZBias(0);
 }
 
 // ----------------------------------------------------------------------------

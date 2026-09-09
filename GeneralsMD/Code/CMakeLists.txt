@@ -186,6 +186,16 @@ add_library(wwsaveload STATIC
 target_include_directories(wwsaveload PUBLIC ${WW}/WWSaveLoad PRIVATE ${WW}/WWLib ${WW}/WWMath ${WW}/Wwutil)
 target_link_libraries(wwsaveload PRIVATE wwdebug wwlib wwmath)
 
+# ---- d3dx9runtime ---------------------------------------------------------
+# The D3DX9 entry points the renderer binds at run time, in a library of their own
+# because GameEngine needs the math half without the renderer: BezierSegment carries
+# D3DXMATRIX and DumbProjectileBehavior steers a shell with it.
+add_library(d3dx9runtime STATIC
+  ${WW}/WW3D2/d3dx9runtime.cpp ${WW}/WW3D2/d3d8shadertranslate.cpp)
+set_target_properties(d3dx9runtime PROPERTIES CXX_STANDARD 17)
+target_include_directories(d3dx9runtime PUBLIC ${WW}/WW3D2)
+target_link_libraries(d3dx9runtime PUBLIC d3d9)
+
 # ---- ww3d2 (renderer core) ------------------------------------------------
 # wwshade is header-only here on purpose: no .dsp links wwshade.lib and its
 # shd*bump* sources need shdpp/NVASM-generated headers.  Revisit at exe link.
@@ -233,17 +243,15 @@ add_library(ww3d2 STATIC
 target_include_directories(ww3d2
   PUBLIC ${WW}/WW3D2
   PRIVATE ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WWSaveLoad ${WW}/Wwutil
-          ${WW}/wwshade ${WW}/WWAudio ${WW}/Miles6/include
-          ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Include)
-target_link_directories(ww3d2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Lib)
-# vfw32: FramGrab.cpp writes AVIs.  legacy_stdio_definitions: d3dx8.lib calls
-# _vsnprintf, which the modern CRT only provides as an inline.
+          ${WW}/wwshade ${WW}/WWAudio ${WW}/Miles6/include)
+# RENDERER-ROADMAP.md phase 1: d3d9.h and d3d9.lib come out of the Windows SDK, so
+# the vendored DirectX 8 headers are off the include path entirely - a d3d8.h left
+# reachable is a file that compiles against the wrong runtime without saying so.
+# D3DX9 has no import library anywhere and is bound at runtime instead: see
+# WW3D2/d3dx9runtime.h.  vfw32 is FramGrab.cpp writing AVIs.
 target_link_libraries(ww3d2
-  PUBLIC d3d8 d3dx8 dxguid vfw32 legacy_stdio_definitions
+  PUBLIC d3d9 dxguid vfw32 d3dx9runtime
   PRIVATE wwlib wwmath wwdebug wwsaveload)
-# The 2001 d3dx8.lib predates SAFESEH and was built against the long-gone
-# libci.lib CRT, so anything linking it has to opt out of both.
-target_link_options(ww3d2 INTERFACE /SAFESEH:NO /NODEFAULTLIB:libci.lib)
 # dx8webbrowser.cpp is the one file /MP cannot have: MSVC rejects #import under
 # multi-process compilation (C2813) and finds the directive by a lexical scan, so
 # even though ENABLE_EMBEDDED_BROWSER's block is what holds it, disabling the block
@@ -267,9 +275,8 @@ target_link_libraries(dx8_smoke PRIVATE d3d8 user32)
 # dll.  d3d9.h and d3d9.lib come from the Windows SDK, so this target must not see
 # Libraries/DirectX/Include - d3d8.h would shadow nothing here, but keeping the two
 # header sets apart is what makes the native path native.
-add_executable(dx9_smoke ${WW}/WW3D2/test_dx9_smoke.cpp ${WW}/WW3D2/d3dx9runtime.cpp)
-target_include_directories(dx9_smoke PRIVATE ${WW}/WW3D2)
-target_link_libraries(dx9_smoke PRIVATE d3d9 user32)
+add_executable(dx9_smoke ${WW}/WW3D2/test_dx9_smoke.cpp)
+target_link_libraries(dx9_smoke PRIVATE d3dx9runtime user32)
 
 # ===========================================================================
 # Phase 2 - remaining support libs.  None of these touch DX8.
@@ -404,7 +411,10 @@ target_include_directories(gameengine PUBLIC
   # The game includes "GameSpy/Peer/Peer.h", the SDK's own headers include each
   # other as "gscommon.h", so both levels have to be on the path.
   ${LIBSRC}/GameSpy/include ${LIBSRC}/GameSpy/include/gamespy ${COMP}
-  ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Include)
+  # WW3D2 is here for d3dx9math.h alone: BezierSegment carries D3DXMATRIX, and
+  # DumbProjectileBehavior steers a shell with it.  dinput.h now comes out of the
+  # Windows SDK like d3d9.h does.
+  ${WW}/WW3D2)
 # _RELEASE/_DEBUG pick the game's own build flavour; IG_DEBUG_STACKTRACE and
 # Z_PREFIX are what GameEngine.dsp sets.
 target_compile_definitions(gameengine PUBLIC
@@ -600,8 +610,7 @@ add_lib_test(test_compression compression)
 
 add_lib_test(test_ww3d2 ww3d2 wwsaveload wwlib wwmath wwdebug)
 target_include_directories(test_ww3d2 PRIVATE
-  ${WW}/WW3D2 ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WWSaveLoad ${WW}/Wwutil
-  ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Include)
+  ${WW}/WW3D2 ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WWSaveLoad ${WW}/Wwutil)
 
 add_lib_test(test_wwdownload wwdownload)
 target_include_directories(test_wwdownload PRIVATE ${WW}/WWDownload)

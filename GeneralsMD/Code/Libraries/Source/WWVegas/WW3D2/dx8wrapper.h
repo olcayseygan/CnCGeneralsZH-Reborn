@@ -48,7 +48,9 @@
 
 #include "always.h"
 #include "dllist.h"
-#include "d3d8.h"
+#include <d3d9.h>
+#include "d3dx9runtime.h"
+#include "d3dx9math.h"
 #include "matrix4.h"
 #include "statistics.h"
 #include "wwstring.h"
@@ -74,6 +76,22 @@
 #define	VALUE_NAME_RENDER_DEVICE_TEXTURE_DEPTH		"RenderDeviceTextureDepth"
 
 const unsigned MAX_TEXTURE_STAGES=8;
+// D3D9 moved the filter, address and anisotropy states off the texture stage and onto
+// the sampler, so they are cached separately: the two enums renumber from 1 and would
+// otherwise collide in one array.  D3DSAMP_DMAPOFFSET is 13, the last of them.
+const unsigned MAX_SAMPLER_STATES=16;
+// D3D8's D3DRS_ZBIAS clamped its level here, and the levels are what the engine's own
+// callers still pass.
+const int MAX_Z_BIAS_LEVEL=15;
+// D3D9 added a swap chain index to GetDisplayMode, GetBackBuffer and GetFrontBufferData.
+// This renderer creates one implicit swap chain and never asks about another.
+const UINT PRIMARY_SWAP_CHAIN=0;
+// D3D9 can bind several render targets at once and indexes them; this renderer binds one.
+const DWORD PRIMARY_RENDER_TARGET=0;
+// D3D8's GetAdapterIdentifier took D3DENUM_NO_WHQL_LEVEL to skip a slow WHQL signature
+// check.  D3D9 removed the flag and never does that check unless asked, so zero is what
+// the old call was actually asking for.
+const DWORD NO_ADAPTER_IDENTIFIER_FLAGS=0;
 const unsigned MAX_VERTEX_STREAMS=2;
 const unsigned MAX_VERTEX_SHADER_CONSTANTS=96;
 const unsigned MAX_PIXEL_SHADER_CONSTANTS=8;
@@ -121,6 +139,7 @@ extern bool _DX8SingleThreaded;
 
 void DX8_Assert();
 void Log_DX8_ErrorCode(unsigned res);
+void Non_Fatal_Log_DX8_ErrorCode(unsigned res,const char * file,int line);
 
 WWINLINE void DX8_ErrorCode(unsigned res)
 {
@@ -129,14 +148,14 @@ WWINLINE void DX8_ErrorCode(unsigned res)
 }
 
 #ifdef WWDEBUG
-#define DX8CALL_HRES(x,res) DX8_Assert(); res = DX8Wrapper::_Get_D3D_Device8()->x; DX8_ErrorCode(res); number_of_DX8_calls++;
-#define DX8CALL(x) DX8_Assert(); DX8_ErrorCode(DX8Wrapper::_Get_D3D_Device8()->x); number_of_DX8_calls++;
-#define DX8CALL_D3D(x) DX8_Assert(); DX8_ErrorCode(DX8Wrapper::_Get_D3D8()->x); number_of_DX8_calls++;
+#define DX8CALL_HRES(x,res) DX8_Assert(); res = DX8Wrapper::_Get_D3D_Device()->x; DX8_ErrorCode(res); number_of_DX8_calls++;
+#define DX8CALL(x) DX8_Assert(); DX8_ErrorCode(DX8Wrapper::_Get_D3D_Device()->x); number_of_DX8_calls++;
+#define DX8CALL_D3D(x) DX8_Assert(); DX8_ErrorCode(DX8Wrapper::_Get_D3D()->x); number_of_DX8_calls++;
 #define DX8_THREAD_ASSERT() if (_DX8SingleThreaded) { WWASSERT_PRINT(DX8Wrapper::_Get_Main_Thread_ID()==ThreadClass::_Get_Current_Thread_ID(),"DX8Wrapper::DX8 calls must be called from the main thread!"); }
 #else
-#define DX8CALL_HRES(x,res) res = DX8Wrapper::_Get_D3D_Device8()->x; number_of_DX8_calls++;
-#define DX8CALL(x) DX8Wrapper::_Get_D3D_Device8()->x; number_of_DX8_calls++;
-#define DX8CALL_D3D(x) DX8Wrapper::_Get_D3D8()->x; number_of_DX8_calls++;
+#define DX8CALL_HRES(x,res) res = DX8Wrapper::_Get_D3D_Device()->x; number_of_DX8_calls++;
+#define DX8CALL(x) DX8Wrapper::_Get_D3D_Device()->x; number_of_DX8_calls++;
+#define DX8CALL_D3D(x) DX8Wrapper::_Get_D3D()->x; number_of_DX8_calls++;
 #define DX8_THREAD_ASSERT() ;
 #endif
 
@@ -182,7 +201,7 @@ struct RenderStateStruct
 	ShaderClass shader;
 	VertexMaterialClass* material;
 	TextureBaseClass * Textures[MAX_TEXTURE_STAGES];
-	D3DLIGHT8 Lights[4];
+	D3DLIGHT9 Lights[4];
 	bool LightEnable[4];
   //unsigned lightsHash;
 	Matrix4x4 world;
@@ -287,7 +306,7 @@ public:
 
 	static void Clear(bool clear_color, bool clear_z_stencil, const Vector3 &color, float dest_alpha=0.0f, float z=1.0f, unsigned int stencil=0);
 
-	static void	Set_Viewport(CONST D3DVIEWPORT8* pViewport);
+	static void	Set_Viewport(CONST D3DVIEWPORT9* pViewport);
 
 	static void Set_Vertex_Buffer(const VertexBufferClass* vb, unsigned stream=0);
 	static void Set_Vertex_Buffer(const DynamicVBAccessClass& vba);
@@ -299,7 +318,7 @@ public:
 	static void Set_Render_State(const RenderStateStruct& state);
 	static void Release_Render_State();
 
-	static void Set_DX8_Material(const D3DMATERIAL8* mat);
+	static void Set_DX8_Material(const D3DMATERIAL9* mat);
 
 	static void Set_Gamma(float gamma,float bright,float contrast,bool calibrate=true,bool uselimit=true);
 
@@ -322,16 +341,17 @@ public:
 	static void _Set_DX8_Transform(D3DTRANSFORMSTATETYPE transform,const Matrix3D& m);
 	static void _Get_DX8_Transform(D3DTRANSFORMSTATETYPE transform, Matrix4x4& m);
 
-	static void Set_DX8_Light(int index,D3DLIGHT8* light);
+	static void Set_DX8_Light(int index,D3DLIGHT9* light);
 	static void Set_DX8_Render_State(D3DRENDERSTATETYPE state, unsigned value);
 	static void Set_DX8_Clip_Plane(DWORD Index, CONST float* pPlane);
 	static void Set_DX8_Texture_Stage_State(unsigned stage, D3DTEXTURESTAGESTATETYPE state, unsigned value);
-	static void Set_DX8_Texture(unsigned int stage, IDirect3DBaseTexture8* texture);
+	static void Set_DX8_Texture_Stage_State(unsigned stage, D3DSAMPLERSTATETYPE state, unsigned value);
+	static void Set_DX8_Texture(unsigned int stage, IDirect3DBaseTexture9* texture);
 	static void Set_Light_Environment(LightEnvironmentClass* light_env);
 	static LightEnvironmentClass* Get_Light_Environment() { return Light_Environment; }
 	static void Set_Fog(bool enable, const Vector3 &color, float start, float end);
 
-	static WWINLINE const D3DLIGHT8& Peek_Light(unsigned index);
+	static WWINLINE const D3DLIGHT9& Peek_Light(unsigned index);
 	static WWINLINE bool Is_Light_Enabled(unsigned index);
 
 	static bool Validate_Device(void);
@@ -342,7 +362,7 @@ public:
 	static void Get_Shader(ShaderClass& shader);
 	static void Set_Texture(unsigned stage,TextureBaseClass* texture);
 	static void Set_Material(const VertexMaterialClass* material);
-	static void Set_Light(unsigned index,const D3DLIGHT8* light);
+	static void Set_Light(unsigned index,const D3DLIGHT9* light);
 	static void Set_Light(unsigned index,const LightClass &light);
 
 	static void Apply_Render_State_Changes();	// Apply deferred render state changes (will be called automatically by Draw...)
@@ -368,7 +388,7 @@ public:
 	** Resources
 	*/
 
-	static IDirect3DVolumeTexture8* _Create_DX8_Volume_Texture
+	static IDirect3DVolumeTexture9* _Create_DX8_Volume_Texture
 	(
 		unsigned int width,
 		unsigned int height,
@@ -378,7 +398,7 @@ public:
 		D3DPOOL pool=D3DPOOL_MANAGED
 	);
 
-	static IDirect3DCubeTexture8* _Create_DX8_Cube_Texture
+	static IDirect3DCubeTexture9* _Create_DX8_Cube_Texture
 	(
 		unsigned int width,
 		unsigned int height,
@@ -389,7 +409,7 @@ public:
 	);
 
 
-	static IDirect3DTexture8* _Create_DX8_ZTexture
+	static IDirect3DTexture9* _Create_DX8_ZTexture
 	(
 		unsigned int width,
 		unsigned int height,
@@ -399,7 +419,7 @@ public:
 	);
 
 
-	static IDirect3DTexture8 * _Create_DX8_Texture
+	static IDirect3DTexture9 * _Create_DX8_Texture
 	(
 		unsigned int width,
 		unsigned int height,
@@ -408,19 +428,29 @@ public:
 		D3DPOOL pool=D3DPOOL_MANAGED,
 		bool rendertarget=false
 	);
-	static IDirect3DTexture8 * _Create_DX8_Texture(const char *filename, MipCountType mip_level_count);
-	static IDirect3DTexture8 * _Create_DX8_Texture(IDirect3DSurface8 *surface, MipCountType mip_level_count);
+	static IDirect3DTexture9 * _Create_DX8_Texture(const char *filename, MipCountType mip_level_count);
+	static IDirect3DTexture9 * _Create_DX8_Texture(IDirect3DSurface9 *surface, MipCountType mip_level_count);
 
-	static IDirect3DSurface8 * _Create_DX8_Surface(unsigned int width, unsigned int height, WW3DFormat format);
-	static IDirect3DSurface8 * _Create_DX8_Surface(const char *filename);
-	static IDirect3DSurface8 * _Get_DX8_Front_Buffer();
+	static IDirect3DSurface9 * _Create_DX8_Surface(unsigned int width, unsigned int height, WW3DFormat format);
+	static IDirect3DSurface9 * _Create_DX8_Surface(const char *filename);
+	static IDirect3DSurface9 * _Get_DX8_Front_Buffer();
 	static SurfaceClass * _Get_DX8_Back_Buffer(unsigned int num=0);
 
+	// One depth-buffer level of bias, negative, as D3DRS_DEPTHBIAS wants it.  Set from
+	// the depth stencil format when the device comes up; see Set_DX8_ZBias.
+	static float Get_Depth_Buffer_Epsilon() { return DepthBufferEpsilon; }
+	static float _Depth_Buffer_Epsilon(D3DFORMAT depth_stencil_format);
+
+	// D3D8's SetRenderTarget bound the colour and depth surfaces in one call; D3D9 has
+	// two, and the depth one is not indexed.  A null depth surface means no depth at all,
+	// which is what the D3D8 call meant by it too.
+	static void _Set_DX8_Render_Target(IDirect3DSurface9 * render_target, IDirect3DSurface9 * depth_buffer);
+
 	static void _Copy_DX8_Rects(
-			IDirect3DSurface8* pSourceSurface,
+			IDirect3DSurface9* pSourceSurface,
 			CONST RECT* pSourceRectsArray,
 			UINT cRects,
-			IDirect3DSurface8* pDestinationSurface,
+			IDirect3DSurface9* pDestinationSurface,
 			CONST POINT* pDestPointsArray
 	);
 
@@ -429,7 +459,7 @@ public:
 	static unsigned int Get_Free_Texture_RAM();
 
 	static unsigned _Get_Main_Thread_ID() { return _MainThreadID; }
-	static const D3DADAPTER_IDENTIFIER8& Get_Current_Adapter_Identifier() { return CurrentAdapterIdentifier; }
+	static const D3DADAPTER_IDENTIFIER9& Get_Current_Adapter_Identifier() { return CurrentAdapterIdentifier; }
 
 	/*
 	** Statistics
@@ -480,27 +510,27 @@ public:
 	**
 	**	swap_chain_ptr->Present (NULL, NULL, NULL, NULL);
 	**
-	**	DX8Wrapper::Set_Render_Target ((IDirect3DSurface8 *)NULL);
+	**	DX8Wrapper::Set_Render_Target ((IDirect3DSurface9 *)NULL);
 	**
 	*/
-	static IDirect3DSwapChain8 *	Create_Additional_Swap_Chain (HWND render_window);
+	static IDirect3DSwapChain9 *	Create_Additional_Swap_Chain (HWND render_window);
 
 	/*
 	** Render target interface. If render target format is WW3D_FORMAT_UNKNOWN, current display format is used.
 	*/
 	static TextureClass *	Create_Render_Target (int width, int height, WW3DFormat format = WW3D_FORMAT_UNKNOWN);
 
-	static void					Set_Render_Target (IDirect3DSurface8 *render_target, bool use_default_depth_buffer = false);
-	static void					Set_Render_Target (IDirect3DSurface8* render_target, IDirect3DSurface8* dpeth_buffer);
+	static void					Set_Render_Target (IDirect3DSurface9 *render_target, bool use_default_depth_buffer = false);
+	static void					Set_Render_Target (IDirect3DSurface9* render_target, IDirect3DSurface9* dpeth_buffer);
 
-	static void					Set_Render_Target (IDirect3DSwapChain8 *swap_chain);
+	static void					Set_Render_Target (IDirect3DSwapChain9 *swap_chain);
 	// Samples per pixel to ask the next device for; 0, or 2..16.  Set this before Set_Render_Device
 	// or the device is created without multisampling.
 	static void					Set_Requested_MultiSample_Level (unsigned samples);
 	// Samples per pixel actually in use, 0 if not multisampling.
 	static unsigned				Get_MultiSample_Level (void);
 	// Depth/stencil to use with a non-multisampled render target; NULL if not multisampling.
-	static IDirect3DSurface8 *	_Get_Non_MultiSampled_Depth_Buffer (void);
+	static IDirect3DSurface9 *	_Get_Non_MultiSampled_Depth_Buffer (void);
 	static bool					Is_Render_To_Texture(void) { return IsRenderToTexture; }
 
 	// for depth map support KJM V
@@ -522,8 +552,11 @@ public:
 	// shader system udpates KJM v
 	static void Apply_Default_State();
 
-	static void Set_Vertex_Shader(DWORD vertex_shader);
-	static void Set_Pixel_Shader(DWORD pixel_shader);
+	// D3D8's SetVertexShader took a DWORD that was either an FVF code or a shader
+	// handle, and the engine used it both ways.  D3D9 splits them, so these do too.
+	static void Set_Vertex_Format(DWORD fvf);
+	static void Set_Vertex_Shader(IDirect3DVertexShader9 * vertex_shader);
+	static void Set_Pixel_Shader(IDirect3DPixelShader9 * pixel_shader);
 
 	static void Set_Vertex_Shader_Constant(int reg, const void* data, int count);
 	static void Set_Pixel_Shader_Constant(int reg, const void* data, int count);
@@ -538,8 +571,8 @@ public:
 
 
 
-	static IDirect3DDevice8* _Get_D3D_Device8() { return D3DDevice; }
-	static IDirect3D8* _Get_D3D8() { return D3DInterface; }
+	static IDirect3DDevice9* _Get_D3D_Device() { return D3DDevice; }
+	static IDirect3D9* _Get_D3D() { return D3DInterface; }
 	/// Returns the display format - added by TR for video playback - not part of W3D
 	static WW3DFormat	getBackBufferFormat( void );
 	static bool Reset_Device(bool reload_assets=true);
@@ -551,10 +584,12 @@ public:
 
 	static const char* Get_DX8_Render_State_Name(D3DRENDERSTATETYPE state);
 	static const char* Get_DX8_Texture_Stage_State_Name(D3DTEXTURESTAGESTATETYPE state);
+	static const char* Get_DX8_Sampler_State_Name(D3DSAMPLERSTATETYPE state);
 	static unsigned Get_DX8_Render_State(D3DRENDERSTATETYPE state) { return RenderStates[state]; }
 
 	// Names of the specific values of render states and texture stage states
 	static void Get_DX8_Texture_Stage_State_Value_Name(StringClass& name, D3DTEXTURESTAGESTATETYPE state, unsigned value);
+	static void Get_DX8_Sampler_State_Value_Name(StringClass& name, D3DSAMPLERSTATETYPE state, unsigned value);
 	static void Get_DX8_Render_State_Value_Name(StringClass& name, D3DRENDERSTATETYPE state, unsigned value);
 
 	static const char* Get_DX8_Texture_Address_Name(unsigned value);
@@ -660,8 +695,9 @@ protected:
 	static D3DMATRIX						old_prj;
 
 	// shader system updates KJM v
-	static DWORD							Vertex_Shader;
-	static DWORD							Pixel_Shader;
+	static DWORD							Vertex_Format;
+	static IDirect3DVertexShader9 *			Vertex_Shader;
+	static IDirect3DPixelShader9 *			Pixel_Shader;
 
 	static Vector4							Vertex_Shader_Constants[MAX_VERTEX_SHADER_CONSTANTS];
 	static Vector4							Pixel_Shader_Constants[MAX_PIXEL_SHADER_CONSTANTS];
@@ -679,7 +715,9 @@ protected:
 	static bool								world_identity;
 	static unsigned						RenderStates[256];
 	static unsigned						TextureStageStates[MAX_TEXTURE_STAGES][32];
-	static IDirect3DBaseTexture8 *	Textures[MAX_TEXTURE_STAGES];
+	static unsigned						SamplerStates[MAX_TEXTURE_STAGES][MAX_SAMPLER_STATES];
+	static float							DepthBufferEpsilon;
+	static IDirect3DBaseTexture9 *	Textures[MAX_TEXTURE_STAGES];
 
 	// These fog settings are constant for all objects in a given scene,
 	// unlike the matching renderstates which vary based on shader settings.
@@ -701,15 +739,15 @@ protected:
 
 	static DX8Caps*						CurrentCaps;
 
-	static D3DADAPTER_IDENTIFIER8		CurrentAdapterIdentifier;
+	static D3DADAPTER_IDENTIFIER9		CurrentAdapterIdentifier;
 
-	static IDirect3D8 *					D3DInterface;			//d3d8;
-	static IDirect3DDevice8 *			D3DDevice;				//d3ddevice8;
+	static IDirect3D9 *					D3DInterface;			//d3d8;
+	static IDirect3DDevice9 *			D3DDevice;				//d3ddevice8;
 
-	static IDirect3DSurface8 *			CurrentRenderTarget;
-	static IDirect3DSurface8 *			CurrentDepthBuffer;
-	static IDirect3DSurface8 *			DefaultRenderTarget;
-	static IDirect3DSurface8 *			DefaultDepthBuffer;
+	static IDirect3DSurface9 *			CurrentRenderTarget;
+	static IDirect3DSurface9 *			CurrentDepthBuffer;
+	static IDirect3DSurface9 *			DefaultRenderTarget;
+	static IDirect3DSurface9 *			DefaultDepthBuffer;
 
 	static unsigned							DrawPolygonLowBoundLimit;
 
@@ -727,18 +765,28 @@ protected:
 };
 
 // shader system updates KJM v
-WWINLINE void DX8Wrapper::Set_Vertex_Shader(DWORD vertex_shader)
+WWINLINE void DX8Wrapper::Set_Vertex_Format(DWORD fvf)
 {
 #if 0 //(gth) some code is bypassing this acessor function so we can't count on this variable...
 	// may be incorrect if shaders are created and destroyed dynamically
-	if (Vertex_Shader==vertex_shader) return;
+	if (Vertex_Format==fvf) return;
 #endif
 
+	Vertex_Format=fvf;
+	// A vertex shader and an FVF are mutually exclusive in D3D9: whichever was set
+	// last is the one that describes the stream, so setting a format clears the shader.
+	Vertex_Shader=NULL;
+	DX8CALL(SetVertexShader(NULL));
+	DX8CALL(SetFVF(Vertex_Format));
+}
+
+WWINLINE void DX8Wrapper::Set_Vertex_Shader(IDirect3DVertexShader9 * vertex_shader)
+{
 	Vertex_Shader=vertex_shader;
 	DX8CALL(SetVertexShader(Vertex_Shader));
 }
 
-WWINLINE void DX8Wrapper::Set_Pixel_Shader(DWORD pixel_shader)
+WWINLINE void DX8Wrapper::Set_Pixel_Shader(IDirect3DPixelShader9 * pixel_shader)
 {
 	// may be incorrect if shaders are created and destroyed dynamically
 	if (Pixel_Shader==pixel_shader) return;
@@ -755,7 +803,7 @@ WWINLINE void DX8Wrapper::Set_Vertex_Shader_Constant(int reg, const void* data, 
 	if (memcmp(data, &Vertex_Shader_Constants[reg],memsize)==0) return;
 
 	memcpy(&Vertex_Shader_Constants[reg],data,memsize);
-	DX8CALL(SetVertexShaderConstant(reg,data,count));
+	DX8CALL(SetVertexShaderConstantF(reg,(const float*)data,count));
 }
 
 WWINLINE void DX8Wrapper::Set_Pixel_Shader_Constant(int reg, const void* data, int count)
@@ -766,7 +814,7 @@ WWINLINE void DX8Wrapper::Set_Pixel_Shader_Constant(int reg, const void* data, i
 	if (memcmp(data, &Pixel_Shader_Constants[reg],memsize)==0) return;
 
 	memcpy(&Pixel_Shader_Constants[reg],data,memsize);
-	DX8CALL(SetPixelShaderConstant(reg,data,count));
+	DX8CALL(SetPixelShaderConstantF(reg,(const float*)data,count));
 }
 // shader system updates KJM ^
 
@@ -857,7 +905,7 @@ WWINLINE void DX8Wrapper::Set_Ambient(const Vector3& color)
 //
 // ----------------------------------------------------------------------------
 
-WWINLINE void DX8Wrapper::Set_DX8_Material(const D3DMATERIAL8* mat)
+WWINLINE void DX8Wrapper::Set_DX8_Material(const D3DMATERIAL9* mat)
 {
 	DX8_RECORD_MATERIAL_CHANGE();
 	WWASSERT(mat);
@@ -865,7 +913,7 @@ WWINLINE void DX8Wrapper::Set_DX8_Material(const D3DMATERIAL8* mat)
 	DX8CALL(SetMaterial(mat));
 }
 
-WWINLINE void DX8Wrapper::Set_DX8_Light(int index, D3DLIGHT8* light)
+WWINLINE void DX8Wrapper::Set_DX8_Light(int index, D3DLIGHT9* light)
 {
 	if (light) {
 		DX8_RECORD_LIGHT_CHANGE();
@@ -932,7 +980,34 @@ WWINLINE void DX8Wrapper::Set_DX8_Texture_Stage_State(unsigned stage, D3DTEXTURE
 	DX8_RECORD_TEXTURE_STAGE_STATE_CHANGE();
 }
 
-WWINLINE void DX8Wrapper::Set_DX8_Texture(unsigned int stage, IDirect3DBaseTexture8* texture)
+// The D3D9 half of the state D3D8 called a texture stage state.  Overloaded rather than
+// renamed so a call site says which kind it is by the constant it passes, which is the
+// only thing that actually changed about it.
+WWINLINE void DX8Wrapper::Set_DX8_Texture_Stage_State(unsigned stage, D3DSAMPLERSTATETYPE state, unsigned value)
+{
+  	if (stage >= MAX_TEXTURE_STAGES || (unsigned)state >= MAX_SAMPLER_STATES)
+  	{	DX8CALL(SetSamplerState( stage, state, value ));
+  		return;
+  	}
+
+	if (SamplerStates[stage][(unsigned int)state]==value) return;
+#ifdef MESH_RENDER_SNAPSHOT_ENABLED
+	if (WW3D::Is_Snapshot_Activated()) {
+		StringClass value_name(0,true);
+		Get_DX8_Sampler_State_Value_Name(value_name,state,value);
+		SNAPSHOT_SAY(("DX8 - SetSamplerState(stage: %d, state: %s, value: %s)\n",
+			stage,
+			Get_DX8_Sampler_State_Name(state),
+			value_name));
+	}
+#endif
+
+	SamplerStates[stage][(unsigned int)state]=value;
+	DX8CALL(SetSamplerState( stage, state, value ));
+	DX8_RECORD_TEXTURE_STAGE_STATE_CHANGE();
+}
+
+WWINLINE void DX8Wrapper::Set_DX8_Texture(unsigned int stage, IDirect3DBaseTexture9* texture)
 {
   	if (stage >= MAX_TEXTURE_STAGES)
   	{	DX8CALL(SetTexture(stage, texture));
@@ -948,22 +1023,6 @@ WWINLINE void DX8Wrapper::Set_DX8_Texture(unsigned int stage, IDirect3DBaseTextu
 	if (Textures[stage]) Textures[stage]->AddRef();
 	DX8CALL(SetTexture(stage, texture));
 	DX8_RECORD_TEXTURE_CHANGE();
-}
-
-WWINLINE void DX8Wrapper::_Copy_DX8_Rects(
-  IDirect3DSurface8* pSourceSurface,
-  CONST RECT* pSourceRectsArray,
-  UINT cRects,
-  IDirect3DSurface8* pDestinationSurface,
-  CONST POINT* pDestPointsArray
-)
-{
-	DX8CALL(CopyRects(
-  pSourceSurface,
-  pSourceRectsArray,
-  cRects,
-  pDestinationSurface,
-  pDestPointsArray));
 }
 
 WWINLINE Vector4 DX8Wrapper::Convert_Color(unsigned color)
@@ -1270,7 +1329,7 @@ WWINLINE void DX8Wrapper::Set_Projection_Transform_With_Z_Bias(const Matrix4x4& 
 WWINLINE void DX8Wrapper::Set_DX8_ZBias(int zbias)
 {
 	if (zbias==ZBias) return;
-	if (zbias>15) zbias=15;
+	if (zbias>MAX_Z_BIAS_LEVEL) zbias=MAX_Z_BIAS_LEVEL;
 	if (zbias<0) zbias=0;
 	ZBias=zbias;
 
@@ -1283,7 +1342,13 @@ WWINLINE void DX8Wrapper::Set_DX8_ZBias(int zbias)
 		DX8CALL(SetTransform(D3DTS_PROJECTION,(D3DMATRIX*)&tmp));
 	}
 	else {
-		Set_DX8_Render_State (D3DRS_ZBIAS, ZBias);
+		// D3D8's D3DRS_ZBIAS took a level from 0 to 16; D3D9's D3DRS_DEPTHBIAS takes a
+		// float in the depth buffer's own normalised range, passed through as a DWORD.
+		// The conversion is the one d3d8to9 has been applying under this renderer all
+		// along (d3d8types.cpp, CalcDepthBias), so the bias stays where the picture
+		// already has it.
+		const float depth_bias=ZBias*Get_Depth_Buffer_Epsilon();
+		Set_DX8_Render_State(D3DRS_DEPTHBIAS,*(const DWORD*)&depth_bias);
 	}
 }
 
@@ -1383,7 +1448,7 @@ WWINLINE void DX8Wrapper::Get_Transform(D3DTRANSFORMSTATETYPE transform, Matrix4
 	}
 }
 
-WWINLINE const D3DLIGHT8& DX8Wrapper::Peek_Light(unsigned index)
+WWINLINE const D3DLIGHT9& DX8Wrapper::Peek_Light(unsigned index)
 {
 	return render_state.Lights[index];;
 }
@@ -1526,7 +1591,7 @@ WWINLINE RenderStateStruct& RenderStateStruct::operator= (const RenderStateStruc
 		}
 
 
-    //lightsHash = flimby((char*)(&Lights[0]), sizeof(D3DLIGHT8)-1 );
+    //lightsHash = flimby((char*)(&Lights[0]), sizeof(D3DLIGHT9)-1 );
 
 	}
 

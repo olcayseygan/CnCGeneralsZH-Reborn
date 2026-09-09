@@ -2117,7 +2117,7 @@ AGAIN:
 		}
 
 		// update all views of the world - recomputes data which will affect drawing
-		if (DX8Wrapper::_Get_D3D_Device8() && (DX8Wrapper::_Get_D3D_Device8()->TestCooperativeLevel()) == D3D_OK)
+		if (DX8Wrapper::_Get_D3D_Device() && (DX8Wrapper::_Get_D3D_Device()->TestCooperativeLevel()) == D3D_OK)
 		{	//Checking if we have the device before updating views because the heightmap crashes otherwise while
 			//trying to refresh the visible terrain geometry.
 //			if(TheGlobalData->m_loadScreenRender != TRUE)
@@ -3419,20 +3419,23 @@ static void CreateBMPFile(LPTSTR pszFile, char *image, Int width, Int height)
 // not possible.  Taken at the end of draw(), before Present: the front-buffer path is a
 // desktop capture, and on the Direct3D 12 (9On12) runtime the window is presented through
 // a DXGI flip swap chain that desktop captures do not see - the old code saved black.
-static IDirect3DSurface8 *captureBackBuffer(void)
+static IDirect3DSurface9 *captureBackBuffer(void)
 {
-	IDirect3DDevice8 *dev = DX8Wrapper::_Get_D3D_Device8();
-	IDirect3DSurface8 *bb = NULL;
-	if (dev == NULL || FAILED(dev->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &bb)) || bb == NULL)
+	IDirect3DDevice9 *dev = DX8Wrapper::_Get_D3D_Device();
+	IDirect3DSurface9 *bb = NULL;
+	if (dev == NULL || FAILED(dev->GetBackBuffer(PRIMARY_SWAP_CHAIN, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) || bb == NULL)
 		return NULL;
 
 	D3DSURFACE_DESC desc;
 	bb->GetDesc(&desc);
-	IDirect3DSurface8 *copy = NULL;
+	IDirect3DSurface9 *copy = NULL;
 	if ((desc.Format == D3DFMT_X8R8G8B8 || desc.Format == D3DFMT_A8R8G8B8) && desc.MultiSampleType == D3DMULTISAMPLE_NONE)
 	{
-		if (SUCCEEDED(dev->CreateImageSurface(desc.Width, desc.Height, desc.Format, &copy)) && copy != NULL
-			&& FAILED(dev->CopyRects(bb, NULL, 0, copy, NULL)))
+		// The back buffer is a render target, so the copy has to come off it with
+		// GetRenderTargetData; UpdateSurface and StretchRect both refuse this direction.
+		if (SUCCEEDED(dev->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format,
+				D3DPOOL_SYSTEMMEM, &copy, NULL)) && copy != NULL
+			&& FAILED(dev->GetRenderTargetData(bb, copy)))
 		{
 			copy->Release();
 			copy = NULL;
@@ -3469,7 +3472,7 @@ static void saveScreenShot(void)
 	}
 
 	RECT bounds;
-	IDirect3DSurface8 *fb = captureBackBuffer();
+	IDirect3DSurface9 *fb = captureBackBuffer();
 	if (fb != NULL)
 	{
 		D3DSURFACE_DESC desc;

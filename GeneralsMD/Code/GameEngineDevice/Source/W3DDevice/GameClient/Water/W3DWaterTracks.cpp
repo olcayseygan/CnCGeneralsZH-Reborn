@@ -320,12 +320,12 @@ Int WaterTracksObj::render(DX8VertexBufferClass	*vertexBuffer, Int batchStart)
 
 	if (batchStart < (WATER_VB_PAGES*WATER_STRIP_X*WATER_STRIP_Y-m_x*m_y))
 	{	//we have room in current VB, append new verts
-		if(vertexBuffer->Get_DX8_Vertex_Buffer()->Lock(batchStart*vertexBuffer->FVF_Info().Get_FVF_Size(),m_x*m_y*vertexBuffer->FVF_Info().Get_FVF_Size(),(unsigned char**)&vb,D3DLOCK_NOOVERWRITE) != D3D_OK)
+		if(vertexBuffer->Get_DX8_Vertex_Buffer()->Lock(batchStart*vertexBuffer->FVF_Info().Get_FVF_Size(),m_x*m_y*vertexBuffer->FVF_Info().Get_FVF_Size(),(void**)&vb,D3DLOCK_NOOVERWRITE) != D3D_OK)
 			return batchStart;
 	}
 	else
 	{	//ran out of room in last VB, request a substitute VB.
-		if(vertexBuffer->Get_DX8_Vertex_Buffer()->Lock(0,m_x*m_y*vertexBuffer->FVF_Info().Get_FVF_Size(),(unsigned char**)&vb,D3DLOCK_DISCARD) != D3D_OK)
+		if(vertexBuffer->Get_DX8_Vertex_Buffer()->Lock(0,m_x*m_y*vertexBuffer->FVF_Info().Get_FVF_Size(),(void**)&vb,D3DLOCK_DISCARD) != D3D_OK)
 			return batchStart;
 		batchStart=0;	//reset start of page to first vertex
 	}
@@ -933,7 +933,7 @@ Try improving the fit to vertical surfaces like cliffs.
 	DX8Wrapper::Set_Shader(m_shaderClass);
 
 	DX8Wrapper::Set_Vertex_Buffer(m_vertexBuffer);
-	DX8Wrapper::Set_DX8_Render_State(D3DRS_ZBIAS,8);
+	DX8Wrapper::Set_DX8_ZBias(8);
 	//Force apply of render states so we can override them.
 	DX8Wrapper::Apply_Render_State_Changes();
 
@@ -969,7 +969,7 @@ Try improving the fit to vertical surfaces like cliffs.
 		mod = mod->m_nextSystem;
 	}	//while (mod)
 
-	DX8Wrapper::Set_DX8_Render_State(D3DRS_ZBIAS,0);
+	DX8Wrapper::Set_DX8_ZBias(0);
 
 	if (TheTerrainRenderObject->getShroud())
 	{	//we used the shroud shader, so reset it.

@@ -38,6 +38,7 @@
 #include "WW3D2/texture.h"
 #include "WW3D2/dx8indexbuffer.h"
 #include "WW3D2/dx8wrapper.h"
+#include "WW3D2/d3dx9runtime.h"
 #include "WW3D2/rinfo.h"
 #include "WW3D2/camera.h"
 #include "WW3D2/sortingrenderer.h"
@@ -144,17 +145,18 @@ void W3DSmudgeManager::ReAcquireResources(void)
 /*Copies a portion of the current render target into a specified buffer*/
 Int copyRect(unsigned char *buf, Int bufSize, int oX, int oY, int width, int height)
 {
- 	IDirect3DSurface8 *surface=NULL;	///<previous render target
- 	IDirect3DSurface8 *tempSurface=NULL;
+ 	IDirect3DSurface9 *surface=NULL;	///<previous render target
+ 	IDirect3DSurface9 *tempSurface=NULL;
 	Int result = 0;
 	HRESULT hr = S_OK;
+	unsigned int surfaceSize = 0;
 
- 	LPDIRECT3DDEVICE8 m_pDev=DX8Wrapper::_Get_D3D_Device8();
+ 	LPDIRECT3DDEVICE9 m_pDev=DX8Wrapper::_Get_D3D_Device();
 
 	if (!m_pDev)
 		goto error;
 
- 	m_pDev->GetRenderTarget(&surface);
+ 	m_pDev->GetRenderTarget(PRIMARY_RENDER_TARGET, &surface);
 
 	if (!surface)
 		goto error;
@@ -173,12 +175,27 @@ Int copyRect(unsigned char *buf, Int bufSize, int oX, int oY, int width, int hei
 	dstPoint.x=0;
 	dstPoint.y=0;
 
- 	hr=m_pDev->CreateImageSurface(  width, height, desc.Format, &tempSurface);
+ 	hr=m_pDev->CreateOffscreenPlainSurface(width, height, desc.Format, D3DPOOL_SYSTEMMEM, &tempSurface, NULL);
 
 	if (hr != S_OK)
 		goto error;
- 
- 	hr=m_pDev->CopyRects(surface,&srcRect,1,tempSurface,&dstPoint);
+
+	// The source is the render target, so this is the one direction CopyRects had that
+	// UpdateSurface and StretchRect cannot do.  GetRenderTargetData takes no rectangle,
+	// so the surface is the size of the piece being read back and the read starts there.
+	{
+		IDirect3DSurface9 *wholeTarget = NULL;
+		hr=m_pDev->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format,
+			D3DPOOL_SYSTEMMEM, &wholeTarget, NULL);
+		if (hr == S_OK)
+		{
+			hr=m_pDev->GetRenderTargetData(surface, wholeTarget);
+			if (hr == S_OK)
+				hr=D3DXLoadSurfaceFromSurface(tempSurface, NULL, NULL, wholeTarget, NULL, &srcRect,
+					D3DX_FILTER_NONE, 0);
+			wholeTarget->Release();
+		}
+	}
 
 	if (hr != S_OK)
 		goto error;
@@ -192,8 +209,12 @@ Int copyRect(unsigned char *buf, Int bufSize, int oX, int oY, int width, int hei
 
  	tempSurface->GetDesc(&desc);
 
-	if (desc.Size < bufSize)
-		bufSize = desc.Size;
+	// D3D9's surface description dropped the byte size D3D8 carried, so the readback is
+	// measured from the rows the lock reports instead.
+	surfaceSize = (unsigned int)lrect.Pitch * desc.Height;
+
+	if (surfaceSize < bufSize)
+		bufSize = surfaceSize;
 		
 	memcpy(buf,lrect.pBits,bufSize);
 	result = bufSize;
@@ -215,7 +236,7 @@ Bool W3DSmudgeManager::testHardwareSupport(void)
 	if (m_hardwareSupportStatus == SMUDGE_SUPPORT_UNKNOWN)
 	{	//we have not done the test yet.
 
-		IDirect3DTexture8 *backTexture=W3DShaderManager::getRenderTexture();
+		IDirect3DTexture9 *backTexture=W3DShaderManager::getRenderTexture();
 		if (!backTexture)
 		{	//do trivial test first to see if render target exists.
 			m_hardwareSupportStatus = SMUDGE_SUPPORT_NO;
@@ -261,11 +282,11 @@ Bool W3DSmudgeManager::testHardwareSupport(void)
 		v[2].color = UNIQUE_COLOR;
 		v[3].color = UNIQUE_COLOR;
 
-		LPDIRECT3DDEVICE8 pDev=DX8Wrapper::_Get_D3D_Device8();
+		LPDIRECT3DDEVICE9 pDev=DX8Wrapper::_Get_D3D_Device();
 
 		//draw polygons like this is very inefficient but for only 2 triangles, it's
 		//not worth bothering with index/vertex buffers.
-		pDev->SetVertexShader(D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1);
+		pDev->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1);
 
 		pDev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, v, sizeof(_TRANS_LIT_TEX_VERTEX));
 
@@ -352,7 +373,7 @@ void W3DSmudgeManager::render(RenderInfoClass &rinfo)
 #else
 	D3DSURFACE_DESC D3DDesc;
 
-	IDirect3DTexture8 *backTexture=W3DShaderManager::getRenderTexture();
+	IDirect3DTexture9 *backTexture=W3DShaderManager::getRenderTexture();
 	if (!backTexture || !W3DShaderManager::isRenderingToTexture())
 		return;	//this card doesn't support render targets.
 
@@ -473,12 +494,12 @@ void W3DSmudgeManager::render(RenderInfoClass &rinfo)
 #else
 	DX8Wrapper::Set_DX8_Texture(0,backTexture);
 	//Need these states in case texture is non-power-of-2
-	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DTSS_ADDRESSU, D3DTADDRESS_CLAMP);
-	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP);
-	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DTSS_ADDRESSW, D3DTADDRESS_CLAMP);
-	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR);
-	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR);
-	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DTSS_MIPFILTER, D3DTEXF_NONE);
+	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DSAMP_ADDRESSW, D3DTADDRESS_CLAMP);
+	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+	DX8Wrapper::Set_DX8_Texture_Stage_State( 0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
 #endif
 	VertexMaterialClass *vmat=VertexMaterialClass::Get_Preset(VertexMaterialClass::PRELIT_DIFFUSE);
 	DX8Wrapper::Set_Material(vmat);
@@ -558,12 +579,12 @@ flushSmudges:
 		DX8Wrapper::Draw_Triangles(	0,smudgesInRenderBatch*4, 0, smudgesInRenderBatch*5);	
 
 //Debug Code which draws outline around smudge
-/*		DX8Wrapper::_Get_D3D_Device8()->SetRenderState(D3DRS_FILLMODE,D3DFILL_WIREFRAME);
-		DX8Wrapper::_Get_D3D_Device8()->SetRenderState(D3DRS_ALPHABLENDENABLE,FALSE);
+/*		DX8Wrapper::_Get_D3D_Device()->SetRenderState(D3DRS_FILLMODE,D3DFILL_WIREFRAME);
+		DX8Wrapper::_Get_D3D_Device()->SetRenderState(D3DRS_ALPHABLENDENABLE,FALSE);
 		DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DTSS_COLOROP,D3DTOP_SELECTARG2);			
 		DX8Wrapper::Draw_Triangles(	0,smudgesInRenderBatch*4, 0, smudgesInRenderBatch*5);	
-		DX8Wrapper::_Get_D3D_Device8()->SetRenderState(D3DRS_FILLMODE,D3DFILL_SOLID);
-		DX8Wrapper::_Get_D3D_Device8()->SetRenderState(D3DRS_ALPHABLENDENABLE,TRUE);
+		DX8Wrapper::_Get_D3D_Device()->SetRenderState(D3DRS_FILLMODE,D3DFILL_SOLID);
+		DX8Wrapper::_Get_D3D_Device()->SetRenderState(D3DRS_ALPHABLENDENABLE,TRUE);
 		DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DTSS_COLOROP,D3DTOP_SELECTARG1);			
 */
 		smudgesRemaining -= smudgesInRenderBatch;

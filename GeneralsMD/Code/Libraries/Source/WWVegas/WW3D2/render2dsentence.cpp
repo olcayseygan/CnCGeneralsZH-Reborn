@@ -1185,7 +1185,7 @@ Render2DSentenceClass::Build_Sentence (const WCHAR *text, int *hkX, int *hkY)
 	//	CreateImageSurface of a null device and take the process with it.  Measure the text and stop
 	//	there, which is what justCalcExtents already exists to do - callers size their windows off
 	//	the extent and nothing is ever asked to draw the result.
-	if (DX8Wrapper::_Get_D3D_Device8() == NULL) {
+	if (DX8Wrapper::_Get_D3D_Device() == NULL) {
 		Build_Sentence_Not_Centered(text, hkX, hkY, true);
 		return;
 	}

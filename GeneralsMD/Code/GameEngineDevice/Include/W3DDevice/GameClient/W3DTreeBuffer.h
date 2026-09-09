@@ -256,8 +256,9 @@ private:
 				MAX_SHADOW_BATCH_VERTEX = 8000};	///< per texture, per frame
 	DX8VertexBufferClass	*m_vertexTree[MAX_BUFFERS];	///<Tree vertex buffer.
 	DX8IndexBufferClass			*m_indexTree[MAX_BUFFERS];	///<indices defining a triangles for the tree drawing.
-	DWORD					m_dwTreePixelShader;	///<handle to D3D pixel shader
-	DWORD					m_dwTreeVertexShader;	///<handle to D3D vertex shader
+	IDirect3DPixelShader9 *	m_dwTreePixelShader;	///<D3D pixel shader
+	IDirect3DVertexShader9 * m_dwTreeVertexShader;	///<D3D vertex shader
+	IDirect3DVertexDeclaration9 * m_treeVertexDeclaration;	///<what D3D8 carried beside the shader
 
 	Short		m_areaPartition[PARTITION_WIDTH_HEIGHT*PARTITION_WIDTH_HEIGHT];
 	Region2D m_bounds;

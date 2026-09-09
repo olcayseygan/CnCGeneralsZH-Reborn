@@ -130,4 +130,10 @@ void Unbind_D3DX9_Runtime(void);
 // and falls back to the raw hex for anything else.  Never returns null.
 const char * Get_D3D_Error_String(HRESULT result);
 
+// The size in bytes of a vertex in the given FVF.  This is the one D3DX call the engine
+// makes before there is a device, from FVFInfoClass and from HeightMap's software
+// transform path, so it binds the runtime itself rather than trusting the caller to have
+// done it.  Returns 0 if D3DX9 is not there at all.
+UINT Get_FVF_Vertex_Size(DWORD fvf);
+
 #endif // D3DX9RUNTIME_H

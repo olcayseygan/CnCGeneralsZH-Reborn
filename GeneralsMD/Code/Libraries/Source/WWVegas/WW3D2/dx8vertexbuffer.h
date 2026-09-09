@@ -59,7 +59,7 @@ class Vector4;
 class StringClass;
 class DX8VertexBufferClass;
 class FVFInfoClass;
-struct IDirect3DVertexBuffer8;
+struct IDirect3DVertexBuffer9;
 class VertexBufferClass;
 struct VertexFormatXYZNDUV2;
 
@@ -223,7 +223,7 @@ public:
 	DX8VertexBufferClass(const Vector3* vertices, const Vector4* diffuse, const Vector2* tex_coords, unsigned short VertexCount,UsageType usage=USAGE_DEFAULT);
 	DX8VertexBufferClass(const Vector3* vertices, const Vector2* tex_coords, unsigned short VertexCount,UsageType usage=USAGE_DEFAULT);
 
-	IDirect3DVertexBuffer8* Get_DX8_Vertex_Buffer() { return VertexBuffer; }
+	IDirect3DVertexBuffer9* Get_DX8_Vertex_Buffer() { return VertexBuffer; }
 
 	// Plain memory standing in for the D3D buffer when there is no render device - see
 	// DX8IndexBufferClass::Get_Scratch_Indices for why a run with no picture still fills buffers.
@@ -237,7 +237,7 @@ public:
 	void Copy(const Vector3* loc, const Vector2* uv, const Vector4* diffuse, unsigned first_vertex, unsigned count);
 
 protected:
-	IDirect3DVertexBuffer8*		VertexBuffer;
+	IDirect3DVertexBuffer9*		VertexBuffer;
 	unsigned char*				ScratchVertices;	// used instead when there is no device
 
 	void Create_Vertex_Buffer(UsageType usage);
