@@ -260,6 +260,25 @@ TEST(dx11state_a_clamped_linear_sampler_translates_whole)
 
 	// D3DSAMP_ADDRESSW is never set for a two dimensional texture and keeps its default.
 	CHECK_EQ(description.AddressW, D3D11_TEXTURE_ADDRESS_WRAP);
+
+	// A mip filter that walks the chain leaves the far end open.
+	CHECK_EQ(description.MaxLOD, D3D11_FLOAT32_MAX);
+}
+
+// D3DTEXF_NONE is D3D9 saying the sampler reads the top level and nothing else.  All eight of
+// D3D11's filters walk the mip chain, so the only way to say it there is to clamp the maximum LOD,
+// and without that a texture the engine deliberately unmipped is minified through its chain anyway.
+TEST(dx11state_a_mip_filter_of_none_clamps_to_the_top_level)
+{
+	DX11SamplerBlockClass sampler;
+	sampler.Set_Sampler_State(D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+	sampler.Set_Sampler_State(D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+	sampler.Set_Sampler_State(D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+
+	D3D11_SAMPLER_DESC description;
+	sampler.Build_Sampler_Description(description);
+	CHECK_EQ(description.Filter, D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT);
+	CHECK_EQ(description.MaxLOD, 0.0f);
 }
 
 // A fresh sampler block is the device D3D9 starts with: point filtering, no mip filter, wrapping.

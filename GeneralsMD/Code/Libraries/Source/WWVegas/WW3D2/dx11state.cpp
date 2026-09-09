@@ -348,9 +348,14 @@ void DX11SamplerBlockClass::Build_Sampler_Description(D3D11_SAMPLER_DESC & descr
 	description.ComparisonFunc = D3D11_COMPARISON_NEVER;
 
 	// D3DSAMP_MAXMIPLEVEL is the most detailed level the sampler may use, which is D3D11's minimum
-	// LOD.  There is no D3D9 state for the other end, so it stays open.
+	// LOD.  The other end is D3D9's mip filter: D3DTEXF_NONE there means the sampler reads the top
+	// level and nothing else, and D3D11 has no filter that says so - every one of its eight walks
+	// the chain.  Clamping the maximum to zero is what says it instead.  Without this a texture the
+	// engine deliberately unmipped is minified through its chain anyway, which is a softer surface
+	// at distance and no error anywhere.
 	description.MinLOD = static_cast<float>(SamplerStates[D3DSAMP_MAXMIPLEVEL]);
-	description.MaxLOD = D3D11_FLOAT32_MAX;
+	description.MaxLOD = (SamplerStates[D3DSAMP_MIPFILTER] == D3DTEXF_NONE)
+		? 0.0f : D3D11_FLOAT32_MAX;
 
 	const DWORD border = SamplerStates[D3DSAMP_BORDERCOLOR];
 	description.BorderColor[0] = static_cast<float>((border >> 16) & 0xff) / 255.0f;
