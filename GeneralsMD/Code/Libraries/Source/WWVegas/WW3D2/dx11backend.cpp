@@ -671,9 +671,20 @@ void DX11BackendClass::Set_Render_Target(ID3D11RenderTargetView * target)
 
 void DX11BackendClass::Set_Viewport(unsigned x, unsigned y, unsigned width, unsigned height)
 {
+	// Half a pixel to the right and down, which is the whole of the difference between where
+	// Direct3D 9 draws a triangle and where Direct3D 11 draws the same one.  D3D9 tests coverage at
+	// a pixel's integer coordinate and D3D10 onwards at the half-integer, so an edge that D3D9 puts
+	// at screen x 32.25 covers column 32 there and column 31 here.  Every account of this is written
+	// about screen space quads and texel alignment; it is the projected geometry that carries the
+	// error into a whole frame, and moving the viewport is the only place that catches the generated
+	// programs and the transcribed .vso shaders in one edit.
+	//
+	// test_pixelcentre draws that edge on both runtimes in one binary and reads back the column.
+	// Take this out and it says 32 against 31.
+	const float PIXEL_CENTRE_OFFSET = 0.5f;
 	D3D11_VIEWPORT viewport;
-	viewport.TopLeftX = static_cast<float>(x);
-	viewport.TopLeftY = static_cast<float>(y);
+	viewport.TopLeftX = static_cast<float>(x) + PIXEL_CENTRE_OFFSET;
+	viewport.TopLeftY = static_cast<float>(y) + PIXEL_CENTRE_OFFSET;
 	viewport.Width = static_cast<float>(width);
 	viewport.Height = static_cast<float>(height);
 	viewport.MinDepth = 0.0f;
@@ -1048,9 +1059,11 @@ void DX11BackendClass::Upload_Constants()
 	pixel_block.FogColour[2] = static_cast<float>(fog_colour & 0xff) / 255.0f;
 	pixel_block.FogColour[3] = static_cast<float>((fog_colour >> 24) & 0xff) / 255.0f;
 
-	// D3DRS_ALPHAREF is an eight bit value and the shader compares a float.
+	// D3DRS_ALPHAREF is an eight bit level and it goes up as one, not as a fraction: the generated
+	// clip rounds the pixel's alpha to a level first, because that is the comparison Direct3D 9 made
+	// and comparing fractions instead moves every alpha tested edge by up to half a level.
 	pixel_block.AlphaReference[0] =
-		static_cast<float>(RenderStates.Get_Render_State(D3DRS_ALPHAREF) & 0xff) / 255.0f;
+		static_cast<float>(RenderStates.Get_Render_State(D3DRS_ALPHAREF) & 0xff);
 
 	if (SUCCEEDED(context->Map(PixelConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
 		memcpy(mapped.pData, &pixel_block, sizeof(pixel_block));

@@ -999,13 +999,11 @@ void W3DDisplay::init( void )
 	WW3D::Enable_Static_Sort_Lists(true);
 	WW3D::Set_Thumbnail_Enabled(false);
 	// The bias is half a pixel taken off every 2D vertex, and it makes text look good on Direct3D 9
-	// because a pixel's centre sits at an integer screen coordinate there.  Direct3D 10 onwards puts
-	// it at a half-integer, so the same half moves the whole 2D layer off the pixel grid it was
-	// snapped to: measured against the Direct3D 9 frame, the command bar came back 82 levels a pixel
-	// apart and lined up again when shifted back.  Off while the D3D11 backend is presenting.
-	// Read from the option rather than from Direct3D11_Present_Is_Enabled(), which is not set until
-	// the device is created a few lines below this one.
-	WW3D::Set_Screen_UV_Bias( TheGlobalData->m_direct3D11Present ? FALSE : TRUE );
+	// because a pixel's centre sits at an integer screen coordinate there.  It stays on under the
+	// Direct3D 11 backend as well: that backend shifts its viewport half a pixel instead, so a
+	// vertex lands where Direct3D 9 lands it and the bias means the same thing on both.  Turning it
+	// off there as well was tried, and with the viewport shift in place it moves the 2D layer twice.
+	WW3D::Set_Screen_UV_Bias( TRUE );
 	WW3D::Set_Texture_Bitdepth(32);
 			
 	setWindowed( TheGlobalData->m_windowed );

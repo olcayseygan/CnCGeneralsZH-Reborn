@@ -19,7 +19,14 @@
 # The views are tree-check.ps1's, for the same reason it has them: they are the eight positions in
 # UI-MAP.md that between them frame terrain, trees, water, roads, shadows and the command bar.
 
-param([double]$Margin = 1.0)
+# -Map narrows the run to the views whose map name contains it, for the middle of a hunt where one
+# view answers the question and eight of them is twenty-four launches.  The table in
+# RENDERER-ROADMAP.md is only ever written from a full run.
+#
+# -BackendNoise takes the repeated pair through the Direct3D 11 backend instead, which answers a
+# different question: the printed floor is Direct3D 9 against itself, and a backend with a
+# repeatability of its own would be measured against a floor that cannot see it.
+param([double]$Margin = 1.0, [string]$Map = '', [switch]$BackendNoise)
 
 Add-Type -AssemblyName System.Drawing
 $run = Join-Path $PSScriptRoot "GeneralsMD\Run"
@@ -88,13 +95,21 @@ function DiffPct($a, $b) {
   return [Math]::Round(100.0 * $apart / $total, 2)
 }
 
+if ($Map -ne '') { $cases = @($cases | Where-Object { $_.map -like "*$Map*" }) }
+if ($cases.Count -eq 0) { throw "no view matches -Map $Map" }
+
 $fail = 0
 foreach ($c in $cases) {
   $tag = ($c.map -replace '[^A-Za-z]','') + "_$($c.x)_$($c.f)"
   $nine = Shoot $c "d3d9a_$tag" @()
-  $again = Shoot $c "d3d9b_$tag" @()
   $eleven = Shoot $c "dx11_$tag" @('-dx11present')
-  $noise = DiffPct $nine $again
+  if ($BackendNoise) {
+    $again = Shoot $c "dx11b_$tag" @('-dx11present')
+    $noise = DiffPct $eleven $again
+  } else {
+    $again = Shoot $c "d3d9b_$tag" @()
+    $noise = DiffPct $nine $again
+  }
   $signal = DiffPct $nine $eleven
   $verdict = if ($signal -le ($noise + $Margin)) { 'ok' } else { 'DIFFERENT' }
   if ($verdict -ne 'ok') { $fail++ }

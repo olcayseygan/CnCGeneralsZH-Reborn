@@ -30,31 +30,30 @@ static const DWORD TEXTURE_TRANSFORM_COUNT_MASK = 0x07;
 // has 256 float4 registers and this uses fewer than 70 of them, so the layout is written for
 // reading rather than for packing.  Everything after the texture matrices is derived from where
 // they end, because how many there are follows MAXIMUM_VERTEX_STAGES.
-static const unsigned REGISTERS_PER_MATRIX = 4;
-static const unsigned REGISTER_WORLD_VIEW_PROJECTION = 0;
-static const unsigned REGISTER_WORLD_VIEW = 4;
-static const unsigned REGISTER_NORMAL_TRANSFORM = 8;
-static const unsigned REGISTER_TEXTURE_MATRICES = 12;
-static const unsigned REGISTER_MATERIAL_AMBIENT =
-	REGISTER_TEXTURE_MATRICES + MAXIMUM_VERTEX_STAGES * REGISTERS_PER_MATRIX;
-static const unsigned REGISTER_MATERIAL_DIFFUSE = REGISTER_MATERIAL_AMBIENT + 1;
-static const unsigned REGISTER_MATERIAL_SPECULAR = REGISTER_MATERIAL_AMBIENT + 2;
-static const unsigned REGISTER_MATERIAL_EMISSIVE = REGISTER_MATERIAL_AMBIENT + 3;
-static const unsigned REGISTER_MATERIAL_POWER = REGISTER_MATERIAL_AMBIENT + 4;
-static const unsigned REGISTER_GLOBAL_AMBIENT = REGISTER_MATERIAL_AMBIENT + 5;
-static const unsigned REGISTER_FOG_PARAMETERS = REGISTER_MATERIAL_AMBIENT + 6;
-// The reciprocal of the viewport's width and height, which is all a pre-transformed vertex needs:
-// its position is already in pixels and the shader has to put it back into clip space.  It sits
-// before the lights because the D3D11 block declares only as many lights as the description has,
-// and anything after them would move with that count.
-static const unsigned REGISTER_VIEWPORT = REGISTER_MATERIAL_AMBIENT + 7;
-static const unsigned REGISTER_LIGHTS = REGISTER_MATERIAL_AMBIENT + 8;
-
-// Six registers a light, the same six whatever type it is: where it is, which way it points, its
-// diffuse and specular colours, its three attenuation terms with its range, and its cone.  A
-// directional light reads two of them and a spot light reads all six, and the layout stays uniform
-// so the register a light starts at is a multiplication rather than a running total over types.
-static const unsigned REGISTERS_PER_LIGHT = 6;
+// The numbers themselves are in ffvertex.h, because anything driving the D3D9 program from outside
+// has to fill the same registers.  These are the short names this file reads them by.
+//
+// The viewport's reciprocal sits before the lights because the D3D11 block declares only as many
+// lights as the description has, and anything after them would move with that count.  Six registers
+// a light, the same six whatever type it is: where it is, which way it points, its diffuse and
+// specular colours, its three attenuation terms with its range, and its cone.  A directional light
+// reads two of them and a spot light reads all six, and the layout stays uniform so the register a
+// light starts at is a multiplication rather than a running total over types.
+static const unsigned REGISTERS_PER_MATRIX = VERTEX_REGISTERS_PER_MATRIX;
+static const unsigned REGISTER_WORLD_VIEW_PROJECTION = VERTEX_REGISTER_WORLD_VIEW_PROJECTION;
+static const unsigned REGISTER_WORLD_VIEW = VERTEX_REGISTER_WORLD_VIEW;
+static const unsigned REGISTER_NORMAL_TRANSFORM = VERTEX_REGISTER_NORMAL_TRANSFORM;
+static const unsigned REGISTER_TEXTURE_MATRICES = VERTEX_REGISTER_TEXTURE_MATRICES;
+static const unsigned REGISTER_MATERIAL_AMBIENT = VERTEX_REGISTER_MATERIAL_AMBIENT;
+static const unsigned REGISTER_MATERIAL_DIFFUSE = VERTEX_REGISTER_MATERIAL_DIFFUSE;
+static const unsigned REGISTER_MATERIAL_SPECULAR = VERTEX_REGISTER_MATERIAL_SPECULAR;
+static const unsigned REGISTER_MATERIAL_EMISSIVE = VERTEX_REGISTER_MATERIAL_EMISSIVE;
+static const unsigned REGISTER_MATERIAL_POWER = VERTEX_REGISTER_MATERIAL_POWER;
+static const unsigned REGISTER_GLOBAL_AMBIENT = VERTEX_REGISTER_GLOBAL_AMBIENT;
+static const unsigned REGISTER_FOG_PARAMETERS = VERTEX_REGISTER_FOG_PARAMETERS;
+static const unsigned REGISTER_VIEWPORT = VERTEX_REGISTER_VIEWPORT;
+static const unsigned REGISTER_LIGHTS = VERTEX_REGISTER_LIGHTS;
+static const unsigned REGISTERS_PER_LIGHT = VERTEX_REGISTERS_PER_LIGHT;
 
 static bool has_normal(DWORD fvf)
 {
@@ -398,14 +397,13 @@ static bool generate_pretransformed(const VertexPipelineDescription & descriptio
 		"    Output output;\n"
 		"    float reciprocal_w = (input.Position.w == 0.0) ? 1.0 : input.Position.w;\n"
 		"    float w = 1.0 / reciprocal_w;\n"
-		// Direct3D 9 puts a pixel's centre at an integer screen coordinate and Direct3D 10 onwards
-		// puts it at a half-integer, so a screen space quad written for one lands half a pixel off
-		// under the other.  Every such quad in this engine already carries D3D9's own -0.5, which is
-		// what aligns a texel with a pixel there; the half added back here cancels it.  Miss it and
-		// the quad samples exactly between two texels, linear filtering averages them, and the whole
-		// scene comes back softened - 42% of the local contrast on Alpine Assault, with the command
-		// bar beside it sharp because the bar is drawn after the composite rather than through it.
-		"    float2 normalised = (input.Position.xy + 0.5) * ViewportInverse.xy;\n"
+		// Straight into clip space with no half-pixel of its own.  D3D9 and D3D11 disagree about
+		// where a pixel's centre is and every screen space quad in this engine carries D3D9's own
+		// -0.5 for it, but the correction belongs to the whole frame rather than to this path:
+		// DX11BackendClass::Set_Viewport shifts the viewport half a pixel and every draw comes out
+		// where Direct3D 9 puts it, the transcribed .vso programs included.  Adding a half here as
+		// well was tried and measured - Alpine Assault went from 5.99% to 9.51% with both.
+		"    float2 normalised = input.Position.xy * ViewportInverse.xy;\n"
 		"    output.Position = float4((normalised.x * 2.0 - 1.0) * w,\n"
 		"        (1.0 - normalised.y * 2.0) * w, input.Position.z * w, w);\n";
 

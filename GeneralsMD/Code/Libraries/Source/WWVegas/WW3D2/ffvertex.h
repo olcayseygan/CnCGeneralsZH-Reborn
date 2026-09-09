@@ -52,6 +52,28 @@ const unsigned MAXIMUM_VERTEX_STAGES = 4;
 // three, and every register past this one is a register the D3D9 profile does not have to spare.
 const unsigned MAXIMUM_VERTEX_LIGHTS = 4;
 
+// Where each constant sits in the D3D9 profile's register file, which is what
+// SetVertexShaderConstantF is given.  The D3D11 profile puts the same values in one constant buffer
+// in this order instead, so the two halves of the generator share the layout and nothing else.
+// Public because anything driving the D3D9 program from outside has to fill the same registers, and
+// a layout agreed by two files that cannot see each other is a layout that drifts.
+const unsigned VERTEX_REGISTERS_PER_MATRIX = 4;
+const unsigned VERTEX_REGISTER_WORLD_VIEW_PROJECTION = 0;
+const unsigned VERTEX_REGISTER_WORLD_VIEW = 4;
+const unsigned VERTEX_REGISTER_NORMAL_TRANSFORM = 8;
+const unsigned VERTEX_REGISTER_TEXTURE_MATRICES = 12;
+const unsigned VERTEX_REGISTER_MATERIAL_AMBIENT =
+	VERTEX_REGISTER_TEXTURE_MATRICES + MAXIMUM_VERTEX_STAGES * VERTEX_REGISTERS_PER_MATRIX;
+const unsigned VERTEX_REGISTER_MATERIAL_DIFFUSE = VERTEX_REGISTER_MATERIAL_AMBIENT + 1;
+const unsigned VERTEX_REGISTER_MATERIAL_SPECULAR = VERTEX_REGISTER_MATERIAL_AMBIENT + 2;
+const unsigned VERTEX_REGISTER_MATERIAL_EMISSIVE = VERTEX_REGISTER_MATERIAL_AMBIENT + 3;
+const unsigned VERTEX_REGISTER_MATERIAL_POWER = VERTEX_REGISTER_MATERIAL_AMBIENT + 4;
+const unsigned VERTEX_REGISTER_GLOBAL_AMBIENT = VERTEX_REGISTER_MATERIAL_AMBIENT + 5;
+const unsigned VERTEX_REGISTER_FOG_PARAMETERS = VERTEX_REGISTER_MATERIAL_AMBIENT + 6;
+const unsigned VERTEX_REGISTER_VIEWPORT = VERTEX_REGISTER_MATERIAL_AMBIENT + 7;
+const unsigned VERTEX_REGISTER_LIGHTS = VERTEX_REGISTER_MATERIAL_AMBIENT + 8;
+const unsigned VERTEX_REGISTERS_PER_LIGHT = 6;
+
 struct VertexLightDescription
 {
 	// D3DLIGHT_DIRECTIONAL, D3DLIGHT_POINT or D3DLIGHT_SPOT.

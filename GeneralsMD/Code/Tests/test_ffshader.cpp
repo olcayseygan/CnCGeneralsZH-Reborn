@@ -324,7 +324,8 @@ TEST(ffshader_the_alpha_test_is_a_clip_on_d3d11_and_nothing_on_d3d9)
 
 	std::string eleven;
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, eleven));
-	CHECK(contains(eleven, "clip(current.a - AlphaReference.x);"));
+	CHECK(contains(eleven, "float alpha_level = floor(current.a * 255.0 + 0.5);"));
+	CHECK(contains(eleven, "clip(alpha_level - AlphaReference.x);"));
 
 	std::string nine;
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, nine));
@@ -332,9 +333,11 @@ TEST(ffshader_the_alpha_test_is_a_clip_on_d3d11_and_nothing_on_d3d9)
 	CHECK(!contains(nine, "AlphaReference"));
 }
 
-// clip throws a pixel away when its argument is negative, so each comparison is one subtraction.
-// The two about equality need a tolerance, which is a choice: D3D9 compared eight bit integers and
-// this compares floats.
+// clip throws a pixel away when its argument is negative, so each comparison is one subtraction, and
+// both sides of it are whole levels because that is what Direct3D 9 compared.  A strict comparison
+// is a whole level further along and an equality is half a level either side; comparing fractions
+// instead moved every alpha tested edge in the frame, which test_pixelcentre measures on the two
+// runtimes directly.
 TEST(ffshader_each_alpha_comparison_becomes_its_own_clip)
 {
 	CombinerDescription description;
@@ -346,13 +349,19 @@ TEST(ffshader_each_alpha_comparison_becomes_its_own_clip)
 
 	std::string hlsl;
 
+	// A strict less keeps a level below the reference and no higher, so the subtraction carries the
+	// whole level that separates it from the less-or-equal beside it.
 	description.PixelPipeline.AlphaFunction = D3DCMP_LESS;
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));
-	CHECK(contains(hlsl, "clip(AlphaReference.x - current.a);"));
+	CHECK(contains(hlsl, "clip(AlphaReference.x - alpha_level - 1.0);"));
+
+	description.PixelPipeline.AlphaFunction = D3DCMP_LESSEQUAL;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));
+	CHECK(contains(hlsl, "clip(AlphaReference.x - alpha_level);"));
 
 	description.PixelPipeline.AlphaFunction = D3DCMP_EQUAL;
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));
-	CHECK(contains(hlsl, "abs(current.a - AlphaReference.x)"));
+	CHECK(contains(hlsl, "clip(0.5 - abs(alpha_level - AlphaReference.x));"));
 
 	description.PixelPipeline.AlphaFunction = D3DCMP_NEVER;
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, hlsl));

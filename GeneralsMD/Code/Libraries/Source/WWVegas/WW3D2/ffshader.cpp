@@ -163,11 +163,21 @@ static bool operation_expression(DWORD operation, const std::string & argument0,
 }
 
 // D3D11 has no alpha test, so the comparison becomes a clip.  clip() throws the pixel away when its
-// argument is negative, which turns each comparison into one subtraction.  The two that ask about
-// equality need a tolerance, and there is no exactly right one: a D3D9 alpha test compared eight
-// bit integers and this compares floats, so half a step of eight bit precision is the tolerance
-// used and it is a choice rather than a translation.
-static const char * const ALPHA_EQUALITY_TOLERANCE = "0.00196";
+// argument is negative, which turns each comparison into one subtraction.
+//
+// Both sides of that subtraction are whole levels.  Direct3D 9's alpha test compared the eight bit
+// alpha about to be written against an eight bit reference, so the comparison this replaces is an
+// integer one, and doing it in floats moves every alpha tested edge in the frame by up to half a
+// level.  On a quad whose alpha runs from nothing to full across 64 pixels, tested at reference 128,
+// Direct3D 9 keeps from column 32 and the float comparison kept from 33 - one pixel along every
+// foliage edge there is, and the views that carry the most of them are the ones that were still
+// outside the margin.  test_pixelcentre draws exactly that quad on both runtimes.
+//
+// Rounding to a level first also makes the strict comparisons and the two equalities exact.  A
+// strict greater is one whole level further along; an equality is a level either side rather than
+// the guessed tolerance this used to carry.
+static const char * const ALPHA_LEVEL =
+	"    float alpha_level = floor(current.a * 255.0 + 0.5);\n";
 
 static bool alpha_test_expression(DWORD function, std::string & expression)
 {
@@ -176,20 +186,22 @@ static bool alpha_test_expression(DWORD function, std::string & expression)
 		expression = "clip(-1.0);\n";
 		return true;
 	case D3DCMP_LESS:
+		expression = "clip(AlphaReference.x - alpha_level - 1.0);\n";
+		return true;
 	case D3DCMP_LESSEQUAL:
-		expression = "clip(AlphaReference.x - current.a);\n";
+		expression = "clip(AlphaReference.x - alpha_level);\n";
 		return true;
 	case D3DCMP_GREATER:
+		expression = "clip(alpha_level - AlphaReference.x - 1.0);\n";
+		return true;
 	case D3DCMP_GREATEREQUAL:
-		expression = "clip(current.a - AlphaReference.x);\n";
+		expression = "clip(alpha_level - AlphaReference.x);\n";
 		return true;
 	case D3DCMP_EQUAL:
-		expression = std::string("clip(") + ALPHA_EQUALITY_TOLERANCE
-			+ " - abs(current.a - AlphaReference.x));\n";
+		expression = "clip(0.5 - abs(alpha_level - AlphaReference.x));\n";
 		return true;
 	case D3DCMP_NOTEQUAL:
-		expression = std::string("clip(abs(current.a - AlphaReference.x) - ")
-			+ ALPHA_EQUALITY_TOLERANCE + ");\n";
+		expression = "clip(abs(alpha_level - AlphaReference.x) - 0.5);\n";
 		return true;
 	case D3DCMP_ALWAYS:
 		// Nothing to write: every pixel survives, which is what no alpha test at all means.
@@ -372,6 +384,7 @@ bool CombinerShader_Append_Pixel_Pipeline(const PixelPipelineDescription & pipel
 			return false;
 		}
 		if (!clip.empty()) {
+			hlsl += ALPHA_LEVEL;
 			hlsl += "    " + clip;
 		}
 	}

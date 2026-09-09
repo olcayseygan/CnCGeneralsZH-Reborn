@@ -700,6 +700,9 @@ add_lib_test(test_dx11state dx11state)
 add_lib_test(test_dx11layout dx11layout)
 add_lib_test(test_ffvertex ffvertex)
 add_lib_test(test_ffvertexcompile ffvertex)
+# The generated vertex program run against the fixed-function pipeline it replaces, on a real
+# Direct3D 9 device.  It skips itself on a machine with no device rather than failing.
+add_lib_test(test_ffvertexd3d9 ffvertex d3d9 user32)
 add_lib_test(test_ffshadercompile ffshader)
 add_lib_test(test_dx11pipeline dx11device dx11state dx11layout ffshader ffvertex)
 add_lib_test(test_dx11resource dx11resource dx11device)
@@ -707,6 +710,9 @@ add_lib_test(test_engineshader engineshader)
 add_lib_test(test_dx11backend dx11backend)
 add_lib_test(test_dx11twin dx11twin dx11device)
 add_lib_test(test_dx11texture dx11texture dx11device user32)
+# Both runtimes in one binary, so where a triangle edge lands is a measurement rather than a reading
+# of two sets of documentation that describe the same thing in different words.
+add_lib_test(test_pixelcentre dx11backend dx11resource dx11device d3d9 user32)
 
 add_lib_test(test_wwdownload wwdownload)
 target_include_directories(test_wwdownload PRIVATE ${WW}/WWDownload)

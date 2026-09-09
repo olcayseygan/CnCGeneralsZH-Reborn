@@ -301,12 +301,13 @@ TEST(ffvertex_puts_a_pretransformed_vertex_back_into_clip_space)
 	CHECK(contains(hlsl, "output.TexCoord0 = input.TexCoord0;"));
 	CHECK(contains(hlsl, "output.Diffuse = input.Diffuse;"));
 
-	// D3D9's pixel centre is at an integer screen coordinate and D3D11's at a half-integer, so the
-	// half these quads already carry for D3D9 has to be given back.  Without it the composite quad
-	// samples the scene texture exactly between two texels and the whole frame comes back softened:
-	// 42% of Alpine Assault's local contrast, with the command bar sharp beside it because the bar
-	// is drawn straight to the back buffer rather than through the composite.
-	CHECK(contains(hlsl, "(input.Position.xy + 0.5) * ViewportInverse.xy"));
+	// No half pixel of its own.  D3D9's pixel centre is at an integer screen coordinate and D3D11's
+	// at a half-integer, and these quads carry D3D9's -0.5 for it, but the backend answers that by
+	// shifting its viewport rather than by editing one path: a correction written here reaches the
+	// generated programs and misses the transcribed .vso ones, and applied in both places it moves
+	// the 2D layer twice.  Alpine Assault measured 9.51% with both and 5.99% with neither.
+	CHECK(contains(hlsl, "float2 normalised = input.Position.xy * ViewportInverse.xy;"));
+	CHECK(!contains(hlsl, "input.Position.xy + 0.5"));
 
 	// The one thing it must not do is transform a position that is already transformed.
 	CHECK(!contains(hlsl, "WorldViewProjection)"));
