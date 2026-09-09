@@ -82,21 +82,29 @@ function Shoot($c, $tag, $extra) {
 # drawn half a pixel off under Direct3D 11, 45% of the command bar was past this threshold, and every
 # number this script printed was blind to it.  An instrument that cannot see part of the picture
 # cannot be the exit condition for drawing the picture.
+#
+# It returns the mean too, and the two say different things. The count is a coverage measure: a
+# boundary pixel that one rasteriser fills and the other does not flips between a leaf and the sky
+# and lands well past the threshold, so a frame that is aligned to the pixel and correct in every
+# other way still counts a percent of its foliage edges. The mean is a fidelity measure: it is what
+# the frame is wrong by, and a mean of a level a channel is the same picture whatever the count says.
+# Quote both or neither.
 function DiffPct($a, $b) {
   $ia = New-Object System.Drawing.Bitmap($a)
   $ib = New-Object System.Drawing.Bitmap($b)
   $w = $ia.Width; $h = $ia.Height
-  $apart = 0; $total = 0
+  $apart = 0; $total = 0; $sum = 0.0
   for ($y = 0; $y -lt $h; $y += 2) {
     for ($x = 0; $x -lt $w; $x += 2) {
       $pa = $ia.GetPixel($x, $y); $pb = $ib.GetPixel($x, $y)
       $d = [Math]::Abs($pa.R - $pb.R) + [Math]::Abs($pa.G - $pb.G) + [Math]::Abs($pa.B - $pb.B)
       $total++
+      $sum += $d
       if ($d -gt 40) { $apart++ }
     }
   }
   $ia.Dispose(); $ib.Dispose()
-  return [Math]::Round(100.0 * $apart / $total, 2)
+  return @([Math]::Round(100.0 * $apart / $total, 2), [Math]::Round($sum / $total / 3.0, 2))
 }
 
 if ($Map -ne '') { $cases = @($cases | Where-Object { $_.map -like "*$Map*" }) }
@@ -115,10 +123,10 @@ foreach ($c in $cases) {
     $noise = DiffPct $nine $again
   }
   $signal = DiffPct $nine $eleven
-  $verdict = if ($signal -le ($noise + $Margin)) { 'ok' } else { 'DIFFERENT' }
+  $verdict = if ($signal[0] -le ($noise[0] + $Margin)) { 'ok' } else { 'DIFFERENT' }
   if ($verdict -ne 'ok') { $fail++ }
-  "{0,-20} cam {1,5},{2,-5} frame {3,-5} noise {4,5}%  dx11 {5,5}%  {6}" -f `
-    $c.map, $c.x, $c.y, $c.f, $noise, $signal, $verdict
+  "{0,-20} cam {1,5},{2,-5} frame {3,-5} noise {4,5}%  dx11 {5,5}%  mean {6,5}  {7}" -f `
+    $c.map, $c.x, $c.y, $c.f, $noise[0], $signal[0], $signal[1], $verdict
 }
 "---"
 "pictures in $tmp"
