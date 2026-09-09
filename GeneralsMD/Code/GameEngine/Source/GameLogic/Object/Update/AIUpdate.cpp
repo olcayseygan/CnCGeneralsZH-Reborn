@@ -381,6 +381,11 @@ AIUpdateInterface::AIUpdateInterface( Thing *thing, const ModuleData* moduleData
 	m_isAiDead = FALSE;
 	m_isRecruitable = TRUE; // Things default to being recruitable.
 	m_executingWaypointQueue = FALSE;
+	// Never initialised at all before: a human player's unit read whatever was in the heap to
+	// decide whether it chases something it auto-acquired, so the same order gave two answers on
+	// two machines. FALSE is the rule the approach state is written around; a deploy-and-attack
+	// state or an attack move turns it on for as long as it lasts.
+	m_allowedToChase = FALSE;
 	m_retryPath = FALSE;
 	m_isInUpdate = FALSE;
 	m_fixLocoInPostProcess = FALSE;
@@ -6846,7 +6851,7 @@ void AIUpdateInterface::crc( Xfer *x )
 void AIUpdateInterface::xfer( Xfer *xfer )
 {
   // version
-  const XferVersion currentVersion = 10;
+  const XferVersion currentVersion = 11;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
  
@@ -6963,7 +6968,18 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 	xfer->xferBool(&m_isApproachPath);
 	xfer->xferBool(&m_isSafePath);
 	xfer->xferBool(&m_movementComplete);
-	xfer->xferBool(&m_isSafePath);
+	if (version >= 11)
+	{
+		xfer->xferBool(&m_isMoving);
+	}
+	else
+	{
+		// Version 10 and earlier wrote m_isSafePath a second time in this slot, and m_isMoving
+		// was never saved at all, so a loaded unit in an AIInternalMoveToState reported itself
+		// as standing still.
+		Bool safePathWrittenTwice = m_isSafePath;
+		xfer->xferBool(&safePathWrittenTwice);
+	}
 	xfer->xferBool(&m_upgradedLocomotors);
 	xfer->xferBool(&m_canPathThroughUnits);
 	xfer->xferBool(&m_randomlyOffsetMoodCheck);

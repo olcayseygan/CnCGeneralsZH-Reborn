@@ -1228,8 +1228,16 @@ void Locomotor::moveTowardsPositionTreads(Object* obj, PhysicsBehavior *physics,
 
 	if (getFlag(IS_BRAKING)) 
 	{
-		m_brakingFactor = slowDownDist/onPathDistToGoal;
-		m_brakingFactor *= m_brakingFactor;
+		// Standing still on top of the goal is 0/0, which came out NaN and stayed in the member:
+		// the clamp below lets a NaN through, and the next frame that wants to slow down multiplies
+		// the braking force by it and hands the physics a NaN force. Sitting on the goal is as hard
+		// as braking gets, so the ratio's limit is what belongs there.
+		if (onPathDistToGoal > 0.0f) {
+			m_brakingFactor = slowDownDist/onPathDistToGoal;
+			m_brakingFactor *= m_brakingFactor;
+		} else {
+			m_brakingFactor = MAX_BRAKING_FACTOR;
+		}
 		if (m_brakingFactor>MAX_BRAKING_FACTOR) {
 			m_brakingFactor = MAX_BRAKING_FACTOR;
 		}

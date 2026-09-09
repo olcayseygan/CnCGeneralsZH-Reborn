@@ -146,6 +146,8 @@ found and fixed â€” EA's own, not port damage.**
 - A unit with nowhere to stand appears where asked, not at a random point.
 - Loading a save remembers what your guards were guarding.
 - A turret loaded from a save is still tracking what it was tracking, and a worker loaded mid-job carries on with it, instead of both snapping back to their default state.
+- A unit that was driving somewhere when you saved is still driving there when you load. One flag was written to the save twice and another not at all, so every loaded unit came back claiming to stand still, and everything that asks - a bike waiting for its rider, a mob following its leader, an ability that breaks if you move - believed it.
+- Your units decide the same way on both machines whether to chase what they spotted on their own. That answer was read from uninitialised memory, so the same order could send one player's tank after a target and leave the other's standing.
 - A shell already in the air finishes its flight after a load instead of going off in the launcher's face.
 - An aircraft carrier remembers the order it was given, and each runway its own ramp.
 - A barracks that has already put its mob on the street does not put a second one out after a load.
@@ -839,6 +841,9 @@ found and fixed â€” EA's own, not port damage.**
 - Jams in the heavy test fell 14% against the build from before all of this, and in ordinary play
   the whole of it costs nothing measurable: same number of routes planned, same time spent planning
   them.
+- A tracked unit braking while sitting exactly on the spot it was sent to divided nothing by
+  nothing. The result stayed in its brakes and was multiplied into the next push it was given, and
+  a vehicle handed a number that is not a number goes somewhere no player asked for.
 
 ## Long orders stopped hitching
 
