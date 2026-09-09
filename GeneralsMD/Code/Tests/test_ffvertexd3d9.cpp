@@ -468,3 +468,179 @@ TEST(ffvertexd3d9_the_building_pipeline_lights_a_quad_like_the_fixed_function_do
 
 	compare(scene);
 }
+
+// The coordinate a stage generates for itself, read back as a colour.
+//
+// Nineteen of the sixty-five texture stages a Flash Effect frame sets do not read a coordinate out
+// of the vertex at all: they ask for the camera space position, or the camera space normal, and put
+// it through a texture matrix.  That is the scrolling noise the terrain and the models are
+// multiplied by, and until now nothing checked it - the lighting tests above use one pass-through
+// stage, and a wrong coordinate there would look like a texture, not like an error.
+//
+// The probe is a strip 256 texels wide whose red channel is its own index, sampled with a point
+// filter and clamped. Whatever coordinate reaches the sampler comes back as a number: red 89 means
+// u landed in the 90th texel and nowhere else. The matrix maps the camera space z to u, so both
+// paths are asked the same question about the same axis.
+static const unsigned PROBE_WIDTH = 256;
+
+// u = 0.5 * z + 0.1 written for D3D9's row vector convention, so the third row scales z into u and
+// the fourth row carries the offset.  With z at 0.5 across the quad, u is 0.35 and the texel is 89.
+static void set_probe_matrix(D3DMATRIX & matrix)
+{
+	memset(&matrix, 0, sizeof(matrix));
+	matrix._31 = 0.5f;
+	matrix._41 = 0.1f;
+	matrix._42 = 0.25f;
+	matrix._44 = 1.0f;
+}
+
+static IDirect3DTexture9 * make_probe(IDirect3DDevice9 * device)
+{
+	IDirect3DTexture9 * texture = NULL;
+	if (FAILED(device->CreateTexture(PROBE_WIDTH, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED,
+			&texture, NULL))) {
+		return NULL;
+	}
+	D3DLOCKED_RECT locked;
+	if (FAILED(texture->LockRect(0, &locked, NULL, 0))) {
+		texture->Release();
+		return NULL;
+	}
+	unsigned char * row = static_cast<unsigned char *>(locked.pBits);
+	for (unsigned texel = 0; texel < PROBE_WIDTH; ++texel) {
+		row[texel * 4 + 0] = 64;
+		row[texel * 4 + 1] = static_cast<unsigned char>(255 - texel);
+		row[texel * 4 + 2] = static_cast<unsigned char>(texel);
+		row[texel * 4 + 3] = 255;
+	}
+	texture->UnlockRect(0);
+	return texture;
+}
+
+// Everything the probe shares with itself on both paths: the texture selected rather than the
+// vertex colour, no filtering to blur which texel was chosen, and no lighting to colour it.
+static void configure_probe(IDirect3DDevice9 * device)
+{
+	device->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+	device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+	device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+	device->SetRenderState(D3DRS_SPECULARENABLE, FALSE);
+	device->SetRenderState(D3DRS_COLORVERTEX, FALSE);
+	device->SetRenderState(D3DRS_FOGENABLE, FALSE);
+	device->SetRenderState(D3DRS_LIGHTING, FALSE);
+	device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+	device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+	device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+	device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+	device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+	device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+	device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+	device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+	device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+	device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+	device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+}
+
+static VertexPipelineDescription describe_probe(DWORD generation)
+{
+	VertexPipelineDescription description;
+	memset(&description, 0, sizeof(description));
+	description.FVF = QUAD_FVF;
+	description.LightingEnabled = false;
+	description.SpecularEnabled = false;
+	description.ColourVertexEnabled = false;
+	description.DiffuseMaterialSource = D3DMCS_MATERIAL;
+	description.AmbientMaterialSource = D3DMCS_MATERIAL;
+	description.EmissiveMaterialSource = D3DMCS_MATERIAL;
+	description.SpecularMaterialSource = D3DMCS_MATERIAL;
+	description.LightCount = 0;
+	description.StageCount = 1;
+	description.Stages[0].TextureCoordinateIndex = generation;
+	description.Stages[0].TextureTransformFlags = D3DTTFF_COUNT2;
+	description.FogEnabled = false;
+	return description;
+}
+
+static void compare_probe(DWORD generation, const char * what)
+{
+	D3D9OffscreenDevice fixture;
+	if (!fixture.Create(TARGET_SIZE)) {
+		printf("  no Direct3D 9 device on this machine - skipped\n");
+		return;
+	}
+	D3DCompileFunction compile = load_compiler();
+	if (compile == NULL) {
+		printf("  no %s on this machine - skipped\n", COMPILER_MODULE);
+		return;
+	}
+	IDirect3DDevice9 * device = fixture.Get_Device();
+
+	IDirect3DTexture9 * probe = make_probe(device);
+	CHECK(probe != NULL);
+	if (probe == NULL) {
+		return;
+	}
+
+	D3DMATRIX identity;
+	D3D9Test_Set_Identity(identity);
+	D3DMATRIX texture_matrix;
+	set_probe_matrix(texture_matrix);
+
+	clear_target(device);
+	configure_probe(device);
+	device->SetTexture(0, probe);
+	device->SetTransform(D3DTS_WORLD, &identity);
+	device->SetTransform(D3DTS_VIEW, &identity);
+	device->SetTransform(D3DTS_PROJECTION, &identity);
+	device->SetTransform(D3DTS_TEXTURE0, &texture_matrix);
+	device->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, generation);
+	device->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
+	device->SetVertexShader(NULL);
+	device->SetFVF(QUAD_FVF);
+	CHECK(draw_quad(device));
+
+	unsigned char fixed_function[3] = { 0, 0, 0 };
+	CHECK(fixture.Read_Pixel(TARGET_SIZE / 2, TARGET_SIZE / 2, fixed_function));
+
+	std::string hlsl;
+	CHECK(VertexShader_Generate(describe_probe(generation), VERTEX_SHADER_TARGET_D3D9, hlsl));
+	IDirect3DVertexShader9 * shader = build_shader(device, compile, hlsl);
+	CHECK(shader != NULL);
+	if (shader == NULL) {
+		probe->Release();
+		return;
+	}
+
+	clear_target(device);
+	configure_probe(device);
+	device->SetTexture(0, probe);
+	set_matrix(device, VERTEX_REGISTER_WORLD_VIEW_PROJECTION, identity);
+	set_matrix(device, VERTEX_REGISTER_WORLD_VIEW, identity);
+	set_matrix(device, VERTEX_REGISTER_NORMAL_TRANSFORM, identity);
+	set_matrix(device, VERTEX_REGISTER_TEXTURE_MATRICES, texture_matrix);
+	device->SetFVF(QUAD_FVF);
+	device->SetVertexShader(shader);
+	CHECK(draw_quad(device));
+	device->SetVertexShader(NULL);
+	shader->Release();
+
+	unsigned char generated[3] = { 0, 0, 0 };
+	CHECK(fixture.Read_Pixel(TARGET_SIZE / 2, TARGET_SIZE / 2, generated));
+	probe->Release();
+
+	printf("  %s: fixed function texel %u, generated texel %u\n",
+		what, fixed_function[2], generated[2]);
+
+	const int difference = static_cast<int>(generated[2]) - static_cast<int>(fixed_function[2]);
+	CHECK(difference >= -1 && difference <= 1);
+}
+
+TEST(ffvertexd3d9_a_camera_space_coordinate_goes_through_the_texture_matrix_the_same_way)
+{
+	compare_probe(D3DTSS_TCI_CAMERASPACEPOSITION, "camera space position");
+}
+
+TEST(ffvertexd3d9_a_camera_space_normal_goes_through_the_texture_matrix_the_same_way)
+{
+	compare_probe(D3DTSS_TCI_CAMERASPACENORMAL, "camera space normal");
+}

@@ -26,7 +26,11 @@
 # -BackendNoise takes the repeated pair through the Direct3D 11 backend instead, which answers a
 # different question: the printed floor is Direct3D 9 against itself, and a backend with a
 # repeatability of its own would be measured against a floor that cannot see it.
-param([double]$Margin = 1.0, [string]$Map = '', [switch]$BackendNoise)
+#
+# -Extra passes further switches to all three shots, which is how a pass is taken out of both sides
+# at once: -Extra -nofx, -Extra -noshadowvolumes, -Extra -noshroud. A difference that collapses when
+# one pass is gone belongs to that pass, and one that does not is somewhere else.
+param([double]$Margin = 1.0, [string]$Map = '', [switch]$BackendNoise, [string[]]$Extra = @())
 
 Add-Type -AssemblyName System.Drawing
 $run = Join-Path $PSScriptRoot "GeneralsMD\Run"
@@ -53,7 +57,7 @@ function Shoot($c, $tag, $extra) {
   $arguments = @('-win','-xres','1280','-yres','720','-quickstart','-noshellmap','-multiInstance',
     '-msaa','0','-map',"`"Maps\$($c.map)\$($c.map).map`"",'-autoskirmish','4','-aidiff','easy',
     '-seed','5','-maxframes',($c.f+80),'-screenshot',$c.f,'-camera',$c.x,$c.y,
-    '-logPrefix',"dx11chk_$tag`_") + $extra
+    '-logPrefix',"dx11chk_$tag`_") + $extra + $Extra
   try {
     $process = Start-Process (Join-Path $run 'generals.exe') -ArgumentList $arguments -WorkingDirectory $run -PassThru
     $null = $process.WaitForExit(900000)

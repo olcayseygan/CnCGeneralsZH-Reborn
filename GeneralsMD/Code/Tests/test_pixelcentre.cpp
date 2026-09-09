@@ -94,7 +94,14 @@ static const unsigned short EDGE_INDICES[6] = { 0, 1, 2, 0, 2, 3 };
 // left to full on the right, so an alpha test cuts it somewhere in the middle and the column it cuts
 // at is the threshold read back in pixels.  Eight of the sixty-six pipelines a Flash Effect frame
 // builds carry an alpha test, and all eight are the greater-or-equal one.
-static const DWORD ALPHA_TEST_REFERENCE = 128;
+static DWORD AlphaTestReference = 128;
+
+// One knife-edge reference proves the rounding and nothing else.  A sweep proves the rule, which
+// matters because what is left of the difference between the two frames sits on thin alpha tested
+// foliage: a palm trunk a pixel wide is exactly where a threshold half a level out shows.
+static const DWORD ALPHA_REFERENCES[] = { 1, 16, 32, 64, 96, 128, 160, 192, 224, 254 };
+static const unsigned ALPHA_REFERENCE_COUNT =
+	sizeof(ALPHA_REFERENCES) / sizeof(ALPHA_REFERENCES[0]);
 
 static const EdgeVertex ALPHA_QUAD[4] = {
 	{ { -1.0f,  1.0f, 0.5f }, { 0.0f, 0.0f, 1.0f }, 0x00ff0000, { 0.0f, 0.0f }, { 0.0f, 0.0f } },
@@ -159,7 +166,7 @@ static bool direct3d9_draw(const EdgeVertex quad[4], bool alpha_test, TargetLine
 	device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
 	device->SetRenderState(D3DRS_ALPHATESTENABLE, alpha_test ? TRUE : FALSE);
 	device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
-	device->SetRenderState(D3DRS_ALPHAREF, ALPHA_TEST_REFERENCE);
+	device->SetRenderState(D3DRS_ALPHAREF, AlphaTestReference);
 	device->SetVertexShader(NULL);
 	device->SetFVF(EDGE_FVF);
 
@@ -278,7 +285,7 @@ static bool direct3d11_draw(const EdgeVertex quad[4], bool alpha_test, TargetLin
 		configure_unlit(backend);
 		backend.Set_Render_State(D3DRS_ALPHATESTENABLE, alpha_test ? TRUE : FALSE);
 		backend.Set_Render_State(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
-		backend.Set_Render_State(D3DRS_ALPHAREF, ALPHA_TEST_REFERENCE);
+		backend.Set_Render_State(D3DRS_ALPHAREF, AlphaTestReference);
 		backend.Set_Stream_Source(vertices, sizeof(EdgeVertex), 0);
 		backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
 
@@ -353,17 +360,22 @@ TEST(pixelcentre_the_two_runtimes_cut_the_same_pixels)
 	TargetLine eleven_row;
 	TargetLine eleven_column;
 
-	if (!direct3d9_draw(ALPHA_QUAD, true, nine_row, nine_column)
-		|| !direct3d11_draw(ALPHA_QUAD, true, eleven_row, eleven_column)) {
-		printf("  no Direct3D 9 or Direct3D 11 device on this machine - skipped\n");
-		return;
+	for (unsigned index = 0; index < ALPHA_REFERENCE_COUNT; ++index) {
+		AlphaTestReference = ALPHA_REFERENCES[index];
+
+		if (!direct3d9_draw(ALPHA_QUAD, true, nine_row, nine_column)
+			|| !direct3d11_draw(ALPHA_QUAD, true, eleven_row, eleven_column)) {
+			printf("  no Direct3D 9 or Direct3D 11 device on this machine - skipped\n");
+			return;
+		}
+
+		const int nine_cut = first_covered(nine_row);
+		const int eleven_cut = first_covered(eleven_row);
+
+		if (eleven_cut != nine_cut) {
+			printf("  alpha reference %u: Direct3D 9 keeps from column %d, Direct3D 11 from %d\n",
+				AlphaTestReference, nine_cut, eleven_cut);
+		}
+		CHECK_EQ(eleven_cut, nine_cut);
 	}
-
-	const int nine_cut = first_covered(nine_row);
-	const int eleven_cut = first_covered(eleven_row);
-
-	printf("  alpha reference %u: Direct3D 9 keeps from column %d, Direct3D 11 from %d\n",
-		ALPHA_TEST_REFERENCE, nine_cut, eleven_cut);
-
-	CHECK_EQ(eleven_cut, nine_cut);
 }
