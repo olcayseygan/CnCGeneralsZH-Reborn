@@ -3426,19 +3426,39 @@ static IDirect3DSurface9 *captureBackBuffer(void)
 	D3DSURFACE_DESC desc;
 	bb->GetDesc(&desc);
 	IDirect3DSurface9 *copy = NULL;
-	if ((desc.Format == D3DFMT_X8R8G8B8 || desc.Format == D3DFMT_A8R8G8B8) && desc.MultiSampleType == D3DMULTISAMPLE_NONE)
+	if (desc.Format == D3DFMT_X8R8G8B8 || desc.Format == D3DFMT_A8R8G8B8)
 	{
-		// The back buffer is a render target, so the copy has to come off it with
-		// GetRenderTargetData; UpdateSurface and StretchRect both refuse this direction.
-		if (SUCCEEDED(dev->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format,
-				D3DPOOL_SYSTEMMEM, &copy, NULL)) && copy != NULL
-			&& FAILED(dev->GetRenderTargetData(bb, copy)))
+		// GetRenderTargetData refuses a multisampled source, and with -msaa or the options menu's
+		// anti-aliasing set the back buffer is exactly that.  StretchRect between two render
+		// targets of the same size is D3D9's resolve, so the samples are averaged down into a
+		// plain target first and the readback comes off that.  Miss this and the caller falls
+		// through to the front-buffer path, which photographs the desktop: whatever window happens
+		// to sit over the game ends up in the screenshot, and nothing says so.
+		IDirect3DSurface9 *resolved = NULL;
+		IDirect3DSurface9 *source = bb;
+		if (desc.MultiSampleType != D3DMULTISAMPLE_NONE
+			&& SUCCEEDED(dev->CreateRenderTarget(desc.Width, desc.Height, desc.Format,
+					D3DMULTISAMPLE_NONE, 0, FALSE, &resolved, NULL))
+			&& SUCCEEDED(dev->StretchRect(bb, NULL, resolved, NULL, D3DTEXF_NONE)))
+		{
+			source = resolved;
+		}
+
+		if (SUCCEEDED(source->GetDesc(&desc)) && desc.MultiSampleType == D3DMULTISAMPLE_NONE
+			&& SUCCEEDED(dev->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format,
+					D3DPOOL_SYSTEMMEM, &copy, NULL)) && copy != NULL
+			&& FAILED(dev->GetRenderTargetData(source, copy)))
 		{
 			copy->Release();
 			copy = NULL;
 		}
+
+		if (resolved != NULL)
+			resolved->Release();
 	}
 	bb->Release();
+	if (copy == NULL)
+		DEBUG_LOG(("takeScreenShot - the back buffer could not be read, falling back to a desktop capture\n"));
 	return copy;
 }
 

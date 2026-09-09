@@ -521,6 +521,11 @@ found and fixed â€” EA's own, not port damage.**
 - A screenshot no longer takes the game down when the window is bigger than the desktop. Asking for
   a 1600x1200 window on a 1080-tall monitor puts part of it off the screen, and the capture read
   the whole client area out of a buffer that stops at the desktop's edge.
+- A screenshot is a picture of the game. With anti-aliasing switched on, the capture could not read
+  the frame the game had just drawn, so it photographed the desktop instead and said nothing about
+  it. In a window with something in front of the game, that something is what you got: a browser, a
+  chat window, whatever was on top. It reads the frame itself now, anti-aliasing or not, and what is
+  in front of the window makes no difference to what comes out.
 - The arrow on a dropdown is square at every resolution. It was drawn into a slot of a fixed 21 pixels wide however tall the box around it was stretched, so the bigger the screen the more the arrow was squeezed.
 - The promotion screen closes when you press its key again, however fast you press it. The screen fades in, and the fade drives the window itself for several frames either way - so a second press during the fade read the screen as still shut and opened it again, and a press just after it was closed was undone by the fade's next frame.
 - The command bar stops changing under you while you are using it. With nothing selected the bar shows one of your builders so you can place a structure without picking a dozer first, and it showed whichever one happened to be idle - so a dozer finishing a building on the far side of the base took the bar over, dropping a half-typed build hotkey and taking the structure off your cursor. The builder you are working with keeps the bar.
