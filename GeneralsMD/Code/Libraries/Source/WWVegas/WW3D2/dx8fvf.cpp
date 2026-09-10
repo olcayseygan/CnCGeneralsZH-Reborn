@@ -41,14 +41,9 @@
 
 #include "dx8fvf.h"
 #include "wwstring.h"
-#include <D3dx8core.h>
+#include "d3dx9runtime.h"
 
-static unsigned Get_FVF_Vertex_Size(unsigned FVF)
-{
-	return D3DXGetFVFVertexSize(FVF);
-}
-
-FVFInfoClass::FVFInfoClass(unsigned FVF_, unsigned vertex_size) 
+FVFInfoClass::FVFInfoClass(unsigned FVF_, unsigned vertex_size)
 	:
 	FVF(FVF_),
 	fvf_size(FVF!=0 ? Get_FVF_Vertex_Size(FVF) : vertex_size)

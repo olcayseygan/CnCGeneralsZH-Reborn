@@ -61,6 +61,7 @@
 #include "Common/GlobalData.h"
 #include "Common/EarlyOptions.h"
 #include "Common/OptionsCatalog.h"
+#include "Common/GameLOD.h"
 #include "Common/UserPreferences.h"
 #include "GameNetwork/NetworkUtil.h"
 #include "Common/Recorder.h"
@@ -1680,6 +1681,84 @@ TEST(blob_never_smears_wider_than_the_cap)
 	CHECK(particleShadowBlobResolve(&blob, &x, &y, &sx, &sy, &op));
 	CHECK(sx <= 300.0f);
 	CHECK(sy <= 300.0f);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Thicker, longer-lived smoke
+//////////////////////////////////////////////////////////////////////////////
+
+/*
+ * "-smoke <thickness>" is three decisions and all three are free functions: how the one
+ * number is spent, which systems it lands on, and how much headroom the particle ceiling
+ * needs so the switch does not evict its own smoke.
+ */
+
+TEST(smoke_boost_is_off_at_or_below_the_shipped_thickness)
+{
+	SmokeBoost boost;
+
+	CHECK(!particleSmokeBoostResolve(0.0f, &boost));		// the switch not given
+	CHECK(!particleSmokeBoostResolve(1.0f, &boost));		// given, asking for nothing
+	CHECK(!particleSmokeBoostResolve(0.5f, &boost));		// given, asking for less
+}
+
+TEST(smoke_boost_spends_most_of_the_number_on_time_and_the_rest_on_look)
+{
+	SmokeBoost boost;
+
+	CHECK(particleSmokeBoostResolve(3.0f, &boost));
+	CHECK_NEAR(boost.m_lifetimeScale, 3.0f, 1e-4f);
+
+	// opacity and width move, but far less than time does - a cloud three times as opaque is
+	// a grey brick
+	CHECK(boost.m_alphaScale > 1.0f);
+	CHECK(boost.m_sizeScale > 1.0f);
+	CHECK(boost.m_alphaScale < boost.m_lifetimeScale);
+	CHECK(boost.m_sizeScale < boost.m_alphaScale);
+}
+
+TEST(smoke_boost_clamps_an_absurd_thickness)
+{
+	SmokeBoost boost;
+
+	CHECK(particleSmokeBoostResolve(1000.0f, &boost));
+	CHECK_NEAR(boost.m_lifetimeScale, 8.0f, 1e-4f);
+}
+
+TEST(smoke_name_match_is_case_insensitive_and_anywhere_in_the_name)
+{
+	CHECK(particleSmokeNameMatches("SmokeTrail"));
+	CHECK(particleSmokeNameMatches("BuildingSmokeLarge"));
+	CHECK(particleSmokeNameMatches("GenericBlackSMOKE"));
+	CHECK(particleSmokeNameMatches("smoke"));
+}
+
+TEST(smoke_name_match_leaves_everything_else_alone)
+{
+	CHECK(!particleSmokeNameMatches("FireballLarge"));
+	CHECK(!particleSmokeNameMatches("SparkShower"));
+	CHECK(!particleSmokeNameMatches("Smok"));					// a prefix of the word is not the word
+	CHECK(!particleSmokeNameMatches(""));
+	CHECK(!particleSmokeNameMatches(NULL));
+}
+
+TEST(smoke_cap_leaves_the_shipped_ceiling_alone_when_the_switch_is_off)
+{
+	CHECK_EQ(particleSmokeParticleCap(2500, 0.0f), 2500);
+	CHECK_EQ(particleSmokeParticleCap(2500, 1.0f), 2500);
+}
+
+TEST(smoke_cap_never_overrides_a_player_who_asked_for_no_particles)
+{
+	// the options slider goes to zero and that means zero, switch or no switch
+	CHECK_EQ(particleSmokeParticleCap(0, 8.0f), 0);
+}
+
+TEST(smoke_cap_grows_with_the_thickness_and_stops_at_the_ceiling)
+{
+	CHECK_EQ(particleSmokeParticleCap(2500, 2.0f), 5000);
+	CHECK(particleSmokeParticleCap(2500, 4.0f) > particleSmokeParticleCap(2500, 2.0f));
+	CHECK_EQ(particleSmokeParticleCap(20000, 8.0f), 20000);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -9922,6 +10001,66 @@ TEST(msaa_levels_map_to_the_counts_a_device_offers)
 	CHECK_EQ( msaaLevelForSamples( 64 ), OPTION_MSAA_LEVEL_COUNT - 1 );
 }
 
+TEST(vsync_is_off_until_the_player_asks)
+{
+	const OptionDef *vsync = findOptionDef( "VSync" );
+	CHECK( vsync != NULL );
+	CHECK_EQ( (Int)vsync->kind, (Int)OPTION_BOOL );
+	CHECK_EQ( (Int)vsync->apply, (Int)APPLY_DEVICE_RESET );
+	CHECK( vsync->widgetName != NULL && strstr( vsync->widgetName, "CheckVSync" ) != NULL );
+
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+
+	CHECK_EQ( scratch->m_vsync, FALSE );
+
+	vsync->set( 1 );
+	CHECK_EQ( TheGlobalData->m_vsync, TRUE );
+	vsync->set( 0 );
+	CHECK_EQ( TheGlobalData->m_vsync, FALSE );
+
+	TheWritableGlobalData = saved;
+	delete scratch;
+}
+
+TEST(texture_filter_defaults_to_anisotropic)
+{
+	const OptionDef *filter = findOptionDef( "TextureFilter" );
+	CHECK( filter != NULL );
+	CHECK_EQ( (Int)filter->kind, (Int)OPTION_INT );
+	CHECK_EQ( filter->lo, 0 );
+	CHECK_EQ( filter->hi, 2 );
+
+	const OptionDef *aniso = findOptionDef( "Anisotropy" );
+	CHECK( aniso != NULL );
+	CHECK_EQ( aniso->lo, 0 );
+	CHECK_EQ( aniso->hi, 16 );
+
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+
+	// 2 is anisotropic. 0 anisotropy is "whatever the card offers", not a downgrade to off.
+	CHECK_EQ( scratch->m_textureFilterMode, 2 );
+	CHECK_EQ( scratch->m_anisotropyLevel, 0 );
+	CHECK_EQ( scratch->m_vsync, FALSE );
+
+	TheWritableGlobalData = saved;
+	delete scratch;
+}
+
+TEST(high_static_lod_keeps_the_picture_settings)
+{
+	StaticGameLODInfo high;
+	CHECK_EQ( high.m_maxParticleCount, 2500 );
+	CHECK_EQ( (Int)high.m_useShadowVolumes, 1 );
+	CHECK_EQ( (Int)high.m_useShadowDecals, 1 );
+	CHECK_EQ( (Int)high.m_useTrees, 1 );
+	CHECK_EQ( (Int)high.m_useHeatEffects, 1 );
+	CHECK_EQ( high.m_textureReduction, 0 );
+}
+
 TEST(window_mode_derives_the_boolean_the_device_layer_reads)
 {
 	GlobalData *saved = TheWritableGlobalData;
@@ -10714,6 +10853,21 @@ TEST(build_placement_preview_defaults_are_the_ones_the_game_always_used)
 	CHECK( scratch->m_formationDrag );
 
 	delete scratch;
+}
+
+//-------------------------------------------------------------------------------------------------
+// A posed skin volume smaller than this on screen is not rebuilt that frame. The threshold is
+// the shipped contract: 20 pixels of radius is still drawn, 19 is not.
+//-------------------------------------------------------------------------------------------------
+TEST(skin_volume_screen_lod_keeps_readable_shadows)
+{
+	CHECK( Shadow_skinVolumeLargeEnoughOnScreen( SHADOW_SKIN_VOLUME_MIN_SCREEN_RADIUS, 0 ) );
+	CHECK( Shadow_skinVolumeLargeEnoughOnScreen( 0, SHADOW_SKIN_VOLUME_MIN_SCREEN_RADIUS ) );
+	CHECK( !Shadow_skinVolumeLargeEnoughOnScreen( SHADOW_SKIN_VOLUME_MIN_SCREEN_RADIUS - 1, 0 ) );
+	CHECK( !Shadow_skinVolumeLargeEnoughOnScreen( 0, 0 ) );
+	// 16^2 + 12^2 = 400, which is exactly the 20-pixel radius
+	CHECK( Shadow_skinVolumeLargeEnoughOnScreen( 16, 12 ) );
+	CHECK( !Shadow_skinVolumeLargeEnoughOnScreen( 15, 12 ) );
 }
 
 //-------------------------------------------------------------------------------------------------

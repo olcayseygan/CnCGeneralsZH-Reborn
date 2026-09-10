@@ -79,7 +79,7 @@ bool DX8WebBrowser::Initialize(	const char* badpageurl,
 		if(hr == S_OK)
 		{
 			hWnd = (HWND)WW3D::Get_Window();
-			pBrowser->Initialize(reinterpret_cast<long*>(DX8Wrapper::_Get_D3D_Device8()));
+			pBrowser->Initialize(reinterpret_cast<long*>(DX8Wrapper::_Get_D3D_Device()));
 
 			if(badpageurl)
 				pBrowser->put_BadPageURL(_bstr_t(badpageurl));

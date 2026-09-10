@@ -47,10 +47,11 @@
 #include "wwdebug.h"
 #include "refcount.h"
 #include "sphere.h"
+#include "dx11twin.h"
 
 class DX8Wrapper;
 class SortingRendererClass;
-struct IDirect3DIndexBuffer8;
+struct IDirect3DIndexBuffer9;
 class DX8IndexBufferClass;
 class SortingIndexBufferClass;
 
@@ -80,6 +81,7 @@ public:
 	{
 		IndexBufferClass* index_buffer;
 		unsigned short* indices;
+		DX11BufferLockClass dx11_lock;
 	public:
 		WriteLockClass(IndexBufferClass* index_buffer, int flags=0);
 		~WriteLockClass();
@@ -91,6 +93,7 @@ public:
 	{
 		IndexBufferClass* index_buffer;
 		unsigned short* indices;
+		DX11BufferLockClass dx11_lock;
 	public:
 		AppendLockClass(IndexBufferClass* index_buffer,unsigned start_index, unsigned index_range);
 		~AppendLockClass();
@@ -144,7 +147,8 @@ public:
 	class WriteLockClass
 	{
 		DynamicIBAccessClass* DynamicIBAccess;
-		unsigned short* Indices;		
+		unsigned short* Indices;
+		DX11BufferLockClass DX11Lock;
 	public:
 		WriteLockClass(DynamicIBAccessClass* ib_access);
 		~WriteLockClass();
@@ -179,7 +183,7 @@ public:
 	void Copy(unsigned int* indices,unsigned start_index,unsigned index_count);
 	void Copy(unsigned short* indices,unsigned start_index,unsigned index_count);
 
-	inline IDirect3DIndexBuffer8* Get_DX8_Index_Buffer()	{ return index_buffer; }
+	inline IDirect3DIndexBuffer9* Get_DX8_Index_Buffer()	{ return index_buffer; }
 
 	// Plain memory standing in for the D3D buffer when there is no render device.  Everything that
 	// fills a buffer does so through the lock classes, and a run with no picture still fills them -
@@ -188,9 +192,14 @@ public:
 	// and costs a heap block that nothing ever reads.
 	inline unsigned short* Get_Scratch_Indices()				{ return scratch_indices; }
 
+	// The Direct3D 11 copy of this buffer, or null on a run without -dx11.  A lock hands out the
+	// twin's mirror instead of the D3D9 pointer; see dx11twin.h.
+	inline DX11BufferTwinClass* Get_DX11_Twin()				{ return dx11_twin; }
+
 private:
-	IDirect3DIndexBuffer8*	index_buffer;		// actual dx8 index buffer
+	IDirect3DIndexBuffer9*	index_buffer;		// actual dx8 index buffer
 	unsigned short*			scratch_indices;	// used instead when there is no device
+	DX11BufferTwinClass*	dx11_twin;			// the Direct3D 11 copy, null without -dx11
 };
 
 

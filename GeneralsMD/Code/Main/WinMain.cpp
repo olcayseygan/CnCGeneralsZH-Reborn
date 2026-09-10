@@ -78,6 +78,16 @@
 //#pragma message("************************************** WARNING, optimization disabled for debugging purposes")
 #endif
 
+// Ask the driver to put this process on the discrete GPU.  Adapter 0 is Intel UHD
+// 630 on this machine; 16x MSAA on it TDRs.  The export is what NVIDIA Optimus and
+// AMD PowerXpress read before WinMain.  DX8Wrapper still picks the discrete adapter
+// by vendor id, which is what actually selects the device on a desktop.
+extern "C"
+{
+	__declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
+	__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+
 // GLOBALS ////////////////////////////////////////////////////////////////////
 HINSTANCE ApplicationHInstance = NULL;  ///< our application instance
 HWND ApplicationHWnd = NULL;  ///< our application window handle
@@ -841,7 +851,10 @@ static Bool initializeAppWindows( HINSTANCE hInstance, Int nCmdShow, Bool runWin
 		SetFocus(hWnd);
 
 		SetForegroundWindow(hWnd);
-		ShowWindow( hWnd, nCmdShow );
+		// A drawing game has to be on the screen. nCmdShow from a service or a job is often
+		// SW_HIDE, which is already what -headless asked for above; honouring it here takes
+		// the picture off the screen and the device with it.
+		ShowWindow( hWnd, SW_SHOWNORMAL );
 		UpdateWindow( hWnd );
 	}
 
@@ -1039,13 +1052,21 @@ Int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		/*
 		** Convert WinMain arguments to simple main argc and argv
 		*/
+		/*
+		** EA's array held 32 and the loop stopped there without saying so, which is a switch that
+		** does nothing and logs nothing: an unattended run reaches this easily, since every one of
+		** them is driven entirely from the command line.  A -scenario at position 31 of 35 was
+		** simply gone, and the only clue was that the log's own echo of the arguments ended in the
+		** middle.  128 is past anything the scripts here build, and hitting it now says so.
+		*/
+		const int MAXIMUM_ARGUMENTS = 128;
 		int argc = 1;
-		char * argv[32];
+		char * argv[MAXIMUM_ARGUMENTS];
 		argv[0] = NULL;
 
 		char *token;
 		token = nextParam(lpCmdLine, "\" ");
-		while (argc < 32 && token != NULL) {
+		while (argc < MAXIMUM_ARGUMENTS && token != NULL) {
 			argv[argc++] = strtrim(token);
 			//added a preparse step for this flag because it affects window creation style
 			if (stricmp(token,"-win")==0)
@@ -1078,10 +1099,16 @@ Int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
 				ApplicationIsWindowed=true;
 				ApplicationIsHeadless=true;
 			}
-			token = nextParam(NULL, "\" ");	   
+			token = nextParam(NULL, "\" ");
 		}
 
-		if (argc>2 && strcmp(argv[1],"-DX")==0) {  
+		if (argc == MAXIMUM_ARGUMENTS && token != NULL)
+		{
+			DEBUG_LOG(("command line: more than %d arguments, everything from '%s' onward was "
+				"dropped\n", MAXIMUM_ARGUMENTS - 1, token));
+		}
+
+		if (argc>2 && strcmp(argv[1],"-DX")==0) {
 			Int i;
 			DEBUG_LOG(("\n--- DX STACK DUMP\n"));
 			for (i=2; i<argc; i++) {

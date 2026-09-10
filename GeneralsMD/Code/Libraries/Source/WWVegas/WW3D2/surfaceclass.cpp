@@ -51,10 +51,11 @@
 #include "surfaceclass.h"
 #include "formconv.h"
 #include "dx8wrapper.h"
+#include "dx11runtime.h"
 #include "vector2i.h"
 #include "colorspace.h"
 #include "bound.h"
-#include <d3dx8.h>
+#include "d3dx9runtime.h"
 
 /***********************************************************************************************
  * PixelSize -- Helper Function to find the size in bytes of a pixel                           *
@@ -230,7 +231,7 @@ SurfaceClass::SurfaceClass(const char *filename):
 	SurfaceFormat=desc.Format;
 }
 
-SurfaceClass::SurfaceClass(IDirect3DSurface8 *d3d_surface)	:
+SurfaceClass::SurfaceClass(IDirect3DSurface9 *d3d_surface)	:
 	D3DSurface (NULL)
 {
 	Attach (d3d_surface);
@@ -269,6 +270,7 @@ void * SurfaceClass::Lock(int * pitch)
 void SurfaceClass::Unlock(void)
 {
 	DX8_ErrorCode(D3DSurface->UnlockRect());
+	Direct3D11_Mark_Surface_Dirty(D3DSurface);
 }
 
 /***********************************************************************************************
@@ -744,7 +746,7 @@ void SurfaceClass::Get_Pixel(Vector3 &rgb, int x,int y)
  * HISTORY:                                                                                    *
  *   3/27/2001  pds : Created.                                                                 *
  *=============================================================================================*/
-void SurfaceClass::Attach (IDirect3DSurface8 *surface)
+void SurfaceClass::Attach (IDirect3DSurface9 *surface)
 {
 	Detach ();
 	D3DSurface = surface;

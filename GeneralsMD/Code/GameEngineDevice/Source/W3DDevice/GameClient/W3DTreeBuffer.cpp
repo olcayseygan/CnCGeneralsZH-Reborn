@@ -89,7 +89,8 @@ enum
 #include "WW3D2/Mesh.h"
 #include "WW3D2/MeshMdl.h"
 #include "WW3D2/vertmaterial.h"
-#include "d3dx8tex.h"
+#include "d3dx9runtime.h"
+#include "d3d8shadertranslate.h"
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -139,7 +140,7 @@ int W3DTreeBuffer::W3DTreeTextureClass::update(W3DTreeBuffer *buffer)
 	Get_Filter().Set_U_Addr_Mode(TextureFilterClass::TEXTURE_ADDRESS_CLAMP);
 	Get_Filter().Set_V_Addr_Mode(TextureFilterClass::TEXTURE_ADDRESS_CLAMP);
 
-	IDirect3DSurface8 *surface_level;
+	IDirect3DSurface9 *surface_level;
 	D3DSURFACE_DESC surface_desc;
 	D3DLOCKED_RECT locked_rect;
 	DX8_ErrorCode(Peek_D3D_Texture()->GetSurfaceLevel(0, &surface_level));
@@ -1205,11 +1206,15 @@ void W3DTreeBuffer::freeTreeBuffers(void)
 	}
 	
 	if (m_dwTreePixelShader)
-		DX8Wrapper::_Get_D3D_Device8()->DeletePixelShader(m_dwTreePixelShader);
+		m_dwTreePixelShader->Release();
 	m_dwTreePixelShader = 0;
 
 	if (m_dwTreeVertexShader)
-		DX8Wrapper::_Get_D3D_Device8()->DeleteVertexShader(m_dwTreeVertexShader);
+		m_dwTreeVertexShader->Release();
+	if (m_treeVertexDeclaration)
+	{	m_treeVertexDeclaration->Release();
+		m_treeVertexDeclaration=NULL;
+	}
 	m_dwTreeVertexShader = 0;
 }
 
@@ -1325,11 +1330,11 @@ void W3DTreeBuffer::allocateTreeBuffers(void)
 	};
 
 	HRESULT hr;
-	hr = W3DShaderManager::LoadAndCreateD3DShader("shaders\\Trees.vso", &Declaration[0], 0, true, &m_dwTreeVertexShader);
+	hr = W3DShaderManager::LoadAndCreateD3DVertexShader("shaders\\Trees.vso", &Declaration[0], &m_dwTreeVertexShader, &m_treeVertexDeclaration);
 	if (FAILED(hr))
 		return;
 
-	hr = W3DShaderManager::LoadAndCreateD3DShader("shaders\\Trees.pso", &Declaration[0], 0, false, &m_dwTreePixelShader);
+	hr = W3DShaderManager::LoadAndCreateD3DPixelShader("shaders\\Trees.pso", &m_dwTreePixelShader);
 	if (FAILED(hr))
 		return;
 }
@@ -1939,7 +1944,7 @@ same ones both times - a tree's shadow is that tree's triangles. */
 //=============================================================================
 void W3DTreeBuffer::drawTreeBuffers(Bool shadowPass)
 {
-	LPDIRECT3DDEVICE8 dev = DX8Wrapper::_Get_D3D_Device8();
+	LPDIRECT3DDEVICE9 dev = DX8Wrapper::_Get_D3D_Device();
 	if (!dev) {
 		return;
 	}
@@ -1953,10 +1958,18 @@ void W3DTreeBuffer::drawTreeBuffers(Bool shadowPass)
 		// Render the waving grass
 		DX8Wrapper::Apply_Render_State_Changes();
 		if (m_dwTreeVertexShader) {
-			dev->SetVertexShader(m_dwTreeVertexShader);
-			dev->SetTextureStageState(0,  D3DTSS_TEXCOORDINDEX, 0);
-			dev->SetTextureStageState(1,  D3DTSS_TEXCOORDINDEX, 1);
-			dev->SetTextureStageState(1,  D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+			// D3D8 carried the vertex declaration beside the shader and SetVertexShader bound
+			// both.  D3D9 split them, and a shader whose dcl_ inputs have no matching element in
+			// whatever declaration is currently bound reads zero out of them.  The FVF the vertex
+			// buffer sets has no blend weight and no blend indices, which is where Trees.vso keeps
+			// the tree's base height, its sway type and its lit colour: without this the trees draw
+			// unswayed and black, their shadows draw unflattened on top of them, and the buffer,
+			// the draw call and the matrix all look right while it happens.
+			dev->SetVertexDeclaration(m_treeVertexDeclaration);
+			DX8Wrapper::Set_Vertex_Shader(m_dwTreeVertexShader);
+			DX8Wrapper::Set_DX8_Texture_Stage_State(0,  D3DTSS_TEXCOORDINDEX, 0);
+			DX8Wrapper::Set_DX8_Texture_Stage_State(1,  D3DTSS_TEXCOORDINDEX, 1);
+			DX8Wrapper::Set_DX8_Texture_Stage_State(1,  D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
 		}
 		if (shadowPass) {
 			//
@@ -1967,21 +1980,21 @@ void W3DTreeBuffer::drawTreeBuffers(Bool shadowPass)
 			// These go in behind DX8Wrapper's back, the way the shroud stage above does, so the
 			// caller ends drawing with Invalidate_Cached_Render_States.
 			//
-			dev->SetRenderState(D3DRS_TEXTUREFACTOR, (D3DCOLOR)(TREE_SHADOW_ALPHA<<24));
+			DX8Wrapper::Set_DX8_Render_State(D3DRS_TEXTUREFACTOR, (D3DCOLOR)(TREE_SHADOW_ALPHA<<24));
 			//
 			// ShaderClass sets the alpha test to 0x60 for the tree pass, where alpha comes straight
 			// off the texture.  Here it is that alpha scaled down to the shadow's own opacity, so
 			// every pixel in the crown would fail the same test and the shadow would be nothing at
 			// all.  Test near zero instead: what is being rejected is the gaps between leaves.
 			//
-			dev->SetRenderState(D3DRS_ALPHAREF, TREE_SHADOW_ALPHAREF);
-			dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-			dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
-			dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-			dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-			dev->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
-			dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-			dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+			DX8Wrapper::Set_DX8_Render_State(D3DRS_ALPHAREF, TREE_SHADOW_ALPHAREF);
+			DX8Wrapper::Set_DX8_Texture_Stage_State(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+			DX8Wrapper::Set_DX8_Texture_Stage_State(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
+			DX8Wrapper::Set_DX8_Texture_Stage_State(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+			DX8Wrapper::Set_DX8_Texture_Stage_State(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+			DX8Wrapper::Set_DX8_Texture_Stage_State(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+			DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+			DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
 		}
 		DX8Wrapper::Draw_Triangles(	0, m_curNumTreeIndices[bNdx]/3, 0,	m_curNumTreeVertices[bNdx]);
 	}
@@ -2287,14 +2300,14 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 		shadowMat._43 += TREE_SHADOW_LIFT * shadowMat._33;
 		shadowMat._44 += TREE_SHADOW_LIFT * shadowMat._34;
 		D3DXMatrixTranspose( &shadowMat, &shadowMat );
-		DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  4, &shadowMat,  4 );
+		DX8Wrapper::Set_Vertex_Shader_Constant(  4, &shadowMat,  4 );
 
 		// c8 is the entry a tree with no sway reads, c9 and up are the sway types.
 		Vector4 flat(stretchX, stretchY, -1.0f, 0);
-		DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  8, &flat,  1 );
+		DX8Wrapper::Set_Vertex_Shader_Constant(  8, &flat,  1 );
 		for	(i=0; i<MAX_SWAY_TYPES; i++) {
 			Vector4 flatSway(stretchX + swayFactor[i].X, stretchY + swayFactor[i].Y, -1.0f, 0);
-			DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  9+i, &flatSway,  1 );
+			DX8Wrapper::Set_Vertex_Shader_Constant(  9+i, &flatSway,  1 );
 		}
 
 		DX8Wrapper::Set_Shader(treeShadowShader);
@@ -2320,7 +2333,7 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 		D3DXMatrixTranspose( &mat, &mat );
 
 		// c4  - Composite World-View-Projection Matrix
-		DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  4, &mat,  4 );
+		DX8Wrapper::Set_Vertex_Shader_Constant(  4, &mat,  4 );
 
 		//
 		// The matrix the trees are about to be drawn with, checked against the one the device is
@@ -2352,12 +2365,12 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 			}
 		}
 		Vector4 noSway(0,0,0,0);
-		DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  8, &noSway,  1 );
+		DX8Wrapper::Set_Vertex_Shader_Constant(  8, &noSway,  1 );
 
 		// c8 - c8+MAX_SWAY_TYPES - the sway amount.
 		for	(i=0; i<MAX_SWAY_TYPES; i++) {
 			Vector4 sway4(swayFactor[i].X, swayFactor[i].Y, swayFactor[i].Z, 0);
-			DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  9+i, &sway4,  1 );
+			DX8Wrapper::Set_Vertex_Shader_Constant(  9+i, &sway4,  1 );
 		}
 
 		W3DShroud *shroud;
@@ -2371,16 +2384,16 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 			xoffset = -(float)shroud->getDrawOriginX() + width;
 			yoffset = -(float)shroud->getDrawOriginY() + height;
 			Vector4 offset(xoffset, yoffset, 0, 0);
-			DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  32, &offset,  1 );
+			DX8Wrapper::Set_Vertex_Shader_Constant(  32, &offset,  1 );
 			width = 1.0f/(width*shroud->getTextureWidth());
 			height = 1.0f/(height*shroud->getTextureHeight());
 			offset.Set(width, height, 1, 1);
-			DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  33, &offset,  1 );
+			DX8Wrapper::Set_Vertex_Shader_Constant(  33, &offset,  1 );
 
 		} else {
 			Vector4 offset(0,0,0,0);
-			DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  32, &offset,  1 );
-			DX8Wrapper::_Get_D3D_Device8()->SetVertexShaderConstant(  33, &offset,  1 );
+			DX8Wrapper::Set_Vertex_Shader_Constant(  32, &offset,  1 );
+			DX8Wrapper::Set_Vertex_Shader_Constant(  33, &offset,  1 );
 		}
 
 		DX8Wrapper::Set_Vertex_Shader(m_dwTreeVertexShader);
@@ -2390,17 +2403,17 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 		Real mulTwoX = 0.5f;
 		if(TheGlobalData && TheGlobalData->m_useOverbright)
 			mulTwoX = 1.0f;	
-		DX8Wrapper::_Get_D3D_Device8()->SetPixelShaderConstant(1, D3DXVECTOR4(mulTwoX, mulTwoX, mulTwoX, mulTwoX), 1);
+		DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstant(1, D3DXVECTOR4(mulTwoX, mulTwoX, mulTwoX, mulTwoX), 1);
 #endif
 
 	} else {
-		DX8Wrapper::Set_Vertex_Shader(DX8_FVF_XYZNDUV1);
+		DX8Wrapper::Set_Vertex_Format(DX8_FVF_XYZNDUV1);
 	}
 
 
 	drawTreeBuffers(false);
 
-	DX8Wrapper::Set_Vertex_Shader(DX8_FVF_XYZNDUV1);
+	DX8Wrapper::Set_Vertex_Format(DX8_FVF_XYZNDUV1);
 	DX8Wrapper::Set_Pixel_Shader(NULL);
 	DX8Wrapper::Invalidate_Cached_Render_States();	//code above mucks around with W3D states so make sure we reset
 

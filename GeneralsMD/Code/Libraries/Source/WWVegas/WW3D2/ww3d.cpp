@@ -811,7 +811,7 @@ WW3DErrorType WW3D::Begin_Render(bool clear,bool clearz,const Vector3 & color, f
 	SNAPSHOT_SAY(("========== WW3D::Begin_Render ============\r\n"));
 	SNAPSHOT_SAY(("==========================================\r\n\r\n"));
 
-	if (DX8Wrapper::_Get_D3D_Device8() && (hr=DX8Wrapper::_Get_D3D_Device8()->TestCooperativeLevel()) != D3D_OK)
+	if (DX8Wrapper::_Get_D3D_Device() && (hr=DX8Wrapper::_Get_D3D_Device()->TestCooperativeLevel()) != D3D_OK)
 	{
         // If the device was lost, do not render until we get it back
         if( D3DERR_DEVICELOST == hr )
@@ -850,7 +850,7 @@ WW3DErrorType WW3D::Begin_Render(bool clear,bool clearz,const Vector3 & color, f
 
 	// If we want to clear the screen, we need to set the viewport to include the entire screen:
 	if (clear || clearz) {
-		D3DVIEWPORT8 vp;
+		D3DVIEWPORT9 vp;
 		int width, height, bits;
 		bool windowed;
 		WW3D::Get_Render_Target_Resolution(width, height, bits, windowed);
@@ -1357,7 +1357,7 @@ void WW3D::Make_Screen_Shot( const char * filename_base , const float gamma, con
 
 	// _Get_DX8_Front_Buffer hands back NULL when the surface it needs cannot be created, which is
 	// what a device that has gone away does; there is no picture to take then.
-	IDirect3DSurface8 *fb=DX8Wrapper::_Get_DX8_Front_Buffer();
+	IDirect3DSurface9 *fb=DX8Wrapper::_Get_DX8_Front_Buffer();
 	if (fb == NULL)
 		return;
 	D3DSURFACE_DESC desc;
@@ -1695,7 +1695,7 @@ void WW3D::Update_Movie_Capture( void )
 
 	// _Get_DX8_Front_Buffer hands back NULL when the surface it needs cannot be created, which is
 	// what a device that has gone away does; there is no picture to take then.
-	IDirect3DSurface8 *fb=DX8Wrapper::_Get_DX8_Front_Buffer();
+	IDirect3DSurface9 *fb=DX8Wrapper::_Get_DX8_Front_Buffer();
 	if (fb == NULL)
 		return;
 	D3DSURFACE_DESC desc;

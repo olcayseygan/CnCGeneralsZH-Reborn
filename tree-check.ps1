@@ -29,13 +29,31 @@ $cases = @(
   @{map='Killing Fields';     x='1024'; y='1024'; f=1500}
 )
 
+# -msaa 0 is not a preference, it is what makes the picture a picture of the game.  The screenshot
+# reads the back buffer, and a multisampled back buffer cannot be read: the capture falls through to
+# a desktop grab, and whatever window is sitting over the game is what lands in the .bmp.  A build
+# from before that fallback was made to say so is silent about it.  Options.ini decides the sample
+# count otherwise, so without this switch the answer depends on the machine the run happens on.
+#
+# The shot folder is emptied before every launch for the neighbouring reason: this takes the newest
+# .bmp in it afterwards, and a run that writes none - the reference build needs more than the wait
+# below to reach frame 2400 - would otherwise hand back the previous case's picture and compare two
+# different frames.  Empty, that is a stated failure instead of a number.
 function Shoot($exe, $c, $tag) {
-  $args = @('-win','-xres','1280','-yres','720','-quickstart','-noshellmap','-multiInstance',
+  Get-ChildItem "$shots\sshot*.bmp" -ErrorAction SilentlyContinue | Remove-Item -Force
+  $args = @('-win','-xres','1280','-yres','720','-quickstart','-noshellmap','-multiInstance','-msaa','0',
             '-map',"`"Maps\$($c.map)\$($c.map).map`"",'-autoskirmish','4','-aidiff','easy','-seed','5',
             '-maxframes',($c.f+80),'-screenshot',$c.f,'-camera',$c.x,$c.y,'-logPrefix',"chk_$tag`_")
-  $p = Start-Process (Join-Path $run $exe) -ArgumentList $args -WorkingDirectory $run -PassThru
-  $null = $p.WaitForExit(400000)
-  $f = Get-ChildItem "$shots\sshot*.bmp" | Sort-Object LastWriteTime | Select-Object -Last 1
+  try {
+    $p = Start-Process (Join-Path $run $exe) -ArgumentList $args -WorkingDirectory $run -PassThru
+    $null = $p.WaitForExit(900000)
+  }
+  finally {
+    Get-Process -Name generals -ErrorAction SilentlyContinue | Stop-Process -Force
+  }
+  $f = Get-ChildItem "$shots\sshot*.bmp" -ErrorAction SilentlyContinue |
+       Sort-Object LastWriteTime | Select-Object -Last 1
+  if ($null -eq $f) { throw "$exe wrote no screenshot for $tag" }
   $img = [System.Drawing.Image]::FromFile($f.FullName)
   $out = "$tmp\chk_$tag.png"
   $img.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)

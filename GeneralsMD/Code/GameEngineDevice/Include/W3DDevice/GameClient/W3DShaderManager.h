@@ -44,6 +44,8 @@ enum ChipsetType;
 enum CpuType;
 enum GraphicsVenderID;
 
+#include <d3d9.h>
+
 class TextureClass;	///forward reference
 /** System for managing complex rendering settings which are either not handled by
 	WW3D2 or need custom paths depending on the video card.  This system will determine
@@ -93,8 +95,12 @@ public:
 	static inline TextureClass *getShaderTexture(Int stage) { return m_Textures[stage];}	///<returns currently selected texture for given stage
 	///Return last activated shader.
 	static inline ShaderTypes getCurrentShader(void) {return m_currentShader;}
-	/// Loads a .vso file and creates a vertex shader for it
-	static HRESULT LoadAndCreateD3DShader(char* strFilePath, const DWORD* pDeclaration, DWORD Usage, Bool ShaderType, DWORD* pHandle);
+	/// Loads a .pso file, translates its D3D8 bytecode and creates the pixel shader.
+	static HRESULT LoadAndCreateD3DPixelShader(const char* strFilePath, IDirect3DPixelShader9** shader);
+	/// Loads a .vso file with the D3D8 declaration array that belongs to it, and creates
+	/// both the vertex shader and the D3D9 declaration that has to be bound beside it.
+	static HRESULT LoadAndCreateD3DVertexShader(const char* strFilePath, const DWORD* pDeclaration,
+		IDirect3DVertexShader9** shader, IDirect3DVertexDeclaration9** declaration);
 
 	static Bool testMinimumRequirements(ChipsetType *videoChipType, CpuType *cpuType, Int *cpuFreq, Int *numRAM, Real *intBenchIndex, Real *floatBenchIndex, Real *memBenchIndex);
 	static StaticGameLODLevel getGPUPerformanceIndex(void);
@@ -108,8 +114,8 @@ public:
 	// Support routines for filter methods.
 	static Bool canRenderToTexture(void) { return (m_oldRenderSurface && m_newRenderSurface);}
 	static void startRenderToTexture(void); ///< Sets render target to texture.
-	static IDirect3DTexture8 * endRenderToTexture(void); ///< Ends render to texture, & returns texture.
-	static IDirect3DTexture8 * getRenderTexture(void);	///< returns last used render target texture
+	static IDirect3DTexture9 * endRenderToTexture(void); ///< Ends render to texture, & returns texture.
+	static IDirect3DTexture9 * getRenderTexture(void);	///< returns last used render target texture
 	static Bool isRenderingToTexture(void) {return m_renderingToTexture; }
 	static void drawViewport(Int color);	///<draws 2 triangles covering the current tactical viewport
 
@@ -125,10 +131,10 @@ protected:
 	static FilterTypes m_currentFilter; ///< Last filter that was set.
 	// Info for a render to texture surface for special effects.
 	static Bool m_renderingToTexture;
-	static IDirect3DSurface8 *m_oldRenderSurface;	///<previous render target
-	static IDirect3DTexture8 *m_renderTexture;		///<texture into which rendering will be redirected.
-	static IDirect3DSurface8 *m_newRenderSurface;	///<new render target inside m_renderTexture
-	static IDirect3DSurface8 *m_oldDepthSurface;	///<previous depth buffer surface
+	static IDirect3DSurface9 *m_oldRenderSurface;	///<previous render target
+	static IDirect3DTexture9 *m_renderTexture;		///<texture into which rendering will be redirected.
+	static IDirect3DSurface9 *m_newRenderSurface;	///<new render target inside m_renderTexture
+	static IDirect3DSurface9 *m_oldDepthSurface;	///<previous depth buffer surface
 
 
 };
@@ -187,7 +193,7 @@ protected:
 ///converts viewport to black & white.
 class ScreenBWFilter : public W3DFilterInterface
 {
-	DWORD	m_dwBWPixelShader;		///<D3D handle to pixel shader which tints texture to black & white.
+	IDirect3DPixelShader9 * m_dwBWPixelShader;		///<pixel shader which tints texture to black & white.
 public:
 	virtual Int init(void);			///<perform any one time initialization and validation
 	virtual Int shutdown(void);		///<release resources used by shader

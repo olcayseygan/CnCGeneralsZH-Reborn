@@ -186,6 +186,116 @@ add_library(wwsaveload STATIC
 target_include_directories(wwsaveload PUBLIC ${WW}/WWSaveLoad PRIVATE ${WW}/WWLib ${WW}/WWMath ${WW}/Wwutil)
 target_link_libraries(wwsaveload PRIVATE wwdebug wwlib wwmath)
 
+# ---- d3dx9runtime ---------------------------------------------------------
+# The D3DX9 entry points the renderer binds at run time, in a library of their own
+# because GameEngine needs the math half without the renderer: BezierSegment carries
+# D3DXMATRIX and DumbProjectileBehavior steers a shell with it.
+add_library(d3dx9runtime STATIC
+  ${WW}/WW3D2/d3dx9runtime.cpp ${WW}/WW3D2/d3d8shadertranslate.cpp)
+set_target_properties(d3dx9runtime PROPERTIES CXX_STANDARD 17)
+target_include_directories(d3dx9runtime PUBLIC ${WW}/WW3D2)
+target_link_libraries(d3dx9runtime PUBLIC d3d9)
+
+# ---- ffshader -------------------------------------------------------------
+# The fixed-function texture stages written out as HLSL, phase 2's replacement for
+# combiners D3D11 does not have.  Its own library because it is string building over
+# a description and nothing else: the test links this alone rather than all of WW3D2.
+add_library(ffshader STATIC ${WW}/WW3D2/ffshader.cpp)
+set_target_properties(ffshader PROPERTIES CXX_STANDARD 17)
+target_include_directories(ffshader PUBLIC ${WW}/WW3D2)
+target_link_libraries(ffshader PUBLIC d3d9)
+
+# ---- ffvertex -------------------------------------------------------------
+# The other half of the same job: the fixed-function vertex pipeline as HLSL.  It
+# generates for both profiles so the D3D9 form can be compared against the pipeline
+# it replaces before the D3D11 one is trusted.
+add_library(ffvertex STATIC ${WW}/WW3D2/ffvertex.cpp)
+set_target_properties(ffvertex PROPERTIES CXX_STANDARD 17)
+target_include_directories(ffvertex PUBLIC ${WW}/WW3D2)
+target_link_libraries(ffvertex PUBLIC d3d9)
+
+# ---- engineshader ---------------------------------------------------------
+# The shipped .vso and .pso files transcribed as HLSL, for the draws that bind one
+# of the engine's own shaders and set no fixed-function state a generator could read.
+# Its own library for the same reason ffvertex is: string building over an enum, and
+# the test compiles what it writes without a device anywhere near it.
+add_library(engineshader STATIC ${WW}/WW3D2/engineshader.cpp)
+set_target_properties(engineshader PROPERTIES CXX_STANDARD 17)
+target_include_directories(engineshader PUBLIC ${WW}/WW3D2)
+target_link_libraries(engineshader PUBLIC ffshader)
+
+# ---- dx11device -----------------------------------------------------------
+# The Direct3D 11 device, its swap chain and the views on it: the bottom of phase 2.
+# Its own library for the same reason ffshader is, and for one more - it links d3d11
+# and dxgi, and nothing else in the tree does yet.  The test creates a real device.
+add_library(dx11device STATIC ${WW}/WW3D2/dx11device.cpp)
+set_target_properties(dx11device PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11device PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11device PUBLIC d3d11 dxgi)
+
+# ---- dx11state ------------------------------------------------------------
+# D3D9's render states turned into D3D11's three state objects.  Pure translation,
+# no device, so the whole table is checked by a test rather than looked at on screen.
+add_library(dx11state STATIC ${WW}/WW3D2/dx11state.cpp)
+set_target_properties(dx11state PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11state PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11state PUBLIC d3d9 d3d11)
+
+# ---- dx11layout -----------------------------------------------------------
+# A D3D9 flexible vertex format read out as a D3D11 input layout.  The vertex buffers
+# keep the bytes they have; this is what tells D3D11 where the fields are.
+add_library(dx11layout STATIC ${WW}/WW3D2/dx11layout.cpp)
+set_target_properties(dx11layout PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11layout PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11layout PUBLIC d3d9 d3d11)
+
+# ---- dx11resource ---------------------------------------------------------
+# The buffers and textures: D3D9's formats, pools and lock flags read as D3D11's
+# formats, usages and map types.  Half a table and half what the device will accept,
+# so the test checks the table and then hands the results to a real device.
+add_library(dx11resource STATIC ${WW}/WW3D2/dx11resource.cpp)
+set_target_properties(dx11resource PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11resource PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11resource PUBLIC d3d9 d3d11)
+
+# ---- dx11twin -------------------------------------------------------------
+# The D3D11 copy of a vertex or index buffer and the heap block both copies are
+# written through.  A D3D9 buffer is write-only, so the copy cannot be built after
+# the fact and the lock has to be moved instead; the test proves the same bytes end
+# up on both sides.
+add_library(dx11twin STATIC ${WW}/WW3D2/dx11twin.cpp)
+set_target_properties(dx11twin PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11twin PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11twin PUBLIC dx11resource d3d11)
+
+# ---- dx11texture ----------------------------------------------------------
+# The D3D11 copy of a texture the engine already built in D3D9, read back off the
+# managed original at the first bind and kept on it as private data.
+add_library(dx11texture STATIC ${WW}/WW3D2/dx11texture.cpp)
+set_target_properties(dx11texture PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11texture PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11texture PUBLIC dx11resource d3d9 d3d11 dxguid)
+
+# ---- dx11post -------------------------------------------------------------
+# The offscreen render target between the scene and the swap chain, and the full
+# screen passes over it.  Depends on the device and on nothing else: it reads a
+# texture and writes a render target, and knows nothing about the state
+# translation the rest of the backend is.
+add_library(dx11post STATIC ${WW}/WW3D2/dx11post.cpp)
+set_target_properties(dx11post PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11post PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11post PUBLIC dx11device d3d11)
+
+# ---- dx11backend ----------------------------------------------------------
+# The renderer itself: the engine's D3D9-shaped calls taken as they are and resolved
+# into a D3D11 pipeline at the moment of the draw.  Ties the five pieces above
+# together, which is why it is the last of them and the one with a drawing test.
+add_library(dx11backend STATIC ${WW}/WW3D2/dx11backend.cpp)
+set_target_properties(dx11backend PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11backend PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11backend PUBLIC dx11device dx11state dx11layout dx11resource
+  engineshader ffshader ffvertex)
+
 # ---- ww3d2 (renderer core) ------------------------------------------------
 # wwshade is header-only here on purpose: no .dsp links wwshade.lib and its
 # shd*bump* sources need shdpp/NVASM-generated headers.  Revisit at exe link.
@@ -202,7 +312,8 @@ add_library(ww3d2 STATIC
   ${WW}/WW3D2/dx8caps.cpp ${WW}/WW3D2/dx8fvf.cpp ${WW}/WW3D2/dx8indexbuffer.cpp 
   ${WW}/WW3D2/dx8polygonrenderer.cpp ${WW}/WW3D2/dx8renderer.cpp ${WW}/WW3D2/dx8rendererdebugger.cpp 
   ${WW}/WW3D2/dx8texman.cpp ${WW}/WW3D2/dx8vertexbuffer.cpp ${WW}/WW3D2/dx8webbrowser.cpp 
-  ${WW}/WW3D2/dx8wrapper.cpp ${WW}/WW3D2/dynamesh.cpp ${WW}/WW3D2/font3d.cpp 
+  ${WW}/WW3D2/dx8wrapper.cpp ${WW}/WW3D2/dynamesh.cpp ${WW}/WW3D2/ffprobe.cpp
+  ${WW}/WW3D2/ffshadercache.cpp ${WW}/WW3D2/dx11runtime.cpp ${WW}/WW3D2/font3d.cpp
   ${WW}/WW3D2/formconv.cpp ${WW}/WW3D2/hanim.cpp ${WW}/WW3D2/hanimmgr.cpp 
   ${WW}/WW3D2/hcanim.cpp ${WW}/WW3D2/hlod.cpp ${WW}/WW3D2/hmdldef.cpp 
   ${WW}/WW3D2/hmorphanim.cpp ${WW}/WW3D2/hrawanim.cpp ${WW}/WW3D2/htree.cpp 
@@ -233,17 +344,15 @@ add_library(ww3d2 STATIC
 target_include_directories(ww3d2
   PUBLIC ${WW}/WW3D2
   PRIVATE ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WWSaveLoad ${WW}/Wwutil
-          ${WW}/wwshade ${WW}/WWAudio ${WW}/Miles6/include
-          ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Include)
-target_link_directories(ww3d2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Lib)
-# vfw32: FramGrab.cpp writes AVIs.  legacy_stdio_definitions: d3dx8.lib calls
-# _vsnprintf, which the modern CRT only provides as an inline.
+          ${WW}/wwshade ${WW}/WWAudio ${WW}/Miles6/include)
+# RENDERER-ROADMAP.md phase 1: d3d9.h and d3d9.lib come out of the Windows SDK, so
+# the vendored DirectX 8 headers are off the include path entirely - a d3d8.h left
+# reachable is a file that compiles against the wrong runtime without saying so.
+# D3DX9 has no import library anywhere and is bound at runtime instead: see
+# WW3D2/d3dx9runtime.h.  vfw32 is FramGrab.cpp writing AVIs.
 target_link_libraries(ww3d2
-  PUBLIC d3d8 d3dx8 dxguid vfw32 legacy_stdio_definitions
+  PUBLIC d3d9 dxguid vfw32 d3dx9runtime ffshader dx11backend dx11post dx11twin dx11texture
   PRIVATE wwlib wwmath wwdebug wwsaveload)
-# The 2001 d3dx8.lib predates SAFESEH and was built against the long-gone
-# libci.lib CRT, so anything linking it has to opt out of both.
-target_link_options(ww3d2 INTERFACE /SAFESEH:NO /NODEFAULTLIB:libci.lib)
 # dx8webbrowser.cpp is the one file /MP cannot have: MSVC rejects #import under
 # multi-process compilation (C2813) and finds the directive by a lexical scan, so
 # even though ENABLE_EMBEDDED_BROWSER's block is what holds it, disabling the block
@@ -255,13 +364,14 @@ set_source_files_properties(${WW}/WW3D2/dx8webbrowser.cpp PROPERTIES COMPILE_OPT
 add_executable(eip_sampler ${CMAKE_CURRENT_SOURCE_DIR}/Tools/ProfileSampler/eip_sampler.cpp)
 set_target_properties(eip_sampler PROPERTIES CXX_STANDARD 17)
 
-# Phase 1 checkpoint: vendored DX8 SDK + a d3d8.dll create a real device.  Our d3d8to9
-# d3d8.dll is copied next to the exe (see below, after d3d8to9 is defined) so the test
-# exercises the game's real path: Direct3D 9 by default, Direct3D 9On12 / Direct3D 12 with -d3d12.
-add_executable(dx8_smoke ${WW}/WW3D2/test_dx8_smoke.cpp)
-target_include_directories(dx8_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Include)
-target_link_directories(dx8_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Lib)
-target_link_libraries(dx8_smoke PRIVATE d3d8 user32)
+# RENDERER-ROADMAP.md phase 1 checkpoint: a real device, with no translating dll
+# anywhere.  It replaces dx8_smoke, which proved the same thing about the vendored
+# DirectX 8 SDK and the d3d8.dll the renderer used to load; that path is gone, and
+# test_dx8_smoke.cpp stays in the tree unbuilt as the record of what it measured.
+# d3d9.h and d3d9.lib come from the Windows SDK, so this target never sees
+# Libraries/DirectX/Include.
+add_executable(dx9_smoke ${WW}/WW3D2/test_dx9_smoke.cpp)
+target_link_libraries(dx9_smoke PRIVATE d3dx9runtime user32)
 
 # ===========================================================================
 # Phase 2 - remaining support libs.  None of these touch DX8.
@@ -353,11 +463,12 @@ set(GS_BUILD_TESTS      OFF CACHE BOOL "" FORCE)
 set(GS_INCLUDE_VOICE    OFF CACHE BOOL "" FORCE)
 add_subdirectory(${LIBSRC}/GameSpy ${CMAKE_CURRENT_BINARY_DIR}/gamespy)
 
-# d3d8to9 (vendored, github.com/crosire/d3d8to9): builds our own d3d8.dll that
-# translates every D3D8 call to Direct3D 9.  It sits next to generals.exe, the
-# loader prefers the application directory over system32, and the whole
-# renderer runs on the DX9 runtime without touching the ~5600 D3D8 call sites.
-add_subdirectory(${LIBSRC}/d3d8to9 ${CMAKE_CURRENT_BINARY_DIR}/d3d8to9)
+# d3d8to9 is no longer built.  It was a d3d8.dll next to generals.exe that translated
+# every D3D8 call to Direct3D 9, which is how the renderer ran on a modern runtime
+# without touching the ~5600 D3D8 call sites.  The renderer creates its own
+# IDirect3DDevice9 now (RENDERER-ROADMAP.md phase 1), so nothing loads that dll.  The
+# vendored source stays in Libraries/Source/d3d8to9: WW3D2/d3d8shadertranslate.cpp is
+# lifted from it, and it is the reference for how a D3D8 call was being answered.
 
 # ===========================================================================
 # Phase 3 - GameEngine.  ~580 files of game logic; no DX8, no device code.
@@ -396,7 +507,10 @@ target_include_directories(gameengine PUBLIC
   # The game includes "GameSpy/Peer/Peer.h", the SDK's own headers include each
   # other as "gscommon.h", so both levels have to be on the path.
   ${LIBSRC}/GameSpy/include ${LIBSRC}/GameSpy/include/gamespy ${COMP}
-  ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Include)
+  # WW3D2 is here for d3dx9math.h alone: BezierSegment carries D3DXMATRIX, and
+  # DumbProjectileBehavior steers a shell with it.  dinput.h now comes out of the
+  # Windows SDK like d3d9.h does.
+  ${WW}/WW3D2)
 # _RELEASE/_DEBUG pick the game's own build flavour; IG_DEBUG_STACKTRACE and
 # Z_PREFIX are what GameEngine.dsp sets.
 target_compile_definitions(gameengine PUBLIC
@@ -504,9 +618,6 @@ add_custom_command(TARGET generals POST_BUILD
   # and without it the crash log's stack is addresses with no names.
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           $<TARGET_PDB_FILE:generals> ${CMAKE_CURRENT_SOURCE_DIR}/../Run/
-  # d3d8to9's d3d8.dll next to the exe = the renderer runs on Direct3D 9.
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          $<TARGET_FILE:d3d8to9> ${CMAKE_CURRENT_SOURCE_DIR}/../Run/
   # The fork's key bindings and their labels.  Run/ is gitignored, so these two
   # used to be hand-made files that silently went stale every time a command was
   # added - the tracked copies under Code/Data are the masters and this puts them
@@ -550,7 +661,6 @@ add_custom_command(TARGET generals POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_CURRENT_SOURCE_DIR}/Data/Scenarios
           ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Scenarios)
-add_dependencies(generals d3d8to9)
 
 # ===========================================================================
 # Tests.  Run with:  ctest --test-dir build -C Release --output-on-failure
@@ -592,8 +702,28 @@ add_lib_test(test_compression compression)
 
 add_lib_test(test_ww3d2 ww3d2 wwsaveload wwlib wwmath wwdebug)
 target_include_directories(test_ww3d2 PRIVATE
-  ${WW}/WW3D2 ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WWSaveLoad ${WW}/Wwutil
-  ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/DirectX/Include)
+  ${WW}/WW3D2 ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WWSaveLoad ${WW}/Wwutil)
+
+add_lib_test(test_ffshader ffshader)
+add_lib_test(test_dx11device dx11device)
+add_lib_test(test_dx11state dx11state)
+add_lib_test(test_dx11layout dx11layout)
+add_lib_test(test_ffvertex ffvertex)
+add_lib_test(test_ffvertexcompile ffvertex)
+# The generated vertex program run against the fixed-function pipeline it replaces, on a real
+# Direct3D 9 device.  It skips itself on a machine with no device rather than failing.
+add_lib_test(test_ffvertexd3d9 ffvertex d3d9 user32)
+add_lib_test(test_ffshadercompile ffshader)
+add_lib_test(test_dx11pipeline dx11device dx11state dx11layout ffshader ffvertex)
+add_lib_test(test_dx11resource dx11resource dx11device)
+add_lib_test(test_engineshader engineshader)
+add_lib_test(test_dx11backend dx11backend)
+add_lib_test(test_dx11post dx11post dx11device user32)
+add_lib_test(test_dx11twin dx11twin dx11device)
+add_lib_test(test_dx11texture dx11texture dx11device user32)
+# Both runtimes in one binary, so where a triangle edge lands is a measurement rather than a reading
+# of two sets of documentation that describe the same thing in different words.
+add_lib_test(test_pixelcentre dx11backend dx11resource dx11device d3d9 user32)
 
 add_lib_test(test_wwdownload wwdownload)
 target_include_directories(test_wwdownload PRIVATE ${WW}/WWDownload)
@@ -623,14 +753,13 @@ target_compile_definitions(test_gameengine PRIVATE
 # too so one command covers everything.
 add_test(NAME wwmath_selfcheck COMMAND wwmath_selfcheck)
 add_test(NAME compression_selfcheck COMMAND compression_selfcheck)
-# dx8_smoke runs through our d3d8to9 d3d8.dll (copied next to it): once on its default,
-# Direct3D 9, once opted in to Direct3D 9On12 / Direct3D 12 via -d3d12 (each run fails if
-# it did not land on its runtime)
-add_custom_command(TARGET dx8_smoke POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:d3d8to9> $<TARGET_FILE_DIR:dx8_smoke>)
-add_dependencies(dx8_smoke d3d8to9)
-add_test(NAME dx8_smoke COMMAND dx8_smoke)
-add_test(NAME dx8_smoke_d3d12 COMMAND dx8_smoke -d3d12)
+# dx9_smoke creates a device the way the renderer does, with nothing next to it to
+# translate anything, and puts the D3D8 calls that have no D3D9 counterpart through their
+# replacements.  "-msaa 4" adds the multisampled back buffer and the plain render target
+# with a depth buffer of its own that DX8Wrapper::_Get_Non_MultiSampled_Depth_Buffer pairs
+# for the screen filters.
+add_test(NAME dx9_smoke COMMAND dx9_smoke)
+add_test(NAME dx9_smoke_msaa COMMAND dx9_smoke -msaa 4)
 
 # bink_smoke validates the hand-reconstructed Bink ABI against the real
 # BINKW32.DLL the game ships - it loads that DLL by path, so it does not link
@@ -639,9 +768,6 @@ add_executable(bink_smoke ${TESTS}/bink_smoke.c)
 target_include_directories(bink_smoke PRIVATE ${WW}/Bink/include)
 add_test(NAME bink_smoke COMMAND bink_smoke
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../Run)
-# "-msaa": a multisampled back buffer, and the plain render target + non-multisampled depth
-# buffer pairing that DX8Wrapper::_Get_Non_MultiSampled_Depth_Buffer hands the screen filters.
-add_test(NAME dx8_smoke_msaa COMMAND dx8_smoke -msaa 4)
 
 # Tools/bigfile.py reads and writes the game's BIG archives (that is how the shipped INIs
 # come out for editing).  Its selfcheck round-trips synthetic files, so it needs no game

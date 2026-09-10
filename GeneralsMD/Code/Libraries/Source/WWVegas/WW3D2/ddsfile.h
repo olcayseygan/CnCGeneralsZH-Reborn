@@ -30,8 +30,8 @@
 #include "wwstring.h"
 #include "vector3.h"
 
-struct IDirect3DSurface8;
-struct IDirect3DVolume8;
+struct IDirect3DSurface9;
+struct IDirect3DVolume9;
 
 // ----------------------------------------------------------------------------
 //
@@ -220,7 +220,7 @@ public:
 	DDSType Get_Type() const { return Type; }
 
 	// Copy pixels to the destination surface.
-	void Copy_Level_To_Surface(unsigned level,IDirect3DSurface8* d3d_surface,const Vector3& hsv_shift=Vector3(0.0f,0.0f,0.0f));
+	void Copy_Level_To_Surface(unsigned level,IDirect3DSurface9* d3d_surface,const Vector3& hsv_shift=Vector3(0.0f,0.0f,0.0f));
 	void Copy_Level_To_Surface(
 		unsigned level,
 		WW3DFormat dest_format, 

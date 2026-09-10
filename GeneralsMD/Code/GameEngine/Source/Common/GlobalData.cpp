@@ -646,6 +646,10 @@ GlobalData::GlobalData()
 	m_windowed = 0;
 	m_windowMode = WINDOW_MODE_FULLSCREEN;
 	m_msaaLevel = 0;
+	m_vsync = FALSE;
+	m_direct3D11 = TRUE;
+	m_direct3D11DumpPath.clear();
+	m_direct3D11PostChain.clear();
 	m_xResolution = 800;
 	m_yResolution = 600;
 	m_maxShellScreens = 0;
@@ -893,6 +897,8 @@ GlobalData::GlobalData()
 	m_drawEntireTerrain = FALSE;
 	m_maxParticleCount = 0;
 	m_particleGroundBounce = FALSE;
+	m_smokeThickness = 0.0f;
+	m_particleCapOverride = 0;
 	m_maxFieldParticleCount = 30;
 	
 	// End Add

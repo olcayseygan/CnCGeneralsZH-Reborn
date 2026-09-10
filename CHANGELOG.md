@@ -3,7 +3,7 @@
 EA released the 2003 source for preservation. It did not compile, did not run, and nobody had touched
 the bugs inside it in twenty-two years. This build compiles, runs and plays.
 
-**119 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
+**122 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
 found and fixed â€” EA's own, not port damage.**
 
 ---
@@ -11,7 +11,11 @@ found and fixed â€” EA's own, not port damage.**
 ## The frame rate cap is gone
 
 - The picture now runs uncapped; the rules keep their own steady clock.
+- On a machine with two graphics chips, the game used to draw on the first one it found, which was the slow one. It now uses the dedicated card, and a match holds about 260 frames a second with the trees, the shadows and the filtering left on.
+- Display options has a vertical sync box. Off, the picture still runs free. On, it waits for the monitor so the frame does not tear. The box takes effect when you Accept.
 - A slow moment costs you a dropped frame, not a slow game.
+- Explosions no longer catch the picture. The first time each kind of fire, smoke or blast reached the screen, the game stopped for 25 to 60ms to prepare it, and the opening volley of a fight cost 300ms at once. That work is kept on disk and ships with the game, so it happens while the map loads, in about 3ms, and the worst frame of the same battle went from 141ms to 38ms.
+- The price, build time and power figures on the command bar buttons stopped costing you frames. All the buttons shared one piece of text, so every figure on the bar was lettered from scratch every frame, about 33 of them. Each now keeps its own: a battle that averaged 14ms a frame averages 11.7ms, frames slower than 60 a second went from one in six to one in a hundred, and the old renderer gets about 0.8ms back too. The money readout was lettered again every frame as well, for a number that had not changed; it is lettered when the number moves. Over a whole battle the game now letters 163 pieces of text where it lettered 68,227.
 - Every animation runs on a clock instead of counting frames.
 - Briefing and cutscene subtitles hold long enough to read again.
 - The radar's under-attack pulse throbs instead of strobing, and no longer ends early.
@@ -198,6 +202,7 @@ found and fixed â€” EA's own, not port damage.**
 
 ## Sharper textures, for free
 
+- The game draws its picture through Direct3D 11 now, and falls back to the old renderer on a machine that cannot make a Direct3D 11 device. Eight views over five maps come out within one step of one colour channel of the old picture, which is the smallest difference a screen can show.
 - 481 base-game textures at four times the resolution now beat Zero Hour's downscaled copies.
 - A long thin texture loads at the size it was drawn at. Anything wider than eight to one used to be stretched onto a bigger, blurrier one, because that was the limit of a 2002 graphics card; the card is asked now, and modern ones have no such limit.
 - Anything standing still keeps its shadow in the fog. A town you have already walked through used
@@ -526,6 +531,11 @@ found and fixed â€” EA's own, not port damage.**
 - A screenshot no longer takes the game down when the window is bigger than the desktop. Asking for
   a 1600x1200 window on a 1080-tall monitor puts part of it off the screen, and the capture read
   the whole client area out of a buffer that stops at the desktop's edge.
+- A screenshot is a picture of the game. With anti-aliasing switched on, the capture could not read
+  the frame the game had just drawn, so it photographed the desktop instead and said nothing about
+  it. In a window with something in front of the game, that something is what you got: a browser, a
+  chat window, whatever was on top. It reads the frame itself now, anti-aliasing or not, and what is
+  in front of the window makes no difference to what comes out.
 - The arrow on a dropdown is square at every resolution. It was drawn into a slot of a fixed 21 pixels wide however tall the box around it was stretched, so the bigger the screen the more the arrow was squeezed.
 - The promotion screen closes when you press its key again, however fast you press it. The screen fades in, and the fade drives the window itself for several frames either way - so a second press during the fade read the screen as still shut and opened it again, and a press just after it was closed was undone by the fade's next frame.
 - The command bar stops changing under you while you are using it. With nothing selected the bar shows one of your builders so you can place a structure without picking a dozer first, and it showed whichever one happened to be idle - so a dozer finishing a building on the far side of the base took the bar over, dropping a half-typed build hotkey and taking the structure off your cursor. The builder you are working with keeps the bar.
@@ -588,6 +598,7 @@ found and fixed â€” EA's own, not port damage.**
 ## Soldiers cast real shadows
 
 - Infantry shadows are built from the pose: arms, head, weapon, moving with him.
+- A crowd of infantry no longer rebuilds a posed shadow for every man too small to make out. Zoom in and the pose is still there.
 - `UseShadowVolumesForSkins = No` puts the old flat blobs back.
 - Scuds, rockets and falling bombs cast a shadow running along the ground.
 - A big smoke cloud darkens the ground under it and fades as it does.
@@ -636,6 +647,8 @@ found and fixed â€” EA's own, not port damage.**
 
 ## It does not crash
 
+- Starting a match with the Direct3D 11 picture on took the game down. Both devices were presenting into the same window, the old one lost itself, and the fog texture then locked a surface that was never made.
+- The opening movies froze on their first frame with that picture on. A movie writes a new image every frame into a texture the copy had already taken.
 - Two blocks of 2003 assembly destroyed registers and took down the main menu.
 - Quitting faulted twice every time; it now takes about half a second.
 - A long chat message or an unusual map name could kill the process.
@@ -895,7 +908,13 @@ found and fixed â€” EA's own, not port damage.**
 - The videos play: the intro, the sizzle reel, the mission briefings, the general portraits.
 - The pointer is on screen over them. It used to appear only once the main menu did, so clicking through the logos was done blind.
 - Escape skips the opening logo, not just everything after it. The key has always skipped movies; the gate it asks was raised only once the logo had played itself out, so the one film you see on every single launch was the one you could not get past.
-- About 5,600 graphics calls are translated to a modern path, none of them touched.
+- The graphics go straight to a modern path. About 5,600 calls used to be translated on the way out
+  by a small library shipped alongside the game; the game now speaks that path itself and the extra
+  library is gone from the download. The picture is the picture it was, and the frame it draws in a
+  fixed-seed match is within half a percent of the old one, pixel for pixel.
+- Vertical sync works in a window. The option has always been in the menu, and in a window the old
+  path ignored it and ran the picture as fast as it could, which is what a screen tears from. It is
+  honoured now, so the picture holds to your monitor's refresh rate unless you turn it off.
 - No disc, no registry keys, no retail installer â€” a normal install works.
 - The startup screen is this build's own, so you can see which one you launched before the menu loads.
 - The zip installs itself and takes itself back off. `install.bat` asks where the game is, offering
@@ -914,7 +933,7 @@ found and fixed â€” EA's own, not port damage.**
 - The game no longer needs a Visual C++ redistributable installed. The exe asked Windows for two
   support libraries by name at load, so a machine that had never installed one failed exactly the
   way a missing `mss32.dll` did: a dialog naming a file, nothing written to any log, nothing to send
-  back to anyone. Both libraries are compiled into the exe and into the graphics translator now. The
+  back to anyone. Both libraries are compiled into the exe now. The
   download is half a megabyte larger and there is nothing left to install alongside it.
 - Over a build that is already there it updates rather than installs, and says which number it is
   moving you from and to. Running an older package over a newer install stops instead, since the
@@ -1074,4 +1093,6 @@ found and fixed â€” EA's own, not port damage.**
 
 ## Not there yet
 - Online and LAN play are untested.
+- A frame through Direct3D 11 still costs more than it did through the old renderer: 13.6ms against 8.6ms in a screen full of inferno cannon fire, down from 16.9ms once the old renderer stopped drawing a second copy of every frame that nobody saw. `-d3d9` on the command line puts the old renderer back on its own.
+- Antialiasing from the display page does not reach the Direct3D 11 picture yet, and the rolling-wave sea is drawn only by the old renderer, so it is missing from the new one.
 - You need to own the game; no game data ships here.

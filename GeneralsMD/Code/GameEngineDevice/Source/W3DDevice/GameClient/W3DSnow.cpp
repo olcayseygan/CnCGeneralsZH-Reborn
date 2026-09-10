@@ -54,6 +54,19 @@ W3DSnowManager::~W3DSnowManager()
 	ReleaseResources();
 }
 
+// Direct3D 11 has no point sprites at all: the fixed-function primitive that expands one vertex
+// into a screen-aligned quad was taken out of the API, and the replacement is a geometry shader the
+// backend does not have.  The snow already carries a second path that builds those quads on the CPU
+// and draws them through DX8Wrapper, so a presenting D3D11 run takes that one and gets its snow.
+static Bool snowUsesPointSprites(void)
+{
+	if (Direct3D11_Present_Is_Enabled())
+		return FALSE;
+
+	return TheWeatherSetting->m_usePointSprites
+		&& DX8Wrapper::Get_Current_Caps()->Support_PointSprites();
+}
+
 void W3DSnowManager::init( void )
 {
 	SnowManager::init();
@@ -81,9 +94,9 @@ Bool W3DSnowManager::ReAcquireResources(void)
 	if (!TheWeatherSetting->m_snowEnabled)
 		return TRUE;	//no need for resources if snow is disabled.
 
-	if (TheWeatherSetting->m_usePointSprites && DX8Wrapper::Get_Current_Caps()->Support_PointSprites())
+	if (snowUsesPointSprites())
 	{
-		LPDIRECT3DDEVICE8 m_pDev=DX8Wrapper::_Get_D3D_Device8();
+		LPDIRECT3DDEVICE9 m_pDev=DX8Wrapper::_Get_D3D_Device();
 
 		DEBUG_ASSERTCRASH(m_pDev, ("Trying to ReAquireResources on W3DSnowManager without device"));
 
@@ -95,8 +108,9 @@ Bool W3DSnowManager::ReAcquireResources(void)
 				SNOW_BUFFER_SIZE*sizeof(POINTVERTEX),
 				D3DUSAGE_WRITEONLY|D3DUSAGE_DYNAMIC|D3DUSAGE_POINTS, 
 				D3DFVF_POINTVERTEX,
-				D3DPOOL_DEFAULT, 
-				&m_VertexBufferD3D
+				D3DPOOL_DEFAULT,
+				&m_VertexBufferD3D,
+				NULL	// pSharedHandle, D3D9's extra parameter, reserved and always null
 			)))
 				return FALSE;
 		}
@@ -273,7 +287,7 @@ void W3DSnowManager::renderSubBox(RenderInfoClass &rinfo, Int originX, Int origi
 		POINTVERTEX* verts;
 
 		if(m_VertexBufferD3D->Lock(m_dwBase * sizeof(POINTVERTEX), batchSize * sizeof(POINTVERTEX),
-			(unsigned char **) &verts, m_dwBase ? D3DLOCK_NOOVERWRITE : D3DLOCK_DISCARD) != D3D_OK )
+			(void **) &verts, m_dwBase ? D3DLOCK_NOOVERWRITE : D3DLOCK_DISCARD) != D3D_OK )
 			return;	//couldn't lock buffer.
 
 		Int numberInBatch=0;
@@ -318,7 +332,7 @@ flush_particles:
 		if (numberInBatch)
 		{
 			Debug_Statistics::Record_DX8_Polys_And_Vertices(numberInBatch*2,numberInBatch*4,ShaderClass::_PresetOpaqueShader);
-			DX8Wrapper::_Get_D3D_Device8()->DrawPrimitive( D3DPT_POINTLIST, m_dwBase, numberInBatch);
+			DX8Wrapper::_Get_D3D_Device()->DrawPrimitive( D3DPT_POINTLIST, m_dwBase, numberInBatch);
 			totalPart -= numberInBatch;
 			m_dwBase += numberInBatch;
 		}
@@ -330,7 +344,7 @@ void W3DSnowManager::render(RenderInfoClass &rinfo)
 	if (!TheWeatherSetting->m_snowEnabled || !m_isVisible)
 		return;
 
-	Int usePointSprites = DX8Wrapper::Get_Current_Caps()->Support_PointSprites() && TheWeatherSetting->m_usePointSprites;
+	Int usePointSprites = snowUsesPointSprites();
 
 	//make sure the noise table is powers of 2 in dimensions.
 	WWASSERT(ISPOW2(SNOW_NOISE_X) && ISPOW2(SNOW_NOISE_Y));
@@ -434,8 +448,8 @@ void W3DSnowManager::render(RenderInfoClass &rinfo)
     DX8Wrapper::Set_DX8_Render_State( D3DRS_POINTSCALE_B,  FtoDW(0.00f) );
     DX8Wrapper::Set_DX8_Render_State( D3DRS_POINTSCALE_C,  FtoDW(1.00f) );
 
-	DX8Wrapper::_Get_D3D_Device8()->SetStreamSource( 0, m_VertexBufferD3D, sizeof(POINTVERTEX) );
-    DX8Wrapper::_Get_D3D_Device8()->SetVertexShader( D3DFVF_POINTVERTEX );
+	DX8Wrapper::_Get_D3D_Device()->SetStreamSource( 0, m_VertexBufferD3D, 0, sizeof(POINTVERTEX) );
+    DX8Wrapper::_Get_D3D_Device()->SetFVF( D3DFVF_POINTVERTEX );
 	m_dwBase = SNOW_BUFFER_SIZE;	//start with a new vertex buffer each frame.
 
 	m_leafDim = 45;	//cull boxes that are 20x20 emitters in size. Making them much smaller will result in too many draw calls.

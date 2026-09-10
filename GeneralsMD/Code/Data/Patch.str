@@ -456,6 +456,14 @@ TOOLTIP:BloomThreshold
 "How much of the screen is bright enough to glow at all. Only the brightest keeps it to muzzle flashes and lamps; most of the picture puts a haze over the whole battlefield."
 END
 
+GUI:VSync
+"Vertical Sync"
+END
+
+TOOLTIP:VSync
+"Holds the picture to the monitor so it does not tear. Off, the picture runs as fast as the machine draws. Applied when you Accept."
+END
+
 GUI:MiddleMousePans
 "Middle Mouse Pans"
 END

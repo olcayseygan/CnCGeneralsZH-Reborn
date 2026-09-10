@@ -181,6 +181,11 @@ void W3DShroud::init(WorldHeightMap *pMap, Real worldCellSizeX, Real worldCellSi
 		m_pSrcTexture = DX8Wrapper::_Create_DX8_Surface(srcWidth,srcHeight, WW3D_FORMAT_R5G6B5);
 
 	DEBUG_ASSERTCRASH( m_pSrcTexture != NULL, ("Failed to Allocate Shroud Src Surface"));
+	if (m_pSrcTexture == NULL)
+	{
+		DEBUG_LOG(("W3DShroud::init - no src surface (device missing or lost)\n"));
+		return;
+	}
 
 	D3DLOCKED_RECT rect;
 
@@ -554,7 +559,7 @@ void W3DShroud::render(CameraClass *cam)
 	if (!m_pSrcTexture)
 		return; //nothing to update from.  Must be in reset state.
 
-	if (DX8Wrapper::_Get_D3D_Device8() && (DX8Wrapper::_Get_D3D_Device8()->TestCooperativeLevel()) != D3D_OK)
+	if (DX8Wrapper::_Get_D3D_Device() && (DX8Wrapper::_Get_D3D_Device()->TestCooperativeLevel()) != D3D_OK)
 		return;	//device not ready to render anything
 
 #if defined(_DEBUG) || defined(_INTERNAL)

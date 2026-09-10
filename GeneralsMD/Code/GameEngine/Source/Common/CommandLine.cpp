@@ -866,6 +866,65 @@ Int parseParticleBounce(char *args[], int)
 	return 1;
 }
 
+/* -smoke [thickness]: every particle system with "smoke" in its name burns longer and reads
+	 thicker.  Bare -smoke is 2, which is a fire that is still smoking when the wreck has stopped
+	 burning; the switch clamps at 8.
+
+	 The number is spent across particle lifetime, opacity and width rather than on any one of
+	 them, and it raises the particle ceiling with it: the eviction that enforces the shipped
+	 ceiling deletes the oldest particle first, and long-lived smoke is the oldest thing on the
+	 field, so without the extra headroom the switch would spend its own smoke to make room for
+	 sparks.  particleSmokeBoostResolve in ParticleSys.cpp is where the split lives.
+
+	 Same reason as -particlebounce for this being a switch: the shipped ParticleSystem.ini is
+	 inside INIZH.big and a loose copy would have to replace all 1088 systems to change 175. */
+Int parseSmoke(char *args[], int num)
+{
+	const Real DEFAULT_THICKNESS = 2.0f;
+
+	if (TheWritableGlobalData)
+	{
+		if (num > 1 && args[1][0] != '-')
+		{
+			TheWritableGlobalData->m_smokeThickness = (Real)atof(args[1]);
+			return 2;
+		}
+		TheWritableGlobalData->m_smokeThickness = DEFAULT_THICKNESS;
+	}
+	return 1;
+}
+
+/* -particlecap <n>: stand in for the options menu's particle slider for one run.
+
+	 The slider writes MaxParticleCount into the player's own Options.ini and the LOD manager
+	 applies it well after the command line is parsed, so this is read where the ceiling is read
+	 rather than written over the top of it.  Worth having because the shipped default is 2500 and
+	 a machine whose owner once dragged that slider left is a machine where every effect in the
+	 game is starved, which looks exactly like an effect that was never written. */
+Int parseParticleCap(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		TheWritableGlobalData->m_particleCapOverride = atoi(args[1]);
+	}
+	return 2;
+}
+
+/* -noparticleshadows: take the soft blob back off the ground under every particle cloud.
+
+	 ShadowsForParticles is on by default and the shipped INI has no entry for it, so without this
+	 there is no way to photograph a frame with the smoke and without its shadow - which is the
+	 only way to say how much of the darkening under a cloud is the decal and how much is the
+	 sprites themselves. */
+Int parseNoParticleShadows(char *args[], int)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_shadowsForParticles = FALSE;
+	}
+	return 1;
+}
+
 Int parseNoShaders(char *args[], int)
 {
 	if (TheWritableGlobalData)
@@ -1265,6 +1324,8 @@ Int parseHeadless(char *args[], int num)
 		TheWritableGlobalData->m_soundsOn = FALSE;
 		TheWritableGlobalData->m_speechOn = FALSE;
 		TheWritableGlobalData->m_videoOn = FALSE;
+		// a run that draws nothing has no use for a second device mirroring every buffer it loads
+		TheWritableGlobalData->m_direct3D11 = FALSE;
 	}
 	return 1;
 }
@@ -1324,6 +1385,67 @@ Int parseMSAA(char *args[], int num)
 		}
 		TheWritableGlobalData->m_msaaLevel = msaaLevelForSamples(samples);
 		return consumed;
+	}
+	return 1;
+}
+
+/* -d3d9: draw and present with Direct3D 9 alone, the way the game did before the Direct3D 11
+	 * backend became the renderer.
+	 *
+	 * The Direct3D 11 frame is the default, and this is the reference it is measured against:
+	 * dx11-check.ps1 photographs one frame both ways, and a frame-time comparison of the two
+	 * backends needs a run where the second device does not exist at all. */
+Int parseDirect3D9(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_direct3D11 = FALSE;
+	}
+	return 1;
+}
+
+/* -dx11dump <directory>: write every program the Direct3D 11 backend generates into that
+	 * directory as it is built, named by the order it was built in with the state it came from on
+	 * its first line.  A generated program that draws the wrong thing cannot be read any other way:
+	 * the state is a key and the key is not the code. */
+Int parseDirect3D11Dump(char *args[], int num)
+{
+	if (num > 1 && TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_direct3D11DumpPath = args[1];
+		return 2;
+	}
+	return 1;
+}
+
+/* -dx11post [chain]: run a pixel shader over the finished Direct3D 11 frame before it is shown.
+	 *
+	 * The chain is the effects in the order they run, comma separated: "bloom", "fxaa", "sharpen",
+	 * "copy" for the pass that changes nothing, or "off".  Bare -dx11post is "fxaa", which is the
+	 * cheapest one worth having: the swap chain asks for a single sample, so an edge in the D3D11
+	 * frame has nothing else working on it.  Under -d3d9 there is no such frame and the chain does
+	 * nothing.
+	 *
+	 * "bloom" has to come first and it changes what the scene is kept in.  Explosion particles are
+	 * blended additively, so a stack of them is brighter than white before it is written down, and
+	 * an eight bit target throws that away: the middle of a fireball is the same white as its edge.
+	 * With bloom in the chain the scene goes into half floats, the bright pass thresholds on the
+	 * amount by which something beat white, and the frame comes back to eight bits through a tone
+	 * curve whose knee leaves everything ordinary exactly where it was.
+	 *
+	 * Everything else in the backend exists to draw the frame Direct3D 9 draws and this exists to
+	 * draw a different one, so it is off unless it is asked for and dx11-check.ps1 is run without
+	 * it. */
+Int parseDirect3D11Post(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		if (num > 1 && args[1][0] != '-')
+		{
+			TheWritableGlobalData->m_direct3D11PostChain = args[1];
+			return 2;
+		}
+		TheWritableGlobalData->m_direct3D11PostChain = "fxaa";
 	}
 	return 1;
 }
@@ -1994,6 +2116,9 @@ static CommandLineParam params[] =
 	{ "-mod", parseMod },
 	{ "-noshaders", parseNoShaders },
 	{ "-particlebounce", parseParticleBounce },
+	{ "-smoke", parseSmoke },
+	{ "-particlecap", parseParticleCap },
+	{ "-noparticleshadows", parseNoParticleShadows },
 	{ "-quickstart", parseQuickStart },
 
 	{ "-packetloss", parsePacketLoss },
@@ -2096,6 +2221,9 @@ static CommandLineParam params[] =
 	{ "-maxframes", parseMaxGameFrames },
 	{ "-screenshot", parseScreenShot },
 	{ "-msaa", parseMSAA },
+	{ "-d3d9", parseDirect3D9 },
+	{ "-dx11dump", parseDirect3D11Dump },
+	{ "-dx11post", parseDirect3D11Post },
 	{ "-autocamera", parseAutoCamera },
 	{ "-camera", parseCameraLook },
 	{ "-tracemove", parseTraceMove },

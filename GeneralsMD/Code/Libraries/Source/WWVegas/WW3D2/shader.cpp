@@ -1029,12 +1029,11 @@ void ShaderClass::Apply()
 	// CULLMODE
 	DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE,Get_Cull_Mode() ? _PolygonCullMode : D3DCULL_NONE);
 
-	// NPATCHES
-	if (diff&ShaderClass::MASK_NPATCHENABLE) {
-		float level=1.0f;
-		if (Get_NPatch_Enable()) level=float(WW3D::Get_NPatches_Level());
-		DX8Wrapper::Set_DX8_Render_State(D3DRS_PATCHSEGMENTS,*((DWORD*)&level));
-	}
+	// NPATCHES.  D3D9 dropped N-patch tessellation and D3DRS_PATCHSEGMENTS with it, and
+	// the state was already inert under d3d8to9, which answered a read of it with 1 and
+	// passed a write to a D3D9 runtime that has no such state.  Nothing draws differently
+	// for its removal; MASK_NPATCHENABLE and Get_NPatches_Level stay, because the shader
+	// bit is serialised in W3D assets and the level is an option the menu still writes.
 
 	// Enable/disable alpha test
 	DX8Wrapper::Set_DX8_Render_State(D3DRS_ALPHATESTENABLE,BOOL(Get_Alpha_Test()));	

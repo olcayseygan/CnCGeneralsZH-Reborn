@@ -60,6 +60,9 @@
 // FORWARD REFERENCES /////////////////////////////////////////////////////////
 class W3DDisplayStringManager;
 
+// Writes the strings whose sentence was built most often this run to the log, most first.
+void W3DDisplayString_logSentenceBuilds( void );
+
 // TYPE DEFINES ///////////////////////////////////////////////////////////////
 
 // W3DDisplayString -----------------------------------------------------------

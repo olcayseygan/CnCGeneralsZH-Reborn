@@ -53,6 +53,7 @@ OPTION_INT_ACCESSORS( m_textureFilterMode )
 OPTION_INT_ACCESSORS( m_anisotropyLevel )
 OPTION_INT_ACCESSORS( m_windowMode )
 OPTION_INT_ACCESSORS( m_msaaLevel )
+OPTION_BOOL_ACCESSORS( m_vsync )
 OPTION_INT_ACCESSORS( m_healthBarMode )
 OPTION_INT_ACCESSORS( m_playerColorScheme )
 
@@ -245,6 +246,13 @@ const OptionDef TheOptionCatalog[] =
 	{ "MSAA",											OPT_WND( "ComboBoxMSAA" ), "GUI:MSAA",
 		OPTION_ENUM, APPLY_DEVICE_RESET, 0, OPTION_MSAA_LEVEL_COUNT - 1,
 		get_m_msaaLevel, set_m_msaaLevel },
+
+	// Wait for the monitor.  Off is what the uncapped picture shipped as: D3D9 honours the
+	// presentation interval in a window, so leaving this on would pin a windowed game to the
+	// refresh the way fullscreen used to be pinned.  The device has to be reset; Accept does that.
+	{ "VSync",										OPT_WND( "CheckVSync" ), "GUI:VSync",
+		OPTION_BOOL, APPLY_DEVICE_RESET, 0, 1,
+		get_m_vsync, set_m_vsync },
 
 	// Who wears a health bar: everyone, everyone hurt, only the selection, or nobody.  Read every
 	// frame by the drawable that is about to draw one, so changing it shows immediately.

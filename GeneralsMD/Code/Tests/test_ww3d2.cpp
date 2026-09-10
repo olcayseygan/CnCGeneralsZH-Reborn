@@ -1,7 +1,7 @@
 /*
  * Device-free coverage for ww3d2.
  *
- * ww3d2 is the DX8 renderer, so most of it needs a live IDirect3DDevice8.
+ * ww3d2 is the DX8 renderer, so most of it needs a live IDirect3DDevice9.
  * The pieces below are pure computation - format tables, the shader bitfield,
  * the FVF offset arithmetic and the w3d-file <-> runtime converters - and
  * every one of them is reachable without a device.  Anything that routes

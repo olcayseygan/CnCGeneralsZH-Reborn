@@ -95,6 +95,7 @@ CONTROLS = [
     ("PageDisplay", COMBO,  "ComboBoxBloom",         None,                   400, 240, 200, 24),
     ("PageDisplay", LABEL,  "LabelBloomThreshold",   "GUI:BloomThreshold",   400, 272, 230, 24),
     ("PageDisplay", COMBO,  "ComboBoxBloomThreshold",None,                   400, 296, 200, 24),
+    ("PageDisplay", CHECK,  "CheckVSync",            "GUI:VSync",            400, 328, 200, 24),
 
     # Gameplay: a page that did not exist at all before, and is one setting.  The eight build and
     # HUD conveniences that used to sit here are on for everybody now and left TheOptionCatalog

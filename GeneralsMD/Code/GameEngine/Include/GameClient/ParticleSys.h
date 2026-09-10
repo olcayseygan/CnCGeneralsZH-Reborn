@@ -331,6 +331,40 @@ extern void particleShadowBlobAdd( ParticleShadowBlob *blob, Real x, Real y, Rea
 extern Bool particleShadowBlobResolve( const ParticleShadowBlob *blob, Real *centerX, Real *centerY,
 																			 Real *sizeX, Real *sizeY, Int *opacity );
 
+/**
+ * What "-smoke <thickness>" does to one smoke system.  A single number on the command line is
+ * spent across three separate properties, because spending all of it on any one of them looks
+ * wrong: all on lifetime gives a thin haze that never leaves, all on alpha gives a solid grey
+ * brick that vanishes on schedule, all on size gives smoke wider than the building it came from.
+ *
+ * Free of ParticleSystem for the same reason the blob is - it needs no subsystems.
+ */
+struct SmokeBoost
+{
+	Real	m_lifetimeScale;		///< particle lifetime, system lifetime and every keyframe time
+	Real	m_alphaScale;				///< opacity of each particle, clamped to fully opaque
+	Real	m_sizeScale;				///< how wide each particle starts
+};
+
+/**
+ * Resolve the command line's thickness into the three scales.  Returns FALSE for a thickness
+ * that asks for nothing (anything at or below 1), which is also the "switch not given" case.
+ */
+extern Bool particleSmokeBoostResolve( Real thickness, SmokeBoost *boost );
+
+/**
+ * Does this particle system's name say it is smoke?  The match is on the template name because
+ * the shipped ParticleSystem.ini lives inside INIZH.big and there is nothing else to go on.
+ */
+extern Bool particleSmokeNameMatches( const char *name );
+
+/**
+ * The particle ceiling "-smoke" needs.  Smoke that lives longer is smoke that is alive at the
+ * same time as more of itself, and removeOldestParticles takes the oldest first - so left at the
+ * shipped ceiling, longer-lived smoke is exactly what the cap deletes to make room for sparks.
+ */
+extern Int particleSmokeParticleCap( Int shippedCap, Real thickness );
+
 class ParticleSystemInfo : public Snapshot
 {
 
@@ -540,6 +574,10 @@ public:
 	void forceGroundCollision( Real bounce, Real friction )
 	{ m_groundCollision = TRUE; m_groundBounce = bounce; m_groundFriction = friction; }
 
+	/** Make this system's smoke last longer and read thicker ("-smoke").  Same reason as above:
+		* ParticleSystemInfo is a protected base, so the manager needs a way in. */
+	void forceSmokeBoost( const SmokeBoost &boost );
+
 	ParticleSystemTemplate( const AsciiString &name );
 
 	AsciiString getName( void ) const { return m_name; }
@@ -690,6 +728,7 @@ public:
 	/// when a particle dies, it calls this method - ONLY FOR USE BY PARTICLE
 	void removeParticle( Particle *p );
 	UnsignedInt getParticleCount( void ) const { return m_particleCount; }
+	Bool hasGroundShadow( void ) const { return m_groundShadow != NULL; }
 
 	inline ObjectID getAttachedObject( void ) { return m_attachedToObjectID; }
 	inline DrawableID getAttachedDrawable( void ) { return m_attachedToDrawableID; }
@@ -851,6 +890,7 @@ public:
 	UnsignedInt getParticleCount( void ) const { return m_particleCount; }
 
 	UnsignedInt getFieldParticleCount( void )     const { return m_fieldParticleCount; }
+	UnsignedInt getGroundShadowCount( void )      const { return m_groundShadowCount; }
 
 	UnsignedInt getParticleSystemCount( void ) const { return m_particleSystemCount; }
 
@@ -886,6 +926,7 @@ protected:
 
 	UnsignedInt m_particleCount;
 	UnsignedInt m_fieldParticleCount; ///< this does not need to be xfered, since it is evaluated every frame
+	UnsignedInt m_groundShadowCount;	///< systems holding a decal this frame; counted for the PARTICLES log line
 	UnsignedInt m_particleSystemCount;
 	Int m_onScreenParticleCount;                ///< number of particles displayed on screen per frame
 	UnsignedInt m_lastLogicFrameUpdate;

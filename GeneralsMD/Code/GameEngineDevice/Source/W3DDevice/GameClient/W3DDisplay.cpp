@@ -46,6 +46,9 @@ static void drawFramerateBar(void);
 #include "Common/GlobalData.h"
 #include "Common/OptionsCatalog.h"
 #include "dx8wrapper.h"
+#include "ffprobe.h"
+#include "ffshadercache.h"
+#include "dx11runtime.h"
 #include "Common/PerfTimer.h"
 #include "Common/FileSystem.h"
 #include "Common/LocalFileSystem.h"
@@ -81,6 +84,7 @@ static void drawFramerateBar(void);
 #include "W3DDevice/GameClient/W3DVideoBuffer.h"
 #include "W3DDevice/GameClient/W3DShaderManager.h"
 #include "W3DDevice/GameClient/W3DDebugDisplay.h"
+#include "W3DDevice/GameClient/W3DDisplayString.h"
 #include "W3DDevice/GameClient/W3DProjectedShadow.h"
 #include "W3DDevice/GameClient/W3DShroud.h"
 #include "WWMath/WWMath.h"
@@ -431,6 +435,105 @@ W3DDisplay::W3DDisplay()
 W3DDisplay::~W3DDisplay()
 {
 
+	// What -ffshader did, written from here because WW3D2 is built without RELEASE_DEBUG_LOGGING
+	// and its own WWDEBUG_SAY does not exist in a shipping build.  Before W3D shuts down, which is
+	// where the cache is released.
+	if( CombinerShaders_Are_Enabled() )
+	{
+		unsigned compiled = 0;
+		unsigned refusedDescriptions = 0;
+		unsigned long long shadedDraws = 0;
+		unsigned long long refusedDraws = 0;
+		CombinerShaderCache_Statistics( compiled, refusedDescriptions, shadedDraws, refusedDraws );
+		DEBUG_LOG(("-ffshader: %u programs compiled, %u descriptions refused; %I64u draws shaded, "
+			"%I64u left on the fixed-function path\n",
+			compiled, refusedDescriptions, shadedDraws, refusedDraws));
+	}
+
+	// Same reason as above: WW3D2 has no logging in a shipping build, and a -dx11 run that made no
+	// device at all would otherwise look exactly like one that made a device nothing drew through.
+	if( Direct3D11_Is_Enabled() )
+	{
+		unsigned pipelines = 0;
+		unsigned long long drawsMade = 0;
+		unsigned long long drawsRefused = 0;
+		unsigned twinBuffers = 0;
+		unsigned long long twinBytes = 0;
+		unsigned texturesMirrored = 0;
+		unsigned texturesReused = 0;
+		unsigned texturesRefused = 0;
+		Direct3D11_Statistics( pipelines, drawsMade, drawsRefused );
+		Direct3D11_Twin_Statistics( twinBuffers, twinBytes );
+		Direct3D11_Texture_Statistics( texturesMirrored, texturesReused, texturesRefused );
+		DEBUG_LOG(("-dx11: device %s; %u buffers mirrored (%I64u KB); %u textures mirrored, "
+			"%u reused, %u refused; %u pipelines built, %I64u draws made, %I64u refused\n",
+			Direct3D11_Is_Active() ? "created" : "REFUSED",
+			twinBuffers, twinBytes / 1024,
+			texturesMirrored, texturesReused, texturesRefused,
+			pipelines, drawsMade, drawsRefused));
+
+		unsigned long long noBuffer = 0;
+		unsigned long long noStage = 0;
+		unsigned long long noLayout = 0;
+		unsigned long long noProgram = 0;
+		unsigned long long noObject = 0;
+		unsigned long long foreignShader = 0;
+		unsigned long long noTexture = 0;
+		Direct3D11_Refusals( noBuffer, noStage, noLayout, noProgram, noObject, foreignShader,
+			noTexture );
+		DEBUG_LOG(("-dx11 refusals: %I64u no buffer, %I64u no texture stage, %I64u no input layout, "
+			"%I64u no program, %I64u no device object, %I64u engine shader bound, "
+			"%I64u unmirrored texture\n",
+			noBuffer, noStage, noLayout, noProgram, noObject, foreignShader, noTexture));
+
+		// The distinct states behind those counts.  There are a few dozen at most - the engine sets
+		// the same handful over and over - and each one names what is missing from the picture.
+		const unsigned refusedCount = Direct3D11_Refused_Description_Count();
+		for( unsigned refused = 0; refused < refusedCount; refused++ )
+			DEBUG_LOG(("-dx11 refused: %s\n", Direct3D11_Refused_Description( refused )));
+
+		if( Direct3D11_Texture_First_Refusal()[0] != '\0' )
+			DEBUG_LOG(("-dx11 texture: %s\n", Direct3D11_Texture_First_Refusal()));
+
+		const unsigned shapeCount = Direct3D11_Texture_Copy_Shape_Count();
+		for( unsigned shape = 0; shape < shapeCount; shape++ )
+			DEBUG_LOG(("-dx11 copies: %s\n", Direct3D11_Texture_Copy_Shape( shape )));
+
+		// The text textures lead that list, and these are the strings they were built for.
+		W3DDisplayString_logSentenceBuilds();
+
+		unsigned long long targetsBound = 0;
+		unsigned long long targetsRestored = 0;
+		unsigned long long drawsIntoTargets = 0;
+		Direct3D11_Target_Statistics( targetsBound, targetsRestored, drawsIntoTargets );
+		DEBUG_LOG(("-dx11 targets: %I64u binds, %I64u restores, %I64u draws landed in a texture\n",
+			targetsBound, targetsRestored, drawsIntoTargets));
+
+		if( Direct3D11_Diagnostic()[0] != '\0' )
+			DEBUG_LOG(("-dx11 note: %s\n", Direct3D11_Diagnostic()));
+
+		DEBUG_LOG(("-dx11 post: %s\n", Direct3D11_Post_Diagnostic()));
+
+		const unsigned traceCount = Direct3D11_Target_Trace_Count();
+		for( unsigned trace = 0; trace < traceCount; trace++ )
+			DEBUG_LOG(("-dx11 target trace: %s\n", Direct3D11_Target_Trace( trace )));
+
+		const unsigned pipelineCount = Direct3D11_Pipeline_Report_Count();
+		for( unsigned pipeline = 0; pipeline < pipelineCount; pipeline++ )
+			DEBUG_LOG(("-dx11 drew: %s\n", Direct3D11_Pipeline_Report( pipeline )));
+
+		const unsigned foreignCount = Direct3D11_Foreign_Report_Count();
+		for( unsigned foreign = 0; foreign < foreignCount; foreign++ )
+			DEBUG_LOG(("-dx11 foreign: %s\n", Direct3D11_Foreign_Report( foreign )));
+
+		const unsigned noteCount = Direct3D11_Texture_Note_Count();
+		for( unsigned note = 0; note < noteCount; note++ )
+			DEBUG_LOG(("-dx11 16bit: %s\n", Direct3D11_Texture_Note( note )));
+
+		if( Direct3D11_First_Compiler_Error()[0] != '\0' )
+			DEBUG_LOG(("-dx11 compiler: %s\n", Direct3D11_First_Compiler_Error()));
+	}
+
 	// get rid of the debug display
 	delete m_debugDisplay;
 
@@ -674,6 +777,14 @@ Bool W3DDisplay::setDisplayMode( UnsignedInt xres, UnsignedInt yres, UnsignedInt
 {
 	extern Bool ApplicationIsBorderless;
 
+	// WW3D2 cannot see GlobalData, so a vsync change has to be pushed in before the reset below
+	// the way the sample count is pushed in before the device exists.
+	if( TheGlobalData )
+	{
+		DX8Wrapper::Set_Requested_VSync( TheGlobalData->m_vsync != FALSE );
+		Direct3D11_Set_VSync( TheGlobalData->m_vsync != FALSE );
+	}
+
 	//
 	// Which of the three the window is wearing, and which it is being asked for.  The test cannot be
 	// on the windowed flag alone: borderless and windowed are both windowed devices and differ only
@@ -905,7 +1016,12 @@ void W3DDisplay::init( void )
 	WW3D::Set_Collision_Box_Display_Mask(0x00);	///<set to 0xff to make collision boxes visible
 	WW3D::Enable_Static_Sort_Lists(true);
 	WW3D::Set_Thumbnail_Enabled(false);
-	WW3D::Set_Screen_UV_Bias( TRUE );  ///< this makes text look good :)
+	// The bias is half a pixel taken off every 2D vertex, and it makes text look good on Direct3D 9
+	// because a pixel's centre sits at an integer screen coordinate there.  It stays on under the
+	// Direct3D 11 backend as well: that backend shifts its viewport half a pixel instead, so a
+	// vertex lands where Direct3D 9 lands it and the bias means the same thing on both.  Turning it
+	// off there as well was tried, and with the viewport shift in place it moves the 2D layer twice.
+	WW3D::Set_Screen_UV_Bias( TRUE );
 	WW3D::Set_Texture_Bitdepth(32);
 			
 	setWindowed( TheGlobalData->m_windowed );
@@ -924,6 +1040,22 @@ void W3DDisplay::init( void )
 	// the sample count is handed to it here.  msaaSamplesForLevel turns the stored index into 0, 2,
 	// 4, 8 or 16; the device degrades an unsupported one on its own.
 	DX8Wrapper::Set_Requested_MultiSample_Level( msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
+	DX8Wrapper::Set_Requested_VSync( TheGlobalData->m_vsync != FALSE );
+	Direct3D11_Set_VSync( TheGlobalData->m_vsync != FALSE );
+
+	// Same reason: WW3D2 cannot see GlobalData, so the backend choice is pushed in from here.  The
+	// fixed-function probe and the generated combiner shaders are always on.
+	FixedFunctionProbe_Enable( true );
+	CombinerShaders_Enable( true );
+	Direct3D11_Enable( TheGlobalData->m_direct3D11 != FALSE );
+	Direct3D11_Present_Enable( TheGlobalData->m_direct3D11 != FALSE );
+	Direct3D11_Dump_Programs_To( TheGlobalData->m_direct3D11DumpPath.str() );
+	if( !Direct3D11_Post_Chain( TheGlobalData->m_direct3D11PostChain.str() )
+		&& !TheGlobalData->m_direct3D11PostChain.isEmpty() )
+	{
+		DEBUG_LOG(( "-dx11post: '%s' names no effect this build has, so no chain runs\n",
+			TheGlobalData->m_direct3D11PostChain.str() ));
+	}
 
 	// Same problem, same answer: the filter table is built the moment the device exists and WW3D2
 	// cannot see GlobalData, so the player's texture filtering goes in here. Nothing in the game
@@ -977,19 +1109,38 @@ void W3DDisplay::init( void )
 
 	}  // end if
 
-	extern bool DX8Wrapper_IsWindowed;	// dx8wrapper.cpp
-	// which runtime the device really landed on - d3d8.dll in the exe directory is our d3d8to9,
-	// so normally Direct3D 9, or Direct3D 9On12 (Direct3D 12) when the player started with -d3d12
-	// and is fullscreen (d3d8to9 keeps windowed devices on Direct3D 9 - its 9On12 windowed
-	// present is blank above ~640x480 on at least one machine)
+	// Which runtime the device really landed on.  The renderer creates an IDirect3DDevice9 itself
+	// now, so there is one answer here and no translating dll to name; -d3d12 was d3d8to9's opt-in
+	// and does nothing until RENDERER-ROADMAP.md's phase 5 puts a real Direct3D 12 backend behind
+	// the same seam.
 	DEBUG_LOG(("W3DDisplay::init - renderer runtime: %s\n",
-						 GetModuleHandleA("d3d9on12.dll") ? (DX8Wrapper_IsWindowed ? "Direct3D 9 (d3d8to9; -d3d12 given, but windowed devices stay on Direct3D 9)"
-						                                                        : "Direct3D 12 (d3d8to9 -> Direct3D 9On12)")
-						 : GetModuleHandleA("d3d9.dll")  ? "Direct3D 9 (d3d8to9)"
-						                                 : "Direct3D 8 (system d3d8.dll)"));
+						 GetModuleHandleA("d3d9.dll") ? "Direct3D 9 (native)"
+						                              : "no Direct3D 9 runtime loaded"));
 	// multisampling is opt-in with "-msaa" / "-msaa N" and silently degrades to whatever the
 	// device supports, so log what was actually granted
 	DEBUG_LOG(("W3DDisplay::init - multisampling: %ux\n", DX8Wrapper::Get_MultiSample_Level()));
+	DEBUG_LOG(("W3DDisplay::init - vsync: %s\n", DX8Wrapper::Get_Requested_VSync() ? "on" : "off"));
+	DEBUG_LOG(("W3DDisplay::init - present: %s\n", DX8Wrapper::Is_Flip_Present() ? "flip" : "discard"));
+	DEBUG_LOG(("W3DDisplay::init - adapter: %s\n",
+						 WW3D::Get_Render_Device_Name(WW3D::Get_Render_Device())));
+	{
+		const char *lodName = "off";
+		if (TheGameLODManager && TheGlobalData && TheGlobalData->m_enableDynamicLOD)
+		{
+			const DynamicGameLODLevel lod = TheGameLODManager->getDynamicLODLevel();
+			if (lod >= DYNAMIC_GAME_LOD_LOW && lod < DYNAMIC_GAME_LOD_COUNT)
+				lodName = TheGameLODManager->getDynamicGameLODLevelName(lod);
+		}
+		DEBUG_LOG(("W3DDisplay::init - quality: filter %d aniso %d particles %d shadows vol %d decal %d trees %d heat %d dynamicLOD %s\n",
+							 TheGlobalData ? TheGlobalData->m_textureFilterMode : -1,
+							 TheGlobalData ? TheGlobalData->m_anisotropyLevel : -1,
+							 TheGlobalData ? TheGlobalData->m_maxParticleCount : -1,
+							 TheGlobalData ? (Int)TheGlobalData->m_useShadowVolumes : -1,
+							 TheGlobalData ? (Int)TheGlobalData->m_useShadowDecals : -1,
+							 TheGlobalData ? (Int)TheGlobalData->m_useTrees : -1,
+							 TheGlobalData ? (Int)TheGlobalData->m_useHeatEffects : -1,
+							 lodName));
+	}
 
 	//Check if level was never set and default to setting most suitable for system.
 	if (TheGameLODManager->getStaticLODLevel() == STATIC_GAME_LOD_UNKNOWN)
@@ -2117,7 +2268,7 @@ AGAIN:
 		}
 
 		// update all views of the world - recomputes data which will affect drawing
-		if (DX8Wrapper::_Get_D3D_Device8() && (DX8Wrapper::_Get_D3D_Device8()->TestCooperativeLevel()) == D3D_OK)
+		if (DX8Wrapper::_Get_D3D_Device() && (DX8Wrapper::_Get_D3D_Device()->TestCooperativeLevel()) == D3D_OK)
 		{	//Checking if we have the device before updating views because the heightmap crashes otherwise while
 			//trying to refresh the visible terrain geometry.
 //			if(TheGlobalData->m_loadScreenRender != TRUE)
@@ -2198,6 +2349,12 @@ AGAIN:
 #ifdef DEBUG_LOGGING
 				QueryPerformanceCounter( (LARGE_INTEGER *)&tSceneEnd );
 #endif
+
+				// W3DView::draw has normally run the chain already, at the point where the world
+				// was finished and before the health bars went over it.  This is the frame that
+				// drew no view at all: without it the scene would sit in the offscreen texture with
+				// the command bar drawn over a black screen.
+				Direct3D11_Finish_Scene();
 
 				// draw the user interface
 				TheInGameUI->DRAW();
@@ -2295,6 +2452,22 @@ AGAIN:
 				}
 				// render is all done!
 				WW3D::End_Render();
+
+				/* A pipeline is compiled and a texture copied the first time it reaches a Direct3D 11
+					 draw, which is the frame a new explosion first shows up on.  A frame that spent more
+					 than a few milliseconds doing that says so, with the logic frame to set beside the
+					 SLOW PASS line it caused. */
+				{
+					const double DX11_FRAME_COST_REPORT_MS = 5.0;
+					double pipelineMS = 0.0;
+					unsigned pipelines = 0;
+					double textureMS = 0.0;
+					unsigned textures = 0;
+					Direct3D11_Take_Frame_Cost( pipelineMS, pipelines, textureMS, textures );
+					if( pipelineMS + textureMS > DX11_FRAME_COST_REPORT_MS )
+						DEBUG_LOG(("DX11 FRAME COST frame %d: %u pipelines built in %.1f ms, %u textures copied in %.1f ms\n",
+							TheGameLogic->getFrame(), pipelines, pipelineMS, textures, textureMS));
+				}
 
 				/* End_Render is where a lost device is noticed and reset, and that reset is the most
 					 dangerous thing this process does: it hands every default-pool resource back and asks
@@ -3419,26 +3592,49 @@ static void CreateBMPFile(LPTSTR pszFile, char *image, Int width, Int height)
 // not possible.  Taken at the end of draw(), before Present: the front-buffer path is a
 // desktop capture, and on the Direct3D 12 (9On12) runtime the window is presented through
 // a DXGI flip swap chain that desktop captures do not see - the old code saved black.
-static IDirect3DSurface8 *captureBackBuffer(void)
+static IDirect3DSurface9 *captureBackBuffer(void)
 {
-	IDirect3DDevice8 *dev = DX8Wrapper::_Get_D3D_Device8();
-	IDirect3DSurface8 *bb = NULL;
-	if (dev == NULL || FAILED(dev->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &bb)) || bb == NULL)
+	IDirect3DDevice9 *dev = DX8Wrapper::_Get_D3D_Device();
+	IDirect3DSurface9 *bb = NULL;
+	if (dev == NULL || FAILED(dev->GetBackBuffer(PRIMARY_SWAP_CHAIN, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) || bb == NULL)
 		return NULL;
 
 	D3DSURFACE_DESC desc;
 	bb->GetDesc(&desc);
-	IDirect3DSurface8 *copy = NULL;
-	if ((desc.Format == D3DFMT_X8R8G8B8 || desc.Format == D3DFMT_A8R8G8B8) && desc.MultiSampleType == D3DMULTISAMPLE_NONE)
+	IDirect3DSurface9 *copy = NULL;
+	if (desc.Format == D3DFMT_X8R8G8B8 || desc.Format == D3DFMT_A8R8G8B8)
 	{
-		if (SUCCEEDED(dev->CreateImageSurface(desc.Width, desc.Height, desc.Format, &copy)) && copy != NULL
-			&& FAILED(dev->CopyRects(bb, NULL, 0, copy, NULL)))
+		// GetRenderTargetData refuses a multisampled source, and with -msaa or the options menu's
+		// anti-aliasing set the back buffer is exactly that.  StretchRect between two render
+		// targets of the same size is D3D9's resolve, so the samples are averaged down into a
+		// plain target first and the readback comes off that.  Miss this and the caller falls
+		// through to the front-buffer path, which photographs the desktop: whatever window happens
+		// to sit over the game ends up in the screenshot, and nothing says so.
+		IDirect3DSurface9 *resolved = NULL;
+		IDirect3DSurface9 *source = bb;
+		if (desc.MultiSampleType != D3DMULTISAMPLE_NONE
+			&& SUCCEEDED(dev->CreateRenderTarget(desc.Width, desc.Height, desc.Format,
+					D3DMULTISAMPLE_NONE, 0, FALSE, &resolved, NULL))
+			&& SUCCEEDED(dev->StretchRect(bb, NULL, resolved, NULL, D3DTEXF_NONE)))
+		{
+			source = resolved;
+		}
+
+		if (SUCCEEDED(source->GetDesc(&desc)) && desc.MultiSampleType == D3DMULTISAMPLE_NONE
+			&& SUCCEEDED(dev->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format,
+					D3DPOOL_SYSTEMMEM, &copy, NULL)) && copy != NULL
+			&& FAILED(dev->GetRenderTargetData(source, copy)))
 		{
 			copy->Release();
 			copy = NULL;
 		}
+
+		if (resolved != NULL)
+			resolved->Release();
 	}
 	bb->Release();
+	if (copy == NULL)
+		DEBUG_LOG(("takeScreenShot - the back buffer could not be read, falling back to a desktop capture\n"));
 	return copy;
 }
 
@@ -3468,8 +3664,45 @@ static void saveScreenShot(void)
 			done = true;
 	}
 
+	// With -dx11present the picture on the screen is the Direct3D 11 one, so that is what a
+	// screenshot has to be: reading the D3D9 back buffer here would photograph a frame nobody saw
+	// and quietly compare the old renderer against itself.  This runs before End_Render, while the
+	// D3D11 back buffer still holds the frame.
+	if (Direct3D11_Present_Is_Enabled())
+	{
+		unsigned captureWidth = 0;
+		unsigned captureHeight = 0;
+		unsigned capturePitch = 0;
+		unsigned char *captured =
+			Direct3D11_Capture_Back_Buffer(captureWidth, captureHeight, capturePitch);
+		if (captured != NULL)
+		{
+			char *rows = NEW char[3*captureWidth*captureHeight];
+			for (unsigned row = 0; row < captureHeight; row++)
+			{
+				// Bottom row first, which is the order a .bmp stores them.
+				const unsigned char *in = captured + (captureHeight-1-row)*capturePitch;
+				char *out = rows + row*captureWidth*3;
+				for (unsigned column = 0; column < captureWidth; column++)
+				{
+					out[column*3+0] = (char)in[column*4+0];
+					out[column*3+1] = (char)in[column*4+1];
+					out[column*3+2] = (char)in[column*4+2];
+				}
+			}
+			CreateBMPFile(pathname, rows, captureWidth, captureHeight);
+			delete [] rows;
+			Direct3D11_Release_Capture(captured);
+
+			UnicodeString dx11FileName;
+			dx11FileName.translate(leafname);
+			TheInGameUI->message(TheGameText->fetch("GUI:ScreenCapture"), dx11FileName.str());
+		}
+		return;
+	}
+
 	RECT bounds;
-	IDirect3DSurface8 *fb = captureBackBuffer();
+	IDirect3DSurface9 *fb = captureBackBuffer();
 	if (fb != NULL)
 	{
 		D3DSURFACE_DESC desc;

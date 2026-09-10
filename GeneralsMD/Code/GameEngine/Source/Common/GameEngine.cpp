@@ -1341,7 +1341,26 @@ void GameEngine_noteFrameTime( Real ms, UnsignedInt logicFrame )
 	const Real SLOW_PASS_MS = 25.0f;
 	if( ms > SLOW_PASS_MS && TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
 	{
-		DEBUG_LOG(("SLOW PASS frame %d: %.1f ms\n", logicFrame, ms));
+		/* A crowd over the bar every pass used to write and fflush a line 30 times
+			 a second. Once a second is enough to see the pass is still slow. */
+		static UnsignedInt s_lastSlowPassLogFrame = 0;
+		static Int s_slowPassSkipped = 0;
+		if( logicFrame < s_lastSlowPassLogFrame )
+		{
+			s_lastSlowPassLogFrame = 0;
+			s_slowPassSkipped = 0;
+		}
+		if( logicFrame >= s_lastSlowPassLogFrame + LOGICFRAMES_PER_SECOND )
+		{
+			if( s_slowPassSkipped )
+				DEBUG_LOG(("SLOW PASS frame %d: %.1f ms (%d more since last)\n", logicFrame, ms, s_slowPassSkipped));
+			else
+				DEBUG_LOG(("SLOW PASS frame %d: %.1f ms\n", logicFrame, ms));
+			s_lastSlowPassLogFrame = logicFrame;
+			s_slowPassSkipped = 0;
+		}
+		else
+			++s_slowPassSkipped;
 	}
 
 	if( !theFrameTimesStarted )
@@ -1380,6 +1399,27 @@ static void reportFrameTimeStats( void )
 						 theFrameTimes.worstMS(), theFrameTimes.worstAtFrame(),
 						 theFrameTimes.countOver( 16.7f ), over16,
 						 theFrameTimes.countOver( 33.3f ), over33));
+	if (TheGlobalData)
+	{
+		const char *lodName = "off";
+		if (TheGameLODManager && TheGlobalData->m_enableDynamicLOD)
+		{
+			const DynamicGameLODLevel lod = TheGameLODManager->getDynamicLODLevel();
+			if (lod >= DYNAMIC_GAME_LOD_LOW && lod < DYNAMIC_GAME_LOD_COUNT)
+				lodName = TheGameLODManager->getDynamicGameLODLevelName(lod);
+		}
+		DEBUG_LOG(("QUALITY: filter %d aniso %d particles %d msaaLevel %d vsync %d shadows vol %d decal %d trees %d heat %d dynamicLOD %s\n",
+							 TheGlobalData->m_textureFilterMode,
+							 TheGlobalData->m_anisotropyLevel,
+							 TheGlobalData->m_maxParticleCount,
+							 TheGlobalData->m_msaaLevel,
+							 (Int)TheGlobalData->m_vsync,
+							 (Int)TheGlobalData->m_useShadowVolumes,
+							 (Int)TheGlobalData->m_useShadowDecals,
+							 (Int)TheGlobalData->m_useTrees,
+							 (Int)TheGlobalData->m_useHeatEffects,
+							 lodName));
+	}
 
 	if( theLogicTimes.count() > 0 )
 	{

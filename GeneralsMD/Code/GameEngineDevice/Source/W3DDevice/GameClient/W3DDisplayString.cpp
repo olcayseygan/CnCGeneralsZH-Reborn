@@ -47,6 +47,10 @@
 
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////
 #include <stdlib.h>
+#include <algorithm>
+#include <map>
+#include <string>
+#include <vector>
 
 // USER INCLUDES //////////////////////////////////////////////////////////////
 #include "GameClient/GameClient.h"
@@ -66,6 +70,29 @@
 // PRIVATE TYPES //////////////////////////////////////////////////////////////
 
 // PRIVATE DATA ///////////////////////////////////////////////////////////////
+
+// Every sentence build by the text it was built for, for the report at shutdown.  A build makes a
+// new texture, and on the Direct3D 11 frame a new copy of that texture too, so a string rebuilt
+// every frame is a texture made and thrown away every frame.
+static std::map<std::string, Int> theSentenceBuilds;
+static const size_t SENTENCE_BUILD_REPORT_LINES = 12;
+
+void W3DDisplayString_logSentenceBuilds( void )
+{
+	std::vector< std::pair<Int, std::string> > ranked;
+	Int total = 0;
+	for( std::map<std::string, Int>::const_iterator entry = theSentenceBuilds.begin();
+			 entry != theSentenceBuilds.end(); ++entry )
+	{
+		ranked.push_back( std::make_pair( entry->second, entry->first ) );
+		total += entry->second;
+	}
+	std::sort( ranked.rbegin(), ranked.rend() );
+
+	DEBUG_LOG(( "SENTENCE BUILDS: %d builds of %d distinct strings\n", total, (Int)ranked.size() ));
+	for( size_t index = 0; index < ranked.size() && index < SENTENCE_BUILD_REPORT_LINES; ++index )
+		DEBUG_LOG(( "SENTENCE BUILDS: %d '%s'\n", ranked[ index ].first, ranked[ index ].second.c_str() ));
+}
 
 // PUBLIC DATA ////////////////////////////////////////////////////////////////
 
@@ -200,6 +227,10 @@ void W3DDisplayString::draw( Int x, Int y, Color color, Color dropColor, Int xDr
 		m_fontChanged = FALSE;
 		m_textChanged = FALSE;
 		needNewPolys = TRUE;
+
+		AsciiString builtText;
+		builtText.translate( getText() );
+		++theSentenceBuilds[ builtText.str() ];
 
 	}  // end if
 
@@ -401,10 +432,15 @@ void W3DDisplayString::setWordWrap( Int wordWrap )
 
 void W3DDisplayString::setUseHotkey( Bool useHotkey, Color hotKeyColor )
 {
+	const Bool unchanged = ( m_useHotKey == useHotkey && m_hotKeyColor == hotKeyColor );
 	m_useHotKey = useHotkey;
 	m_hotKeyColor = hotKeyColor;
 	m_textRenderer.Set_Hot_Key_Parse(useHotkey);
-	notifyTextChanged();
+
+	// W3DStaticText asks again on every draw, and a rebuilt sentence is a new text texture: the money
+	// readout was built once a frame for a number that had not changed.
+	if( !unchanged )
+		notifyTextChanged();
 }
 
 // W3DDisplayString::setWordWrapCentered ======================================
