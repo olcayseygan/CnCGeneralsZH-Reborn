@@ -867,6 +867,65 @@ Int parseParticleBounce(char *args[], int)
 	return 1;
 }
 
+/* -smoke [thickness]: every particle system with "smoke" in its name burns longer and reads
+	 thicker.  Bare -smoke is 2, which is a fire that is still smoking when the wreck has stopped
+	 burning; the switch clamps at 8.
+
+	 The number is spent across particle lifetime, opacity and width rather than on any one of
+	 them, and it raises the particle ceiling with it: the eviction that enforces the shipped
+	 ceiling deletes the oldest particle first, and long-lived smoke is the oldest thing on the
+	 field, so without the extra headroom the switch would spend its own smoke to make room for
+	 sparks.  particleSmokeBoostResolve in ParticleSys.cpp is where the split lives.
+
+	 Same reason as -particlebounce for this being a switch: the shipped ParticleSystem.ini is
+	 inside INIZH.big and a loose copy would have to replace all 1088 systems to change 175. */
+Int parseSmoke(char *args[], int num)
+{
+	const Real DEFAULT_THICKNESS = 2.0f;
+
+	if (TheWritableGlobalData)
+	{
+		if (num > 1 && args[1][0] != '-')
+		{
+			TheWritableGlobalData->m_smokeThickness = (Real)atof(args[1]);
+			return 2;
+		}
+		TheWritableGlobalData->m_smokeThickness = DEFAULT_THICKNESS;
+	}
+	return 1;
+}
+
+/* -particlecap <n>: stand in for the options menu's particle slider for one run.
+
+	 The slider writes MaxParticleCount into the player's own Options.ini and the LOD manager
+	 applies it well after the command line is parsed, so this is read where the ceiling is read
+	 rather than written over the top of it.  Worth having because the shipped default is 2500 and
+	 a machine whose owner once dragged that slider left is a machine where every effect in the
+	 game is starved, which looks exactly like an effect that was never written. */
+Int parseParticleCap(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		TheWritableGlobalData->m_particleCapOverride = atoi(args[1]);
+	}
+	return 2;
+}
+
+/* -noparticleshadows: take the soft blob back off the ground under every particle cloud.
+
+	 ShadowsForParticles is on by default and the shipped INI has no entry for it, so without this
+	 there is no way to photograph a frame with the smoke and without its shadow - which is the
+	 only way to say how much of the darkening under a cloud is the decal and how much is the
+	 sprites themselves. */
+Int parseNoParticleShadows(char *args[], int)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_shadowsForParticles = FALSE;
+	}
+	return 1;
+}
+
 Int parseNoShaders(char *args[], int)
 {
 	if (TheWritableGlobalData)
@@ -2092,6 +2151,9 @@ static CommandLineParam params[] =
 	{ "-mod", parseMod },
 	{ "-noshaders", parseNoShaders },
 	{ "-particlebounce", parseParticleBounce },
+	{ "-smoke", parseSmoke },
+	{ "-particlecap", parseParticleCap },
+	{ "-noparticleshadows", parseNoParticleShadows },
 	{ "-quickstart", parseQuickStart },
 
 	{ "-packetloss", parsePacketLoss },

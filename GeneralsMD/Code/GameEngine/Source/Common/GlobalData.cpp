@@ -898,6 +898,8 @@ GlobalData::GlobalData()
 	m_drawEntireTerrain = FALSE;
 	m_maxParticleCount = 0;
 	m_particleGroundBounce = FALSE;
+	m_smokeThickness = 0.0f;
+	m_particleCapOverride = 0;
 	m_maxFieldParticleCount = 30;
 	
 	// End Add

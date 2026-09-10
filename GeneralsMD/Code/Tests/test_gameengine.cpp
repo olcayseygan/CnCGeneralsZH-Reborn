@@ -1668,6 +1668,84 @@ TEST(blob_never_smears_wider_than_the_cap)
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// Thicker, longer-lived smoke
+//////////////////////////////////////////////////////////////////////////////
+
+/*
+ * "-smoke <thickness>" is three decisions and all three are free functions: how the one
+ * number is spent, which systems it lands on, and how much headroom the particle ceiling
+ * needs so the switch does not evict its own smoke.
+ */
+
+TEST(smoke_boost_is_off_at_or_below_the_shipped_thickness)
+{
+	SmokeBoost boost;
+
+	CHECK(!particleSmokeBoostResolve(0.0f, &boost));		// the switch not given
+	CHECK(!particleSmokeBoostResolve(1.0f, &boost));		// given, asking for nothing
+	CHECK(!particleSmokeBoostResolve(0.5f, &boost));		// given, asking for less
+}
+
+TEST(smoke_boost_spends_most_of_the_number_on_time_and_the_rest_on_look)
+{
+	SmokeBoost boost;
+
+	CHECK(particleSmokeBoostResolve(3.0f, &boost));
+	CHECK_NEAR(boost.m_lifetimeScale, 3.0f, 1e-4f);
+
+	// opacity and width move, but far less than time does - a cloud three times as opaque is
+	// a grey brick
+	CHECK(boost.m_alphaScale > 1.0f);
+	CHECK(boost.m_sizeScale > 1.0f);
+	CHECK(boost.m_alphaScale < boost.m_lifetimeScale);
+	CHECK(boost.m_sizeScale < boost.m_alphaScale);
+}
+
+TEST(smoke_boost_clamps_an_absurd_thickness)
+{
+	SmokeBoost boost;
+
+	CHECK(particleSmokeBoostResolve(1000.0f, &boost));
+	CHECK_NEAR(boost.m_lifetimeScale, 8.0f, 1e-4f);
+}
+
+TEST(smoke_name_match_is_case_insensitive_and_anywhere_in_the_name)
+{
+	CHECK(particleSmokeNameMatches("SmokeTrail"));
+	CHECK(particleSmokeNameMatches("BuildingSmokeLarge"));
+	CHECK(particleSmokeNameMatches("GenericBlackSMOKE"));
+	CHECK(particleSmokeNameMatches("smoke"));
+}
+
+TEST(smoke_name_match_leaves_everything_else_alone)
+{
+	CHECK(!particleSmokeNameMatches("FireballLarge"));
+	CHECK(!particleSmokeNameMatches("SparkShower"));
+	CHECK(!particleSmokeNameMatches("Smok"));					// a prefix of the word is not the word
+	CHECK(!particleSmokeNameMatches(""));
+	CHECK(!particleSmokeNameMatches(NULL));
+}
+
+TEST(smoke_cap_leaves_the_shipped_ceiling_alone_when_the_switch_is_off)
+{
+	CHECK_EQ(particleSmokeParticleCap(2500, 0.0f), 2500);
+	CHECK_EQ(particleSmokeParticleCap(2500, 1.0f), 2500);
+}
+
+TEST(smoke_cap_never_overrides_a_player_who_asked_for_no_particles)
+{
+	// the options slider goes to zero and that means zero, switch or no switch
+	CHECK_EQ(particleSmokeParticleCap(0, 8.0f), 0);
+}
+
+TEST(smoke_cap_grows_with_the_thickness_and_stops_at_the_ceiling)
+{
+	CHECK_EQ(particleSmokeParticleCap(2500, 2.0f), 5000);
+	CHECK(particleSmokeParticleCap(2500, 4.0f) > particleSmokeParticleCap(2500, 2.0f));
+	CHECK_EQ(particleSmokeParticleCap(20000, 8.0f), 20000);
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // The in-flight damage ledger
 //////////////////////////////////////////////////////////////////////////////
 

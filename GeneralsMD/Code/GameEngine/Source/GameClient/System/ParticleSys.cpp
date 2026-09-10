@@ -433,6 +433,89 @@ Bool particleShadowBlobResolve( const ParticleShadowBlob *blob, Real *centerX, R
 }
 
 // ------------------------------------------------------------------------------------------------
+/** Spend "-smoke <thickness>" across the three properties that make smoke read as smoke.  See
+ * ParticleSys.h for why it is not all spent on one of them. */
+// ------------------------------------------------------------------------------------------------
+Bool particleSmokeBoostResolve( Real thickness, SmokeBoost *boost )
+{
+	// Past this the cloud stops being smoke and starts being a grey wall that never lifts, and
+	// the particle ceiling below cannot keep up with it either.
+	const Real MAX_THICKNESS = 8.0f;
+
+	// Of everything asked for beyond the shipped value, this share goes to opacity and this share
+	// to particle width; the rest goes to time.  Both are well under half deliberately: doubling
+	// the life of a cloud is barely noticeable, doubling its opacity is not subtle at all.
+	const Real ALPHA_SHARE = 0.35f;
+	const Real SIZE_SHARE = 0.25f;
+
+	if (thickness <= 1.0f)
+		return FALSE;
+
+	if (thickness > MAX_THICKNESS)
+		thickness = MAX_THICKNESS;
+
+	Real excess = thickness - 1.0f;
+	boost->m_lifetimeScale = thickness;
+	boost->m_alphaScale = 1.0f + excess * ALPHA_SHARE;
+	boost->m_sizeScale = 1.0f + excess * SIZE_SHARE;
+
+	return TRUE;
+}
+
+// ------------------------------------------------------------------------------------------------
+static char particleNameLowerCased( char letter )
+{
+	return (letter >= 'A' && letter <= 'Z') ? (char)(letter - 'A' + 'a') : letter;
+}
+
+// ------------------------------------------------------------------------------------------------
+/** Case-insensitive search for "smoke" anywhere in a template name.  Every shipped system is
+ * named by hand and 175 of the 1088 in INIZH.big carry the word, from SmokeTrail through
+ * BuildingSmokeLarge; matching the word is the only handle there is without editing an INI that
+ * lives inside a .big. */
+// ------------------------------------------------------------------------------------------------
+Bool particleSmokeNameMatches( const char *name )
+{
+	static const char WORD[] = "smoke";
+	const Int WORD_LENGTH = sizeof(WORD) - 1;
+
+	if (name == NULL)
+		return FALSE;
+
+	for( const char *at = name; *at != '\0'; ++at )
+	{
+		Int matched = 0;
+		while( matched < WORD_LENGTH && particleNameLowerCased( at[ matched ] ) == WORD[ matched ] )
+			++matched;
+
+		if (matched == WORD_LENGTH)
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
+// ------------------------------------------------------------------------------------------------
+/** The ceiling "-smoke" needs.  A cloud that lives N times as long has N times as much of itself
+ * in the air at once, and the eviction that enforces the shipped ceiling takes the oldest particle
+ * first - which is the smoke, every time. */
+// ------------------------------------------------------------------------------------------------
+Int particleSmokeParticleCap( Int shippedCap, Real thickness )
+{
+	// A number this side of the vertex buffers the particle renderer fills each frame.  Reaching
+	// it at all means something on the field is emitting far more than the smoke this switch
+	// touches, and the shipped eviction is the right answer again at that point.
+	const Int CAP_CEILING = 20000;
+
+	// zero is the player asking for no particles at all, and no switch overrides that
+	if (shippedCap <= 0 || thickness <= 1.0f)
+		return shippedCap;
+
+	Int raised = REAL_TO_INT( shippedCap * thickness );
+	return (raised > CAP_CEILING) ? CAP_CEILING : raised;
+}
+
+// ------------------------------------------------------------------------------------------------
 /** Collide a particle with the ground.  The velocity is split into the part heading into the
  * surface and the part sliding along it: the first is reflected and scaled by 'bounce', the
  * second scaled by 'friction'.  Working off the terrain normal rather than a flat Z flip means
@@ -1861,7 +1944,13 @@ Particle *ParticleSystem::createParticle( const ParticleInfo *info,
 		// ALWAYS_RENDER particles are exempt from all count limits, and are always created, regardless of LOD issues.
 		if (priority != ALWAYS_RENDER)
 		{
-			int numInExcess = TheParticleSystemManager->getParticleCount() - (UnsignedInt)TheGlobalData->m_maxParticleCount;
+			// "-particlecap" stands in for the options slider, which the LOD manager applies long
+			// after the command line is parsed
+			Int shippedCap = (TheGlobalData->m_particleCapOverride > 0)
+												 ? TheGlobalData->m_particleCapOverride
+												 : TheGlobalData->m_maxParticleCount;
+			Int particleCap = particleSmokeParticleCap( shippedCap, TheGlobalData->m_smokeThickness );
+			int numInExcess = TheParticleSystemManager->getParticleCount() - (UnsignedInt)particleCap;
 			if ( numInExcess > 0)
 			{
 				if( TheParticleSystemManager->removeOldestParticles((UnsignedInt) numInExcess, priority) != numInExcess )
@@ -3059,6 +3148,56 @@ ParticleSystemTemplate::~ParticleSystemTemplate()
 }
 
 // ------------------------------------------------------------------------------------------------
+/** Make this system's smoke last longer and read thicker ("-smoke"). */
+// ------------------------------------------------------------------------------------------------
+void ParticleSystemTemplate::forceSmokeBoost( const SmokeBoost &boost )
+{
+	// Smoke that outlives the explosion has to outrank it: removeOldestParticles only takes
+	// particles below the priority of whatever is asking for room, so smoke left down among the
+	// weapon effects is deleted by the next shell that lands.  AREA_EFFECT and above are left
+	// alone - AREA_EFFECT carries its own field-particle ceiling and CRITICAL is the superweapons.
+	const ParticlePriorityType PRIORITY_FLOOR = SEMI_CONSTANT;
+
+	m_lifetime.setRange( m_lifetime.getMinimumValue() * boost.m_lifetimeScale,
+											 m_lifetime.getMaximumValue() * boost.m_lifetimeScale,
+											 m_lifetime.getDistributionType() );
+
+	// zero means the emitter never stops on its own, and scaling that is still never
+	m_systemLifetime = (UnsignedInt)(m_systemLifetime * boost.m_lifetimeScale);
+
+	m_startSize.setRange( m_startSize.getMinimumValue() * boost.m_sizeScale,
+												m_startSize.getMaximumValue() * boost.m_sizeScale,
+												m_startSize.getDistributionType() );
+
+	// Growth is per frame.  Left alone against a longer life the cloud would swell far past the
+	// width the art asked for; slowed by the same factor it reaches the same width, later.
+	m_sizeRate.setRange( m_sizeRate.getMinimumValue() / boost.m_lifetimeScale,
+											 m_sizeRate.getMaximumValue() / boost.m_lifetimeScale,
+											 m_sizeRate.getDistributionType() );
+
+	for( Int keyframe = 0; keyframe < MAX_KEYFRAMES; ++keyframe )
+	{
+		// Keyframe times are frame numbers counted from the particle's birth, so a particle that
+		// lives twice as long against the shipped times spends the extra life at its last key -
+		// which for smoke is fully transparent.  The extra life would be invisible.
+		m_alphaKey[ keyframe ].frame =
+			(UnsignedInt)(m_alphaKey[ keyframe ].frame * boost.m_lifetimeScale);
+		m_colorKey[ keyframe ].frame =
+			(UnsignedInt)(m_colorKey[ keyframe ].frame * boost.m_lifetimeScale);
+
+		Real low = m_alphaKey[ keyframe ].var.getMinimumValue() * boost.m_alphaScale;
+		Real high = m_alphaKey[ keyframe ].var.getMaximumValue() * boost.m_alphaScale;
+		if (low > 1.0f) low = 1.0f;
+		if (high > 1.0f) high = 1.0f;
+		m_alphaKey[ keyframe ].var.setRange( low, high,
+																				 m_alphaKey[ keyframe ].var.getDistributionType() );
+	}
+
+	if (m_priority < PRIORITY_FLOOR)
+		m_priority = PRIORITY_FLOOR;
+}
+
+// ------------------------------------------------------------------------------------------------
 /** If returns non-NULL, it is a slave system for use ... the create slaves parameter
  * tells *this* slave system whether or not it should create any slaves itself
  * automatically during its own constructor */
@@ -3094,6 +3233,7 @@ ParticleSystemManager::ParticleSystemManager( void )
 	m_lastLogicFrameUpdate = 0;
 	m_particleCount = 0;
 	m_fieldParticleCount = 0;
+	m_groundShadowCount = 0;
 	m_particleSystemCount = 0;
 	//
 
@@ -3139,6 +3279,31 @@ void ParticleSystemManager::init( void )
 							(Int)m_templateMap.size()));
 	}
 
+	// "-smoke <thickness>" on the command line: every system with "smoke" in its name burns longer
+	// and reads thicker.  Same reason this is here rather than in an INI - the shipped
+	// ParticleSystem.ini is inside INIZH.big and a loose copy would have to replace all 1088 of them.
+	SmokeBoost smokeBoost;
+	if( TheGlobalData && particleSmokeBoostResolve( TheGlobalData->m_smokeThickness, &smokeBoost ) )
+	{
+		Int boosted = 0;
+		for( TemplateMap::iterator it = m_templateMap.begin(); it != m_templateMap.end(); ++it )
+		{
+			if( particleSmokeNameMatches( it->second->getName().str() ) )
+			{
+				it->second->forceSmokeBoost( smokeBoost );
+				++boosted;
+			}
+		}
+
+		// The particle ceiling is not reported here on purpose: at this point in startup it is
+		// still the built-in default and the player's own slider has not been applied yet.  It is
+		// read, and scaled, per particle in createParticle.
+		DEBUG_LOG(("-smoke %.2f: %d of %d particle systems boosted, lifetime x%.2f alpha x%.2f "
+							 "size x%.2f\n", TheGlobalData->m_smokeThickness, boosted,
+							 (Int)m_templateMap.size(), smokeBoost.m_lifetimeScale, smokeBoost.m_alphaScale,
+							 smokeBoost.m_sizeScale));
+	}
+
 	// sanity, our lists must be empty!!
 	for( Int i = 0; i < NUM_PARTICLE_PRIORITIES; ++i )
 	{
@@ -3182,6 +3347,7 @@ void ParticleSystemManager::reset( void )
 
 	m_particleCount = 0;
 	m_fieldParticleCount = 0;
+	m_groundShadowCount = 0;
 	m_particleSystemCount = 0;
 	m_allParticleSystemMap.clear();
 
@@ -3207,7 +3373,9 @@ void ParticleSystemManager::update( void )
 	USE_PERF_TIMER(ParticleSystemManager)
 	ParticleSystem *sys;
 
-	for(ParticleSystemListIt it = m_allParticleSystemList.begin(); it != m_allParticleSystemList.end();) 
+	m_groundShadowCount = 0;
+
+	for(ParticleSystemListIt it = m_allParticleSystemList.begin(); it != m_allParticleSystemList.end();)
 	{
 		sys = (*it);
 		if (!sys) {
@@ -3219,8 +3387,22 @@ void ParticleSystemManager::update( void )
 			++it;
 			sys->deleteInstance();
 		} else {
+			if (sys->hasGroundShadow())
+				++m_groundShadowCount;
 			++it;
 		}
+	}
+
+	// The one number that says what a particle switch actually did, and the only way to compare two
+	// runs at all: two launches of the same seed and the same scenario do not produce the same
+	// frame, so a pixel difference between their screenshots measures the divergence rather than
+	// the change.  Grep the log for PARTICLES.
+	const UnsignedInt REPORT_INTERVAL = 100;
+	if (m_lastLogicFrameUpdate % REPORT_INTERVAL == 0)
+	{
+		DEBUG_LOG(("PARTICLES frame %d: %d particles in %d systems, %d ground shadows\n",
+							 m_lastLogicFrameUpdate, m_particleCount, m_particleSystemCount,
+							 m_groundShadowCount));
 	}
 }
 
