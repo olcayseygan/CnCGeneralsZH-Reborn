@@ -1341,7 +1341,26 @@ void GameEngine_noteFrameTime( Real ms, UnsignedInt logicFrame )
 	const Real SLOW_PASS_MS = 25.0f;
 	if( ms > SLOW_PASS_MS && TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
 	{
-		DEBUG_LOG(("SLOW PASS frame %d: %.1f ms\n", logicFrame, ms));
+		/* A crowd over the bar every pass used to write and fflush a line 30 times
+			 a second. Once a second is enough to see the pass is still slow. */
+		static UnsignedInt s_lastSlowPassLogFrame = 0;
+		static Int s_slowPassSkipped = 0;
+		if( logicFrame < s_lastSlowPassLogFrame )
+		{
+			s_lastSlowPassLogFrame = 0;
+			s_slowPassSkipped = 0;
+		}
+		if( logicFrame >= s_lastSlowPassLogFrame + LOGICFRAMES_PER_SECOND )
+		{
+			if( s_slowPassSkipped )
+				DEBUG_LOG(("SLOW PASS frame %d: %.1f ms (%d more since last)\n", logicFrame, ms, s_slowPassSkipped));
+			else
+				DEBUG_LOG(("SLOW PASS frame %d: %.1f ms\n", logicFrame, ms));
+			s_lastSlowPassLogFrame = logicFrame;
+			s_slowPassSkipped = 0;
+		}
+		else
+			++s_slowPassSkipped;
 	}
 
 	if( !theFrameTimesStarted )
