@@ -133,6 +133,7 @@ public:
 	void push( AsciiString filename, Bool shutdownImmediate = FALSE );	///< load new screen on top, optionally doing an immediate shutdown
 	void pop( void );																				///< pop top layout
 	void popImmediate( void );															///< pop now, don't wait for shutdown
+	void popImmediateIntoGame( void );											///< pop now for a game about to load, leaving the screen underneath asleep
 	void showShell( Bool runInit = TRUE );									///< init the top of stack
 	void hideShell( void );																	///< shutdown the top of stack
 	WindowLayout *top( void );															///< return top layout
@@ -166,6 +167,7 @@ protected:
 
 	void doPush( AsciiString layoutFile );									///< workhorse for push action
 	void doPop( Bool impendingPush );												///< workhorse for pop action
+	Bool shutdownTopForImmediatePop( void );								///< run the top screen's shutdown ahead of an immediate pop, FALSE on an empty stack
 
 	enum { MAX_SHELL_STACK = 16 };													///< max simultaneous shell screens
 	WindowLayout *m_screenStack[ MAX_SHELL_STACK ];					///< the screen layout stack

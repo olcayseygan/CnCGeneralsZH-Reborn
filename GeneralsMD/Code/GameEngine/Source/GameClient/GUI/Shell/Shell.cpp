@@ -415,11 +415,41 @@ void Shell::pop( void )
 //-------------------------------------------------------------------------------------------------
 void Shell::popImmediate( void )
 {
+	if( !shutdownTopForImmediatePop() )
+		return;
+
+	// pop the screen of the stack
+	doPop( FALSE );
+
+	if (TheIMEManager)
+		TheIMEManager->detatch();
+
+}  // end popImmediate
+
+//-------------------------------------------------------------------------------------------------
+/** The immediate pop for a game that is about to load.  popImmediate runs the init of whatever the
+	* pop uncovers, and between two campaign missions that is the main menu: its init shows the
+	* buttons, brings the layout forward and queues the shell map as a new game ahead of the next
+	* mission, so the menu came up over the load.  Here the uncovered screen is left as it was, and
+	* showShell wakes it when the game ends and the shell comes back. */
+//-------------------------------------------------------------------------------------------------
+void Shell::popImmediateIntoGame( void )
+{
+	if( !shutdownTopForImmediatePop() )
+		return;
+
+	doPop( TRUE );
+
+}  // end popImmediateIntoGame
+
+//-------------------------------------------------------------------------------------------------
+Bool Shell::shutdownTopForImmediatePop( void )
+{
 	WindowLayout *screen = top();
 
 	// sanity
 	if( screen == NULL )
-		return;
+		return FALSE;
 
 #ifdef DEBUG_LOGGING
 	DEBUG_LOG(("Shell:popImmediate() - stack was\n"));
@@ -435,14 +465,9 @@ void Shell::popImmediate( void )
 	// run the shutdown
 	Bool immediatePop = TRUE;
 	screen->runShutdown( &immediatePop );
+	return TRUE;
 
-	// pop the screen of the stack
-	doPop( FALSE );
-
-	if (TheIMEManager)
-		TheIMEManager->detatch();
-
-}  // end popImmediate
+}  // end shutdownTopForImmediatePop
 
 //-------------------------------------------------------------------------------------------------
 /** Run the initialize function for the top of the stack just as though it was pushed
