@@ -160,7 +160,10 @@ static Bool buttonPushed = FALSE;
 static Bool stillNeedsToSetOptions = FALSE;
 void skirmishUpdateSlotList( void );
 static void populateSkirmishBattleHonors( void );
-enum{ GREATER_NO_FPS_LIMIT = 60};
+// The slider used to run one notch past 60 to a "--" that started the match at 1000 logic frames a
+// second. It is 15 to 60 now, and a preference saved at the old top notch lands on 60.
+static const Int SKIRMISH_GAME_SPEED_MIN = 15;
+static const Int SKIRMISH_GAME_SPEED_MAX = 60;
 Bool doUpdateSlotList = TRUE;
 
 static Int getNextSelectablePlayer(Int start)
@@ -401,14 +404,7 @@ void setFPSTextBox( Int sliderPos )
 		return;
 	UnicodeString text;
 	staticTextGameSpeed->winEnable(TRUE);
-	if(sliderPos > GREATER_NO_FPS_LIMIT)
-	{
-		// set static text to --
-		text.set(L"--");
-		GadgetStaticTextSetText(staticTextGameSpeed, text);
-		return;
-	}
-	else if( sliderPos == TheGlobalData->m_framesPerSecondLimit )
+	if( sliderPos == TheGlobalData->m_framesPerSecondLimit )
 	{
 		// set different color
 		staticTextGameSpeed->winEnable(FALSE);
@@ -426,10 +422,7 @@ void reallyDoStart( void )
 	GameWindow *sliderGameSpeed = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, sliderGameSpeedID );
 	Int maxFPS = GadgetSliderGetPosition( sliderGameSpeed );
 	DEBUG_LOG(("GameSpeedSlider was at %d\n", maxFPS));
-	if (maxFPS > GREATER_NO_FPS_LIMIT)
-		maxFPS = 1000;
-	if (maxFPS < 15)
-		maxFPS = 15;
+	maxFPS = max( SKIRMISH_GAME_SPEED_MIN, min( SKIRMISH_GAME_SPEED_MAX, maxFPS ) );
 
   TheWritableGlobalData->m_mapName = TheSkirmishGameInfo->getMap();
   TheSkirmishGameInfo->startGame(0);
@@ -1395,7 +1388,7 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
 	// set up the game speed slider
 //	NameKeyType sliderGameSpeedID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:SliderGameSpeed" ) );
 	GameWindow *sliderGameSpeed = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, sliderGameSpeedID );
-	Int sliderPos = max(15,min(61,prefs.getInt("FPS", TheGlobalData->m_framesPerSecondLimit)));
+	Int sliderPos = max(SKIRMISH_GAME_SPEED_MIN,min(SKIRMISH_GAME_SPEED_MAX,prefs.getInt("FPS", TheGlobalData->m_framesPerSecondLimit)));
 	GadgetSliderSetPosition( sliderGameSpeed, sliderPos );
 	setFPSTextBox(sliderPos);
 	buttonStart->winSetText(TheGameText->fetch("GUI:Start"));
