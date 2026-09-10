@@ -80,6 +80,8 @@ void MissingTexture::_Init()
 		WW3D_FORMAT_A8R8G8B8,
 		MIP_LEVELS_ALL
 	);
+	if (tex == NULL)
+		return;
 
 	D3DLOCKED_RECT locked_rect;
 	RECT rect;

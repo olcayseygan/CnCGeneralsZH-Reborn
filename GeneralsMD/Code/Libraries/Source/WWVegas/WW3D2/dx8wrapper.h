@@ -541,6 +541,8 @@ public:
 	static bool					Get_Requested_VSync (void);
 	// Samples per pixel actually in use, 0 if not multisampling.
 	static unsigned				Get_MultiSample_Level (void);
+	// True when the swap chain is FlipEx (9Ex).  MSAA then lives on a scene target.
+	static bool					Is_Flip_Present (void);
 	// Depth/stencil to use with a non-multisampled render target; NULL if not multisampling.
 	static IDirect3DSurface9 *	_Get_Non_MultiSampled_Depth_Buffer (void);
 	static bool					Is_Render_To_Texture(void) { return IsRenderToTexture; }

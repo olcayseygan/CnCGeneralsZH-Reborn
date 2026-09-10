@@ -78,6 +78,16 @@
 //#pragma message("************************************** WARNING, optimization disabled for debugging purposes")
 #endif
 
+// Ask the driver to put this process on the discrete GPU.  Adapter 0 is Intel UHD
+// 630 on this machine; 16x MSAA on it TDRs.  The export is what NVIDIA Optimus and
+// AMD PowerXpress read before WinMain.  DX8Wrapper still picks the discrete adapter
+// by vendor id, which is what actually selects the device on a desktop.
+extern "C"
+{
+	__declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
+	__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+
 // GLOBALS ////////////////////////////////////////////////////////////////////
 HINSTANCE ApplicationHInstance = NULL;  ///< our application instance
 HWND ApplicationHWnd = NULL;  ///< our application window handle
@@ -841,7 +851,10 @@ static Bool initializeAppWindows( HINSTANCE hInstance, Int nCmdShow, Bool runWin
 		SetFocus(hWnd);
 
 		SetForegroundWindow(hWnd);
-		ShowWindow( hWnd, nCmdShow );
+		// A drawing game has to be on the screen. nCmdShow from a service or a job is often
+		// SW_HIDE, which is already what -headless asked for above; honouring it here takes
+		// the picture off the screen and the device with it.
+		ShowWindow( hWnd, SW_SHOWNORMAL );
 		UpdateWindow( hWnd );
 	}
 

@@ -379,6 +379,36 @@ typedef IDirect3D9* (WINAPI *Direct3DCreate9Type) (UINT SDKVersion);
 Direct3DCreate9Type	Direct3DCreate9Ptr = NULL;
 HINSTANCE D3D9Lib = NULL;
 
+static int Score_Render_Adapter(const RenderDeviceDescClass &desc)
+{
+	const D3DADAPTER_IDENTIFIER9 &id = desc.Get_Adapter_Identifier();
+	if (strstr(id.Description, "Basic Render") != NULL)
+		return -1000;
+	// Discrete first. Adapter 0 on this machine is Intel UHD 630; 16x MSAA on it TDRs
+	// and the lost device then dies in Bink's surface lock. NVIDIA is 0x10DE, AMD 0x1002.
+	if (id.VendorId == 0x10DE || id.VendorId == 0x1002)
+		return 200;
+	if (id.VendorId == 0x8086)
+		return 0;
+	return 100;
+}
+
+static int Find_Preferred_Render_Device(void)
+{
+	int best = 0;
+	int bestScore = -10000;
+	for (int i = 0; i < _RenderDeviceDescriptionTable.Count(); ++i)
+	{
+		const int score = Score_Render_Adapter(_RenderDeviceDescriptionTable[i]);
+		if (score > bestScore)
+		{
+			bestScore = score;
+			best = i;
+		}
+	}
+	return best;
+}
+
 DX8_CleanupHook	 *DX8Wrapper::m_pCleanupHook=NULL;
 #ifdef EXTENDED_STATS
 DX8_Stats	 DX8Wrapper::stats;
@@ -474,7 +504,7 @@ bool DX8Wrapper::Init(void * hwnd, bool lite)
 		** Create the D3D interface object
 		*/
 		WWDEBUG_SAY(("Create Direct3D9\n"));
-		D3DInterface = Direct3DCreate9Ptr(D3D_SDK_VERSION);		// TODO: handle failure cases...
+		D3DInterface = Direct3DCreate9Ptr(D3D_SDK_VERSION);
 		if (D3DInterface == NULL) {
 			return(false);
 		}
@@ -508,7 +538,6 @@ void DX8Wrapper::Shutdown(void)
 	if (D3DInterface) {
 		D3DInterface->Release();
 		D3DInterface=NULL;
-
 	}
 
 	Unbind_D3DX9_Runtime();
@@ -777,8 +806,22 @@ bool DX8Wrapper::Create_Device(void)
 		_Hwnd,
 		Vertex_Processing_Behavior,
 		&_PresentParameters,
-		&D3DDevice 
+		&D3DDevice
 	);
+
+	if (FAILED(hr) && CurRenderDevice != 0)
+	{
+		CurRenderDevice = 0;
+		hr=D3DInterface->CreateDevice
+		(
+			CurRenderDevice,
+			WW3D_DEVTYPE,
+			_Hwnd,
+			Vertex_Processing_Behavior,
+			&_PresentParameters,
+			&D3DDevice
+		);
+	}
 
 	if (FAILED(hr)) 
 	{
@@ -1109,9 +1152,13 @@ bool DX8Wrapper::Set_Render_Device(int dev, int width, int height, int bits, int
 	/*
 	** If user has never selected a render device, start out with device 0
 	*/
-	if ((CurRenderDevice == -1) && (dev == -1)) {
-		CurRenderDevice = 0;
-	} else if (dev != -1) {
+	if (CurRenderDevice == -1) {
+		// 0 from W3DDisplay is "the default adapter", not "whichever Intel sits at index 0".
+		if (dev == -1 || dev == 0)
+			CurRenderDevice = Find_Preferred_Render_Device();
+		else
+			CurRenderDevice = dev;
+	} else if (dev != -1 && dev != 0) {
 		CurRenderDevice = dev;
 	}
 	
@@ -1232,7 +1279,7 @@ bool DX8Wrapper::Set_Render_Device(int dev, int width, int height, int bits, int
 			return false;
 		}
 
-		if (BitDepth==32 && D3DInterface->CheckDeviceType(0,D3DDEVTYPE_HAL,desktop_mode.Format,D3DFMT_A8R8G8B8, TRUE) == D3D_OK)
+		if (BitDepth==32 && D3DInterface->CheckDeviceType(CurRenderDevice,D3DDEVTYPE_HAL,desktop_mode.Format,D3DFMT_A8R8G8B8, TRUE) == D3D_OK)
 		{	//promote 32-bit modes to include destination alpha
 			_PresentParameters.BackBufferFormat = D3DFMT_A8R8G8B8;
 		}
@@ -3743,6 +3790,11 @@ void DX8Wrapper::Set_Render_Target_With_Z
 unsigned DX8Wrapper::Get_MultiSample_Level(void)
 {
 	return (unsigned)_PresentParameters.MultiSampleType;
+}
+
+bool DX8Wrapper::Is_Flip_Present(void)
+{
+	return false;
 }
 
 IDirect3DSurface9 * DX8Wrapper::_Get_Non_MultiSampled_Depth_Buffer(void)

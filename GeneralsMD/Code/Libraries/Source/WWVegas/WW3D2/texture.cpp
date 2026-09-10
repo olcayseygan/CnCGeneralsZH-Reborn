@@ -1022,7 +1022,10 @@ SurfaceClass *TextureClass::Get_Surface_Level(unsigned int level)
 	}
 
 	IDirect3DSurface9 *d3d_surface = NULL;
-	DX8_ErrorCode(Peek_D3D_Texture()->GetSurfaceLevel(level, &d3d_surface));
+	HRESULT hr = Peek_D3D_Texture()->GetSurfaceLevel(level, &d3d_surface);
+	if (FAILED(hr) || d3d_surface == NULL)
+		return 0;
+
 	SurfaceClass *surface = new SurfaceClass(d3d_surface);
 	d3d_surface->Release();
 

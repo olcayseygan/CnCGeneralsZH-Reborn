@@ -1399,6 +1399,27 @@ static void reportFrameTimeStats( void )
 						 theFrameTimes.worstMS(), theFrameTimes.worstAtFrame(),
 						 theFrameTimes.countOver( 16.7f ), over16,
 						 theFrameTimes.countOver( 33.3f ), over33));
+	if (TheGlobalData)
+	{
+		const char *lodName = "off";
+		if (TheGameLODManager && TheGlobalData->m_enableDynamicLOD)
+		{
+			const DynamicGameLODLevel lod = TheGameLODManager->getDynamicLODLevel();
+			if (lod >= DYNAMIC_GAME_LOD_LOW && lod < DYNAMIC_GAME_LOD_COUNT)
+				lodName = TheGameLODManager->getDynamicGameLODLevelName(lod);
+		}
+		DEBUG_LOG(("QUALITY: filter %d aniso %d particles %d msaaLevel %d vsync %d shadows vol %d decal %d trees %d heat %d dynamicLOD %s\n",
+							 TheGlobalData->m_textureFilterMode,
+							 TheGlobalData->m_anisotropyLevel,
+							 TheGlobalData->m_maxParticleCount,
+							 TheGlobalData->m_msaaLevel,
+							 (Int)TheGlobalData->m_vsync,
+							 (Int)TheGlobalData->m_useShadowVolumes,
+							 (Int)TheGlobalData->m_useShadowDecals,
+							 (Int)TheGlobalData->m_useTrees,
+							 (Int)TheGlobalData->m_useHeatEffects,
+							 lodName));
+	}
 
 	if( theLogicTimes.count() > 0 )
 	{

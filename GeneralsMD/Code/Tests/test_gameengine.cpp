@@ -61,6 +61,7 @@
 #include "Common/GlobalData.h"
 #include "Common/EarlyOptions.h"
 #include "Common/OptionsCatalog.h"
+#include "Common/GameLOD.h"
 #include "Common/UserPreferences.h"
 #include "GameNetwork/NetworkUtil.h"
 #include "Common/Recorder.h"
@@ -9948,6 +9949,43 @@ TEST(vsync_is_off_until_the_player_asks)
 
 	TheWritableGlobalData = saved;
 	delete scratch;
+}
+
+TEST(texture_filter_defaults_to_anisotropic)
+{
+	const OptionDef *filter = findOptionDef( "TextureFilter" );
+	CHECK( filter != NULL );
+	CHECK_EQ( (Int)filter->kind, (Int)OPTION_INT );
+	CHECK_EQ( filter->lo, 0 );
+	CHECK_EQ( filter->hi, 2 );
+
+	const OptionDef *aniso = findOptionDef( "Anisotropy" );
+	CHECK( aniso != NULL );
+	CHECK_EQ( aniso->lo, 0 );
+	CHECK_EQ( aniso->hi, 16 );
+
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+
+	// 2 is anisotropic. 0 anisotropy is "whatever the card offers", not a downgrade to off.
+	CHECK_EQ( scratch->m_textureFilterMode, 2 );
+	CHECK_EQ( scratch->m_anisotropyLevel, 0 );
+	CHECK_EQ( scratch->m_vsync, FALSE );
+
+	TheWritableGlobalData = saved;
+	delete scratch;
+}
+
+TEST(high_static_lod_keeps_the_picture_settings)
+{
+	StaticGameLODInfo high;
+	CHECK_EQ( high.m_maxParticleCount, 2500 );
+	CHECK_EQ( (Int)high.m_useShadowVolumes, 1 );
+	CHECK_EQ( (Int)high.m_useShadowDecals, 1 );
+	CHECK_EQ( (Int)high.m_useTrees, 1 );
+	CHECK_EQ( (Int)high.m_useHeatEffects, 1 );
+	CHECK_EQ( high.m_textureReduction, 0 );
 }
 
 TEST(window_mode_derives_the_boolean_the_device_layer_reads)

@@ -11,6 +11,7 @@ found and fixed â€” EA's own, not port damage.**
 ## The frame rate cap is gone
 
 - The picture now runs uncapped; the rules keep their own steady clock.
+- On a machine with two graphics chips, the game used to draw on the first one it found, which was the slow one. It now uses the dedicated card, and a match holds about 260 frames a second with the trees, the shadows and the filtering left on.
 - Display options has a vertical sync box. Off, the picture still runs free. On, it waits for the monitor so the frame does not tear. The box takes effect when you Accept.
 - A slow moment costs you a dropped frame, not a slow game.
 - Every animation runs on a clock instead of counting frames.

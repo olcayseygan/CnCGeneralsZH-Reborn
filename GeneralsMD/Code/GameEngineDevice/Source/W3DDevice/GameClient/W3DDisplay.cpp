@@ -1111,6 +1111,27 @@ void W3DDisplay::init( void )
 	// device supports, so log what was actually granted
 	DEBUG_LOG(("W3DDisplay::init - multisampling: %ux\n", DX8Wrapper::Get_MultiSample_Level()));
 	DEBUG_LOG(("W3DDisplay::init - vsync: %s\n", DX8Wrapper::Get_Requested_VSync() ? "on" : "off"));
+	DEBUG_LOG(("W3DDisplay::init - present: %s\n", DX8Wrapper::Is_Flip_Present() ? "flip" : "discard"));
+	DEBUG_LOG(("W3DDisplay::init - adapter: %s\n",
+						 WW3D::Get_Render_Device_Name(WW3D::Get_Render_Device())));
+	{
+		const char *lodName = "off";
+		if (TheGameLODManager && TheGlobalData && TheGlobalData->m_enableDynamicLOD)
+		{
+			const DynamicGameLODLevel lod = TheGameLODManager->getDynamicLODLevel();
+			if (lod >= DYNAMIC_GAME_LOD_LOW && lod < DYNAMIC_GAME_LOD_COUNT)
+				lodName = TheGameLODManager->getDynamicGameLODLevelName(lod);
+		}
+		DEBUG_LOG(("W3DDisplay::init - quality: filter %d aniso %d particles %d shadows vol %d decal %d trees %d heat %d dynamicLOD %s\n",
+							 TheGlobalData ? TheGlobalData->m_textureFilterMode : -1,
+							 TheGlobalData ? TheGlobalData->m_anisotropyLevel : -1,
+							 TheGlobalData ? TheGlobalData->m_maxParticleCount : -1,
+							 TheGlobalData ? (Int)TheGlobalData->m_useShadowVolumes : -1,
+							 TheGlobalData ? (Int)TheGlobalData->m_useShadowDecals : -1,
+							 TheGlobalData ? (Int)TheGlobalData->m_useTrees : -1,
+							 TheGlobalData ? (Int)TheGlobalData->m_useHeatEffects : -1,
+							 lodName));
+	}
 
 	//Check if level was never set and default to setting most suitable for system.
 	if (TheGameLODManager->getStaticLODLevel() == STATIC_GAME_LOD_UNKNOWN)
