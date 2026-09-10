@@ -107,6 +107,7 @@ TEST(ffshadercompile_every_operation_compiles_on_both_profiles)
 	const size_t operation_count = sizeof(MEASURED_OPERATIONS)/sizeof(MEASURED_OPERATIONS[0]);
 	for (size_t index = 0; index < operation_count; ++index) {
 		CombinerDescription description;
+		memset(&description, 0, sizeof(description));
 		description.StageCount = 1;
 		description.Stages[0] = one_stage(MEASURED_OPERATIONS[index], D3DTA_TEXTURE, D3DTA_DIFFUSE,
 			MEASURED_OPERATIONS[index], D3DTA_TEXTURE, D3DTA_DIFFUSE, 0, true);
@@ -132,6 +133,7 @@ TEST(ffshadercompile_the_widest_measured_program_compiles)
 	}
 
 	CombinerDescription description;
+	memset(&description, 0, sizeof(description));
 	description.StageCount = 2;
 	description.Stages[0] = one_stage(D3DTOP_MULTIPLYADD, D3DTA_TEXTURE, D3DTA_DIFFUSE,
 		D3DTOP_SELECTARG1, D3DTA_TEXTURE, D3DTA_CURRENT, 0, true);
@@ -191,6 +193,7 @@ TEST(ffshadercompile_the_tree_shadow_program_compiles)
 	}
 
 	CombinerDescription description;
+	memset(&description, 0, sizeof(description));
 	description.StageCount = 1;
 	description.Stages[0] = one_stage(D3DTOP_SELECTARG1, D3DTA_TFACTOR, D3DTA_DIFFUSE,
 		D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_TFACTOR, 0, true);
