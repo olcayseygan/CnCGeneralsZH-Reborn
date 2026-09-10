@@ -46,6 +46,7 @@ DX11DeviceClass::DX11DeviceClass()
 	, Context(NULL)
 	, SwapChain(NULL)
 	, BackBufferView(NULL)
+	, SceneView(NULL)
 	, DepthStencilView(NULL)
 	, DepthStencilTexture(NULL)
 	, FeatureLevel(D3D_FEATURE_LEVEL_11_0)
@@ -198,6 +199,9 @@ void DX11DeviceClass::Release_Views()
 		ID3D11RenderTargetView * no_target = NULL;
 		Context->OMSetRenderTargets(1, &no_target, NULL);
 	}
+	// Whoever lent it a scene view sized the texture behind it to the buffers that are about to go,
+	// so the loan ends here and the next frame asks for a new one.
+	SceneView = NULL;
 	release_interface(reinterpret_cast<IUnknown **>(&DepthStencilView));
 	release_interface(reinterpret_cast<IUnknown **>(&DepthStencilTexture));
 	release_interface(reinterpret_cast<IUnknown **>(&BackBufferView));

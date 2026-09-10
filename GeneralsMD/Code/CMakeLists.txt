@@ -276,6 +276,16 @@ set_target_properties(dx11texture PROPERTIES CXX_STANDARD 17)
 target_include_directories(dx11texture PUBLIC ${WW}/WW3D2)
 target_link_libraries(dx11texture PUBLIC dx11resource d3d9 d3d11 dxguid)
 
+# ---- dx11post -------------------------------------------------------------
+# The offscreen render target between the scene and the swap chain, and the full
+# screen passes over it.  Depends on the device and on nothing else: it reads a
+# texture and writes a render target, and knows nothing about the state
+# translation the rest of the backend is.
+add_library(dx11post STATIC ${WW}/WW3D2/dx11post.cpp)
+set_target_properties(dx11post PROPERTIES CXX_STANDARD 17)
+target_include_directories(dx11post PUBLIC ${WW}/WW3D2)
+target_link_libraries(dx11post PUBLIC dx11device d3d11)
+
 # ---- dx11backend ----------------------------------------------------------
 # The renderer itself: the engine's D3D9-shaped calls taken as they are and resolved
 # into a D3D11 pipeline at the moment of the draw.  Ties the five pieces above
@@ -341,7 +351,7 @@ target_include_directories(ww3d2
 # D3DX9 has no import library anywhere and is bound at runtime instead: see
 # WW3D2/d3dx9runtime.h.  vfw32 is FramGrab.cpp writing AVIs.
 target_link_libraries(ww3d2
-  PUBLIC d3d9 dxguid vfw32 d3dx9runtime ffshader dx11backend dx11twin dx11texture
+  PUBLIC d3d9 dxguid vfw32 d3dx9runtime ffshader dx11backend dx11post dx11twin dx11texture
   PRIVATE wwlib wwmath wwdebug wwsaveload)
 # dx8webbrowser.cpp is the one file /MP cannot have: MSVC rejects #import under
 # multi-process compilation (C2813) and finds the directive by a lexical scan, so
@@ -708,6 +718,7 @@ add_lib_test(test_dx11pipeline dx11device dx11state dx11layout ffshader ffvertex
 add_lib_test(test_dx11resource dx11resource dx11device)
 add_lib_test(test_engineshader engineshader)
 add_lib_test(test_dx11backend dx11backend)
+add_lib_test(test_dx11post dx11post dx11device user32)
 add_lib_test(test_dx11twin dx11twin dx11device)
 add_lib_test(test_dx11texture dx11texture dx11device user32)
 # Both runtimes in one binary, so where a triangle edge lands is a measurement rather than a reading

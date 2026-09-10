@@ -651,6 +651,7 @@ GlobalData::GlobalData()
 	m_direct3D11 = FALSE;
 	m_direct3D11Present = FALSE;
 	m_direct3D11DumpPath.clear();
+	m_direct3D11PostChain.clear();
 	m_xResolution = 800;
 	m_yResolution = 600;
 	m_maxShellScreens = 0;

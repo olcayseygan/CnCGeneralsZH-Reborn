@@ -91,6 +91,7 @@
 #include "WW3D2/Coltype.h"
 #include "WW3D2/PredLod.h"
 #include "WW3D2/WW3D.h"
+#include "WW3D2/dx11runtime.h"
 
 #include "W3DDevice/GameClient/camerashakesystem.h"
 
@@ -2048,6 +2049,17 @@ void W3DView::draw( void )
 	// they are all drawn
 	/// @todo we might want to consider wiping this iterate out if there is nothing to post draw
 	//
+	// The world is finished here and everything below this line is drawn over it: health bars,
+	// veterancy chevrons, unit names, the 2D scene.  So this is where -dx11post's chain runs, and
+	// the reason it is here rather than at the end of the frame is a health bar.  Its border is one
+	// pixel of dark blue and an edge filter cannot tell a one pixel line from the edge of something
+	// bigger: run FXAA over it and the border is blended into the fill at one end and into the
+	// grass at the other, which reads as a bar with a frayed edge.  The same argument moved it off
+	// the command bar first, where it was doubling the strokes of the font.
+	//
+	// Nothing happens here unless a chain was asked for, and only the first view of a frame runs it.
+	Direct3D11_Finish_Scene();
+
 	TheGameClient->resetRenderedObjectCount();
 	// the post draw is where health bars are drawn, and each one records where it landed
 	TheGameClient->clearHealthBarPickRegions();

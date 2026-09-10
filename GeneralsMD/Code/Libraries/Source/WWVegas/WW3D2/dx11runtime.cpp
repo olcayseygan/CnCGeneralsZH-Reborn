@@ -23,6 +23,7 @@
 
 #include "dx11backend.h"
 #include "dx11device.h"
+#include "dx11post.h"
 #include "dx11texture.h"
 #include "dx11twin.h"
 
@@ -31,9 +32,15 @@ static bool PresentRequested = false;
 static bool Active = false;
 static DX11DeviceClass Device;
 static DX11BackendClass Backend;
+static DX11PostProcessClass Post;
 static unsigned TwinBuffers = 0;
 static unsigned long long TwinBytes = 0;
 static std::string DumpDirectory;
+
+// What -dx11post asked for, kept as the effects rather than as the text so a name nobody knows is
+// refused when the switch is read and not once a frame.
+static DX11PostEffect PostChain[DX11_POST_CHAIN_LIMIT];
+static unsigned PostChainLength = 0;
 
 // Which shipped shader each created Direct3D 9 shader came from.  Registered at load, read at every
 // bind.  It outlives the shaders themselves, which cost the map an entry each and nothing else: the
@@ -78,6 +85,13 @@ bool Direct3D11_Create(HWND window, unsigned width, unsigned height)
 	}
 
 	Backend.Set_Dump_Directory(DumpDirectory.c_str());
+
+	// The chain is the one thing here that is allowed to fail without taking the backend with it:
+	// a machine whose compiler refuses the passes still gets the frame, just not the effect.
+	if (Post.Initialise(&Device)) {
+		Post.Set_Chain(PostChain, PostChainLength);
+	}
+
 	Active = true;
 	return true;
 }
@@ -87,6 +101,8 @@ void Direct3D11_Release()
 	if (!Active) {
 		return;
 	}
+	Post.Shutdown();
+	Device.Set_Scene_View(NULL);
 	Backend.Shutdown();
 	Device.Release();
 	Active = false;
@@ -261,9 +277,51 @@ bool Direct3D11_Present_Is_Enabled()
 	return PresentRequested && Active;
 }
 
+bool Direct3D11_Post_Chain(const char * chain)
+{
+	const bool understood = DX11Post_Parse_Chain(chain, PostChain, PostChainLength);
+	if (Active) {
+		Post.Set_Chain(PostChain, PostChainLength);
+	}
+	return understood;
+}
+
+const char * Direct3D11_Post_Diagnostic()
+{
+	return Active ? Post.Diagnostic_Line() : "post-process off";
+}
+
+// Whatever put the frame in front of the player, the swap chain is where everything after it has to
+// be drawn.  Rebinding through the backend rather than by hand is what gets the depth buffer and the
+// scene's own viewport offset back at the same time.
+static void take_the_frame_to_the_screen()
+{
+	Device.Set_Scene_View(NULL);
+	Backend.Begin_Scene();
+}
+
+void Direct3D11_Finish_Scene()
+{
+	if (Active && Post.Run_Chain()) {
+		take_the_frame_to_the_screen();
+	}
+}
+
+void Direct3D11_Finish_Frame()
+{
+	if (Active && Post.Copy_Through()) {
+		take_the_frame_to_the_screen();
+	}
+}
+
 void Direct3D11_Begin_Scene()
 {
 	if (Active) {
+		// Before the backend binds anything: the scene goes wherever this says it goes, and a frame
+		// that asked for a chain and could not have one falls back to the swap chain here rather
+		// than half way through.
+		Post.Begin_Frame();
+		Device.Set_Scene_View(Post.Scene_View());
 		Backend.Begin_Scene();
 	}
 }
@@ -286,6 +344,11 @@ unsigned char * Direct3D11_Capture_Back_Buffer(unsigned & width, unsigned & heig
 	if (!Active || Device.Get_Back_Buffer_View() == NULL) {
 		return NULL;
 	}
+
+	// A screenshot is of what the player sees, so the chain runs first.  The present path asks for
+	// the same thing a moment later and gets it for nothing, because the second Resolve of a frame
+	// does not run.
+	Direct3D11_Finish_Frame();
 
 	ID3D11Resource * back_buffer = NULL;
 	Device.Get_Back_Buffer_View()->GetResource(&back_buffer);
@@ -336,6 +399,7 @@ void Direct3D11_Release_Capture(unsigned char * pixels)
 void Direct3D11_End_Scene(bool flip_frames)
 {
 	if (Active && flip_frames && PresentRequested) {
+		Direct3D11_Finish_Frame();
 		Device.Present(0);
 	}
 }

@@ -551,7 +551,7 @@ void DX11BackendClass::Begin_Scene()
 		return;
 	}
 
-	ID3D11RenderTargetView * target = Device->Get_Back_Buffer_View();
+	ID3D11RenderTargetView * target = Device->Get_Scene_View();
 	if (target == NULL) {
 		return;
 	}
@@ -630,7 +630,7 @@ void DX11BackendClass::Set_Render_Target(ID3D11RenderTargetView * target)
 		Trace_Target("back buffer", 0, 0);
 		CurrentTarget = NULL;
 		CurrentDepth = NULL;
-		ID3D11RenderTargetView * back_buffer = Device->Get_Back_Buffer_View();
+		ID3D11RenderTargetView * back_buffer = Device->Get_Scene_View();
 		if (back_buffer != NULL) {
 			Device->Get_Context()->OMSetRenderTargets(1, &back_buffer,
 				Device->Get_Depth_Stencil_View());
@@ -700,7 +700,7 @@ void DX11BackendClass::Clear(bool colour, bool depth, const float colour_value[4
 	// Whatever the draws are landing in is what a clear clears; a pass that clears its own render
 	// target and then draws into it would otherwise clear the picture instead.
 	ID3D11RenderTargetView * target = (CurrentTarget != NULL)
-		? CurrentTarget : Device->Get_Back_Buffer_View();
+		? CurrentTarget : Device->Get_Scene_View();
 	ID3D11DepthStencilView * depth_view = (CurrentTarget != NULL)
 		? CurrentDepth : Device->Get_Depth_Stencil_View();
 

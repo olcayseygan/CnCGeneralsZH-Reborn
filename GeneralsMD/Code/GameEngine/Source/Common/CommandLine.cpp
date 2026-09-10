@@ -1395,6 +1395,40 @@ Int parseDirect3D11Present(char *args[], int num)
 	return 1;
 }
 
+/* -dx11post [chain]: run a pixel shader over the finished Direct3D 11 frame before it is shown.
+	 *
+	 * The chain is the effects in the order they run, comma separated: "bloom", "fxaa", "sharpen",
+	 * "copy" for the pass that changes nothing, or "off".  Bare -dx11post is "fxaa", which is the
+	 * cheapest one worth having: the swap chain asks for a single sample, so an edge in the D3D11
+	 * frame has nothing else working on it.  Implies -dx11present, because a chain over a frame
+	 * nobody sees is only a cost.
+	 *
+	 * "bloom" has to come first and it changes what the scene is kept in.  Explosion particles are
+	 * blended additively, so a stack of them is brighter than white before it is written down, and
+	 * an eight bit target throws that away: the middle of a fireball is the same white as its edge.
+	 * With bloom in the chain the scene goes into half floats, the bright pass thresholds on the
+	 * amount by which something beat white, and the frame comes back to eight bits through a tone
+	 * curve whose knee leaves everything ordinary exactly where it was.
+	 *
+	 * Everything else in the backend exists to draw the frame Direct3D 9 draws and this exists to
+	 * draw a different one, so it is off unless it is asked for and dx11-check.ps1 is run without
+	 * it. */
+Int parseDirect3D11Post(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_direct3D11 = TRUE;
+		TheWritableGlobalData->m_direct3D11Present = TRUE;
+		if (num > 1 && args[1][0] != '-')
+		{
+			TheWritableGlobalData->m_direct3D11PostChain = args[1];
+			return 2;
+		}
+		TheWritableGlobalData->m_direct3D11PostChain = "fxaa";
+	}
+	return 1;
+}
+
 Int parseCombinerShaders(char *args[], int num)
 {
 	if (TheWritableGlobalData)
@@ -2164,6 +2198,7 @@ static CommandLineParam params[] =
 	{ "-dx11", parseDirect3D11 },
 	{ "-dx11present", parseDirect3D11Present },
 	{ "-dx11dump", parseDirect3D11Dump },
+	{ "-dx11post", parseDirect3D11Post },
 	{ "-autocamera", parseAutoCamera },
 	{ "-camera", parseCameraLook },
 	{ "-tracemove", parseTraceMove },

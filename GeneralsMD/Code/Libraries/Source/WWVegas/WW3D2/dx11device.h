@@ -78,6 +78,19 @@ public:
 	ID3D11RenderTargetView * Get_Back_Buffer_View() const { return BackBufferView; }
 	ID3D11DepthStencilView * Get_Depth_Stencil_View() const { return DepthStencilView; }
 
+	// Where the scene goes, which is not always the swap chain.  The post-process chain hands its
+	// own texture's view over here at the top of every frame and the backend binds whatever it
+	// finds, so nothing between the two knows the frame is being drawn somewhere else first.  NULL
+	// puts it back on the swap chain, which is what an absent or a failed chain leaves behind.
+	//
+	// The view is borrowed, not owned: whoever handed it over releases it, and hands it over again
+	// on the next frame if it is still there to hand over.
+	void Set_Scene_View(ID3D11RenderTargetView * view) { SceneView = view; }
+	ID3D11RenderTargetView * Get_Scene_View() const
+	{
+		return (SceneView != NULL) ? SceneView : BackBufferView;
+	}
+
 	unsigned Get_Width() const { return Width; }
 	unsigned Get_Height() const { return Height; }
 
@@ -106,6 +119,7 @@ private:
 	ID3D11DeviceContext * Context;
 	IDXGISwapChain * SwapChain;
 	ID3D11RenderTargetView * BackBufferView;
+	ID3D11RenderTargetView * SceneView;
 	ID3D11DepthStencilView * DepthStencilView;
 	ID3D11Texture2D * DepthStencilTexture;
 

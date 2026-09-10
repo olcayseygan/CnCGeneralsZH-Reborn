@@ -504,6 +504,8 @@ W3DDisplay::~W3DDisplay()
 		if( Direct3D11_Diagnostic()[0] != '\0' )
 			DEBUG_LOG(("-dx11 note: %s\n", Direct3D11_Diagnostic()));
 
+		DEBUG_LOG(("-dx11 post: %s\n", Direct3D11_Post_Diagnostic()));
+
 		const unsigned traceCount = Direct3D11_Target_Trace_Count();
 		for( unsigned trace = 0; trace < traceCount; trace++ )
 			DEBUG_LOG(("-dx11 target trace: %s\n", Direct3D11_Target_Trace( trace )));
@@ -1029,6 +1031,12 @@ void W3DDisplay::init( void )
 	Direct3D11_Enable( TheGlobalData->m_direct3D11 != FALSE );
 	Direct3D11_Present_Enable( TheGlobalData->m_direct3D11Present != FALSE );
 	Direct3D11_Dump_Programs_To( TheGlobalData->m_direct3D11DumpPath.str() );
+	if( !Direct3D11_Post_Chain( TheGlobalData->m_direct3D11PostChain.str() )
+		&& !TheGlobalData->m_direct3D11PostChain.isEmpty() )
+	{
+		DEBUG_LOG(( "-dx11post: '%s' names no effect this build has, so no chain runs\n",
+			TheGlobalData->m_direct3D11PostChain.str() ));
+	}
 
 	// Same problem, same answer: the filter table is built the moment the device exists and WW3D2
 	// cannot see GlobalData, so the player's texture filtering goes in here. Nothing in the game
@@ -2300,6 +2308,12 @@ AGAIN:
 #ifdef DEBUG_LOGGING
 				QueryPerformanceCounter( (LARGE_INTEGER *)&tSceneEnd );
 #endif
+
+				// W3DView::draw has normally run the chain already, at the point where the world
+				// was finished and before the health bars went over it.  This is the frame that
+				// drew no view at all: without it the scene would sit in the offscreen texture with
+				// the command bar drawn over a black screen.
+				Direct3D11_Finish_Scene();
 
 				// draw the user interface
 				TheInGameUI->DRAW();
