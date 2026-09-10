@@ -358,6 +358,54 @@ GUI:OptionsTabNetwork
 "Network"
 END
 
+GUI:OptionsTabGraphics
+"Graphics"
+END
+
+GUI:TextureFilter
+"Texture Filtering"
+END
+
+GUI:TextureFilter0
+"Bilinear"
+END
+
+GUI:TextureFilter1
+"Trilinear"
+END
+
+GUI:TextureFilter2
+"Anisotropic"
+END
+
+TOOLTIP:TextureFilter
+"How textures are sampled as they recede from the camera. Bilinear is what the game shipped with and makes distant ground shimmer; anisotropic keeps it sharp. Takes effect the next time the display device is reset."
+END
+
+GUI:Anisotropy
+"Anisotropic Samples"
+END
+
+TOOLTIP:Anisotropy
+"How many samples anisotropic filtering may take. Auto lets the graphics card decide, up to 16. Only used when texture filtering is anisotropic."
+END
+
+GUI:AnisotropyCardMaximum
+"Auto"
+END
+
+GUI:TextureResolution
+"Texture Resolution"
+END
+
+GUI:ParticleLimit
+"Particle Limit"
+END
+
+GUI:NeverLowerDetail
+"Never Lower Detail"
+END
+
 // ---------------------------------------------------------------------------
 // One GUI: label and one TOOLTIP: line per row of TheOptionCatalog.  A label
 // and the combo box under it share the tooltip; an OPTION_ENUM row also needs

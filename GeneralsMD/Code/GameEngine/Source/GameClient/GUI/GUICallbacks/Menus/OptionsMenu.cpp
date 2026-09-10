@@ -147,16 +147,7 @@ static GameWindow *   sliderVoiceVolume   = NULL;
 static NameKeyType    sliderGammaID = NAMEKEY_INVALID;
 static GameWindow *   sliderGamma = NULL;
 
-//Advanced Options Screen
-static NameKeyType    WinAdvancedDisplayID      = NAMEKEY_INVALID;
-static GameWindow *   WinAdvancedDisplay				= NULL; 
-
-static NameKeyType    ButtonAdvancedAcceptID      = NAMEKEY_INVALID;
-static GameWindow *   ButtonAdvancedAccept				= NULL; 
-
-static NameKeyType    ButtonAdvancedCancelID      = NAMEKEY_INVALID;
-static GameWindow *   ButtonAdvancedCancel				= NULL; 
-
+// The Graphics page's detail controls, which used to be EA's advanced display popup
 static NameKeyType    sliderTextureResolutionID = NAMEKEY_INVALID;
 static GameWindow *   sliderTextureResolution = NULL;
 
@@ -229,15 +220,16 @@ WindowLayout *OptionsLayout = NULL;
 // EA's screen was one panel with every control on it, and it was already out of room when it
 // shipped - the language filter, the keyboard button and the four camera check boxes are all still
 // in the layout, parked off the right edge with HIDDEN set because there was nowhere to put them.
-// The layout now sorts the same controls into five pages; this is the two arrays that name them
-// and the one function that decides which one you are looking at.
+// The layout now sorts the same controls into six pages on one grid (Tools/optionsmenu_layout.py);
+// this is the two arrays that name them and the one function that decides which one you are
+// looking at.
 //-------------------------------------------------------------------------------------------------
-enum { OPTIONS_PAGE_COUNT = 5 };
-enum { OPTIONS_PAGE_CONTROLS = 2 };		///< the page the keyboard button is drawn over
+enum { OPTIONS_PAGE_COUNT = 6 };
 
 static const char *TheOptionsPageNames[ OPTIONS_PAGE_COUNT ] =
 {
 	"OptionsMenu.wnd:PageDisplay",
+	"OptionsMenu.wnd:PageGraphics",
 	"OptionsMenu.wnd:PageAudio",
 	"OptionsMenu.wnd:PageControls",
 	"OptionsMenu.wnd:PageGameplay",
@@ -247,17 +239,18 @@ static const char *TheOptionsPageNames[ OPTIONS_PAGE_COUNT ] =
 static const char *TheOptionsTabNames[ OPTIONS_PAGE_COUNT ] =
 {
 	"OptionsMenu.wnd:TabDisplay",
+	"OptionsMenu.wnd:TabGraphics",
 	"OptionsMenu.wnd:TabAudio",
 	"OptionsMenu.wnd:TabControls",
 	"OptionsMenu.wnd:TabGameplay",
 	"OptionsMenu.wnd:TabNetwork",
 };
 
-static GameWindow *		optionsPage[ OPTIONS_PAGE_COUNT ]	= { NULL, NULL, NULL, NULL, NULL };
-static GameWindow *		optionsTab[ OPTIONS_PAGE_COUNT ]	= { NULL, NULL, NULL, NULL, NULL };
+static GameWindow *		optionsPage[ OPTIONS_PAGE_COUNT ]	= { NULL };
+static GameWindow *		optionsTab[ OPTIONS_PAGE_COUNT ]	= { NULL };
 static NameKeyType		optionsTabID[ OPTIONS_PAGE_COUNT ] =
 {
-	NAMEKEY_INVALID, NAMEKEY_INVALID, NAMEKEY_INVALID, NAMEKEY_INVALID, NAMEKEY_INVALID
+	NAMEKEY_INVALID, NAMEKEY_INVALID, NAMEKEY_INVALID, NAMEKEY_INVALID, NAMEKEY_INVALID, NAMEKEY_INVALID
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -1805,41 +1798,150 @@ void ResolutionDrillDismiss( Bool accept )
 	TheWindowManager->logInputOwners( "after the quit menu closed" );
 }
 
-static void showAdvancedOptions()
+//-------------------------------------------------------------------------------------------------
+// The Graphics page.
+//
+// These controls were EA's advanced display popup, which opened only when Custom was picked in the
+// detail box, so choosing High never showed what High turns on.  They stand on the page now.
+// Picking a preset shows its values in them without applying anything - Accept does that through
+// setStaticLODLevel, as it always has - and touching any of them makes the detail box read Custom,
+// which is the level saveOptions reads them back under.
+//-------------------------------------------------------------------------------------------------
+static GameWindow **const TheGraphicsDetailControls[] =
 {
-	WinAdvancedDisplay->winHide(FALSE);
-	// The pages stay visible underneath, so this window is only on top for as long as nothing else
-	// has been raised since the layout loaded - and opening a drop-down raises the page holding it.
-	WinAdvancedDisplay->winBringToTop();
+	&sliderTextureResolution, &sliderParticleCap,
+	&check3DShadows, &check2DShadows, &checkCloudShadows, &checkGroundLighting, &checkSmoothWater,
+	&checkProps, &checkExtraAnimations, &checkHeatEffects, &checkBuildingOcclusion, &checkNoDynamicLod,
+};
+enum { GRAPHICS_DETAIL_CONTROL_COUNT = sizeof( TheGraphicsDetailControls ) / sizeof( TheGraphicsDetailControls[ 0 ] ) };
+
+static Bool isGraphicsDetailControl( const GameWindow *control )
+{
+	for( Int i = 0; i < GRAPHICS_DETAIL_CONTROL_COUNT; ++i )
+		if( control != NULL && *TheGraphicsDetailControls[ i ] == control )
+			return TRUE;
+
+	return FALSE;
 }
 
-static void acceptAdvancedOptions()
+//-------------------------------------------------------------------------------------------------
+// Every slider has a readout beside it.  The shipped screen had none, so a gamma slider, a scroll
+// speed slider and three volume sliders gave no way to tell 40 from 60.
+//-------------------------------------------------------------------------------------------------
+enum SliderReadoutKind
 {
-	WinAdvancedDisplay->winHide(TRUE);
-}
+	READOUT_NUMBER,			///< the slider's own position
+	READOUT_PERCENT,		///< a 0..100 position with a percent sign
+	READOUT_TEXTURE,		///< 0..2, low to high texture resolution
+	READOUT_ANISOTROPY,	///< samples, where 0 is whatever the card offers
+};
 
-static void cancelAdvancedOptions()
+struct SliderReadout
 {
-	//restore the detail selection back to initial state
-	switch (TheGameLODManager->getStaticLODLevel())
+	const char				*sliderName;
+	const char				*readoutName;
+	SliderReadoutKind	kind;
+};
+
+static const SliderReadout TheSliderReadouts[] =
+{
+	{ "OptionsMenu.wnd:SliderGamma",				"OptionsMenu.wnd:ValueGamma",							READOUT_NUMBER },
+	{ "OptionsMenu.wnd:LowResSlider",				"OptionsMenu.wnd:ValueTextureResolution",	READOUT_TEXTURE },
+	{ "OptionsMenu.wnd:ParticleCapSlider",	"OptionsMenu.wnd:ValueParticleCap",				READOUT_NUMBER },
+	{ "OptionsMenu.wnd:SliderAnisotropy",		"OptionsMenu.wnd:ValueAnisotropy",				READOUT_ANISOTROPY },
+	{ "OptionsMenu.wnd:SliderMusicVolume",	"OptionsMenu.wnd:ValueMusicVolume",				READOUT_PERCENT },
+	{ "OptionsMenu.wnd:SliderSFXVolume",		"OptionsMenu.wnd:ValueSFXVolume",					READOUT_PERCENT },
+	{ "OptionsMenu.wnd:SliderVoiceVolume",	"OptionsMenu.wnd:ValueVoiceVolume",				READOUT_PERCENT },
+	{ "OptionsMenu.wnd:SliderScrollSpeed",	"OptionsMenu.wnd:ValueScrollSpeed",				READOUT_NUMBER },
+};
+
+static const char *const TheTextureResolutionCaptions[] = { "GUI:Low", "GUI:Medium", "GUI:High" };
+enum { TEXTURE_RESOLUTION_STEPS = sizeof( TheTextureResolutionCaptions ) / sizeof( TheTextureResolutionCaptions[ 0 ] ) };
+
+static void updateSliderReadouts( void )
+{
+	for( Int i = 0; i < (Int)( sizeof( TheSliderReadouts ) / sizeof( TheSliderReadouts[ 0 ] ) ); ++i )
 	{
-	case STATIC_GAME_LOD_LOW:
-		GadgetComboBoxSetSelectedPos(comboBoxDetail, LOWDETAIL);
-		break;
-	case STATIC_GAME_LOD_MEDIUM:
-		GadgetComboBoxSetSelectedPos(comboBoxDetail, MEDIUMDETAIL);
-		break;
-	case STATIC_GAME_LOD_HIGH:
-		GadgetComboBoxSetSelectedPos(comboBoxDetail, HIGHDETAIL);
-		break;
-	case STATIC_GAME_LOD_CUSTOM:
-		GadgetComboBoxSetSelectedPos(comboBoxDetail, CUSTOMDETAIL);
-		break;
-	default:
-		DEBUG_ASSERTCRASH(FALSE,("Tried to set comboBoxDetail to a value of %d ", TheGameLODManager->getStaticLODLevel()) );
-	};
+		const SliderReadout &readout = TheSliderReadouts[ i ];
+		GameWindow *slider = TheWindowManager->winGetWindowFromId( NULL, NAMEKEY( readout.sliderName ) );
+		GameWindow *value = TheWindowManager->winGetWindowFromId( NULL, NAMEKEY( readout.readoutName ) );
+		// a stale Run/Window layout without the readouts still opens; it just says nothing
+		if( slider == NULL || value == NULL )
+			continue;
 
-	WinAdvancedDisplay->winHide(TRUE);
+		const Int position = GadgetSliderGetPosition( slider );
+		UnicodeString text;
+		switch( readout.kind )
+		{
+			case READOUT_PERCENT:
+				text.format( L"%d%%", position );
+				break;
+
+			case READOUT_TEXTURE:
+				text = TheGameText->fetch( TheTextureResolutionCaptions[ max( 0, min( TEXTURE_RESOLUTION_STEPS - 1, position ) ) ] );
+				break;
+
+			case READOUT_ANISOTROPY:
+				if( position == 0 )
+					text = TheGameText->fetch( "GUI:AnisotropyCardMaximum" );
+				else
+					text.format( L"%dx", position );
+				break;
+
+			default:
+				text.format( L"%d", position );
+				break;
+		}
+		GadgetStaticTextSetText( value, text );
+	}
+}
+
+/** Put a preset's values in the Graphics page's controls.  Custom leaves them as they are.  Trees and
+	* texture resolution follow the memory test the way applyStaticLODLevel does, so what the page
+	* shows is what Accept will set. */
+static void showDetailPreset( Int index )
+{
+	StaticGameLODLevel level;
+	switch( index )
+	{
+		case HIGHDETAIL:		level = STATIC_GAME_LOD_HIGH;		break;
+		case MEDIUMDETAIL:	level = STATIC_GAME_LOD_MEDIUM;	break;
+		case LOWDETAIL:			level = STATIC_GAME_LOD_LOW;		break;
+		default:						return;
+	}
+
+	const StaticGameLODInfo &preset = TheGameLODManager->m_staticGameLODInfo[ level ];
+	const Bool memoryPassed = TheGameLODManager->didMemPass();
+	const Int textureReduction = TheGameLODManager->getLevelTextureReduction( memoryPassed ? level : STATIC_GAME_LOD_LOW );
+
+	ignoreSelected = TRUE;
+	GadgetSliderSetPosition( sliderTextureResolution, TEXTURE_RESOLUTION_STEPS - 1 - textureReduction );
+	GadgetSliderSetPosition( sliderParticleCap, preset.m_maxParticleCount );
+	GadgetCheckBoxSetChecked( check3DShadows, preset.m_useShadowVolumes );
+	GadgetCheckBoxSetChecked( check2DShadows, preset.m_useShadowDecals );
+	GadgetCheckBoxSetChecked( checkCloudShadows, preset.m_useCloudMap );
+	GadgetCheckBoxSetChecked( checkGroundLighting, preset.m_useLightMap );
+	GadgetCheckBoxSetChecked( checkSmoothWater, preset.m_showSoftWaterEdge );
+	GadgetCheckBoxSetChecked( checkProps, memoryPassed );
+	GadgetCheckBoxSetChecked( checkExtraAnimations, preset.m_useBuildupScaffolds );
+	GadgetCheckBoxSetChecked( checkHeatEffects, preset.m_useHeatEffects );
+	GadgetCheckBoxSetChecked( checkNoDynamicLod, !preset.m_enableDynamicLOD );
+	ignoreSelected = FALSE;
+
+	updateSliderReadouts();
+}
+
+/** A detail control was touched, so what the page shows is nobody's preset any more. */
+static void markDetailCustom( void )
+{
+	Int index = CUSTOMDETAIL;
+	GadgetComboBoxGetSelectedPos( comboBoxDetail, &index );
+	if( index == CUSTOMDETAIL )
+		return;
+
+	ignoreSelected = TRUE;
+	GadgetComboBoxSetSelectedPos( comboBoxDetail, CUSTOMDETAIL );
+	ignoreSelected = FALSE;
 }
 //-------------------------------------------------------------------------------------------------
 /** Initialize the options menu */
@@ -1910,15 +2012,6 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 //	checkBoxLowTextureDetailID = TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:CheckLowTextureDetail" ) );
 //	checkBoxLowTextureDetail      = TheWindowManager->winGetWindowFromId( NULL, checkBoxLowTextureDetailID );
 	
-	WinAdvancedDisplayID		= TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:WinAdvancedDisplayOptions" ) );
-	WinAdvancedDisplay      = TheWindowManager->winGetWindowFromId( NULL, WinAdvancedDisplayID );
-
-	ButtonAdvancedAcceptID		= TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:ButtonAdvanceAccept" ) );
-	ButtonAdvancedAccept      = TheWindowManager->winGetWindowFromId( NULL, ButtonAdvancedAcceptID );
-
-	ButtonAdvancedCancelID		= TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:ButtonAdvanceBack" ) );
-	ButtonAdvancedCancel      = TheWindowManager->winGetWindowFromId( NULL, ButtonAdvancedCancelID );
-
 	sliderTextureResolutionID = TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:LowResSlider" ) );
 	sliderTextureResolution = TheWindowManager->winGetWindowFromId( NULL, sliderTextureResolutionID );
 
@@ -1957,8 +2050,6 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 
 	sliderParticleCapID = TheNameKeyGenerator->nameToKey( AsciiString( "OptionsMenu.wnd:ParticleCapSlider" ) );
   sliderParticleCap = TheWindowManager->winGetWindowFromId( NULL, sliderParticleCapID );
-
-	WinAdvancedDisplay->winHide(TRUE);
 
 	Color color =  GameMakeColor(255,255,255,255);
 
@@ -2308,6 +2399,7 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 	}
 
 	fillCatalogWidgets();
+	updateSliderReadouts();
 	showOptionsPage( 0 );
 
 	// show menu
@@ -2330,6 +2422,12 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 
 		if (comboBoxDetail)
 			comboBoxDetail->winEnable(FALSE);
+
+		// and what the detail box decides with it: a preset is picked outside a match, where the
+		// shadows and textures it changes can be rebuilt
+		for( Int control = 0; control < GRAPHICS_DETAIL_CONTROL_COUNT; ++control )
+			if( *TheGraphicsDetailControls[ control ] )
+				(*TheGraphicsDetailControls[ control ])->winEnable( FALSE );
 
 		//
 		// The resolution list used to be greyed out here too.  It is not any more: changing it in a
@@ -2494,16 +2592,26 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 		
 				if (controlID == comboBoxDetailID)
 				{
-					Int index;
+					Int index = CUSTOMDETAIL;
 					GadgetComboBoxGetSelectedPos( comboBoxDetail, &index );
-					if(index != CUSTOMDETAIL)
-						break;
-
-					showAdvancedOptions();
+					showDetailPreset( index );
 				}
 
 				// picking borderless greys the resolution list out, the other two hand it back
 				updateResolutionEnabled();
+			break;
+		}
+
+		//---------------------------------------------------------------------------------------------
+		case GSM_SLIDER_TRACK:
+		case GSM_SLIDER_DONE:
+		{
+			if( ignoreSelected )
+				break;
+
+			updateSliderReadouts();
+			if( isGraphicsDetailControl( (GameWindow *)mData1 ) )
+				markDetailCustom();
 			break;
 		}
 
@@ -2580,15 +2688,11 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 			else if (controlID == buttonDefaults )
 			{
 				setDefaults();
+				updateSliderReadouts();
 			}
-			else if (controlID == ButtonAdvancedAcceptID )
+			else if( isGraphicsDetailControl( control ) )
 			{
-				acceptAdvancedOptions();
-				
-			}
-			else if (controlID == ButtonAdvancedCancelID )
-			{	
-				cancelAdvancedOptions();
+				markDetailCustom();
 			}
 			else if(controlID == checkDrawAnchorID )
       {

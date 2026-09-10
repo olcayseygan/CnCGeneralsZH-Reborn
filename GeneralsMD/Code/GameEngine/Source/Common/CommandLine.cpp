@@ -2040,6 +2040,20 @@ Int parseSkirmishLobby(char *args[], int num)
 	return 1;
 }
 
+/* -optionsmenu opens the options screen over the main menu at startup, where a click on Options
+   would put it.  A change to that screen can then be photographed page by page from a script that
+   only has to press the tabs, instead of first finding the main menu's buttons.  Implies
+   -noshellmap for the reason -skirmishlobby does. */
+Int parseOptionsMenu(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_optionsMenuOnStart = TRUE;
+		TheWritableGlobalData->m_shellMapOn = FALSE;
+	}
+	return 1;
+}
+
 /* -randommaps puts the generated maps back in the skirmish map list.  They are off by default
    because the generator is not finished - a seed can still leave a supply dock behind a cliff, and
    a map list is not the place to find that out.  Everything else about them works from the command
@@ -2331,6 +2345,7 @@ static CommandLineParam params[] =
 	{ "-lanname", parseLanName },
 	{ "-lanlobby", parseLanLobby },
 	{ "-skirmishlobby", parseSkirmishLobby },
+	{ "-optionsmenu", parseOptionsMenu },
 
 	//-allAdvice feature
 	//{ "-allAdvice", parseAllAdvice },

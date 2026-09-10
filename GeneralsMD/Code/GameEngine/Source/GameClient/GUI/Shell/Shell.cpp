@@ -553,6 +553,16 @@ void Shell::showShell( Bool runInit )
 		TheShell->push( AsciiString("Menus/SkirmishGameOptionsMenu.wnd") );
 	}
 
+	// -optionsmenu: the options layout over the main menu, opened the way the main menu's button opens it
+	if( TheGlobalData->m_optionsMenuOnStart )
+	{
+		TheWritableGlobalData->m_optionsMenuOnStart = FALSE;
+		WindowLayout *options = getOptionsLayout( TRUE );
+		options->runInit();
+		options->hide( FALSE );
+		options->bringForward();
+	}
+
 	m_isShellActive = TRUE;
 }  // end showShell
 

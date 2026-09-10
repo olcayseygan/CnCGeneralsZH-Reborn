@@ -124,6 +124,10 @@ extern Int msaaLevelForSamples( unsigned samples );
 enum { BLOOM_LEVEL_COUNT = 4 };						///< off, subtle, normal, strong
 enum { BLOOM_THRESHOLD_LEVEL_COUNT = 3 };	///< only the brightest, bright things, most of the picture
 
+// Texture filtering is a mode too - bilinear, trilinear, anisotropic - and the combo box offers it
+// by those names.  The number in Options.ini is the same 0..2 it was when the key had no control.
+enum { TEXTURE_FILTER_MODE_COUNT = 3 };
+
 /** Options.ini -> TheWritableGlobalData, for every row.  A key that is absent leaves the field at
 	* whatever GlobalData's constructor put there, which is what makes an old Options.ini keep
 	* working when a row is added. */

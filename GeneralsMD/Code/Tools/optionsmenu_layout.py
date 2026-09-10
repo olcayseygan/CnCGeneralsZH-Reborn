@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Rebuild OptionsMenu.wnd as five tabbed pages.
+"""Rebuild OptionsMenu.wnd as six tabbed pages on one grid.
 
 EA's options screen is one 800x600 panel with everything on it at once, and it was already full
 when it shipped: the language filter, the keyboard button and the four camera checkboxes are all
 still in the file, parked off the right edge with HIDDEN set, because there was nowhere left to put
 them.  Seventeen settings later there is no version of "find room" that works.
 
-So the screen becomes five pages behind five buttons.  Nothing is redrawn: every control keeps the
-exact images, fonts, colours and tooltips it shipped with, and the four group panels EA already had
-(video, audio, scrolling, network) move into a page each without being touched inside.  What is new
-is cloned from a control that is already there, which is why the new checkboxes look like the old
-ones instead of like something a tool made.
+So the screen becomes six pages behind six buttons: Display, Graphics, Audio, Controls, Gameplay and
+Network.  Every graphics setting is on Graphics, including the ones EA hid in a popup that only
+opened when Custom was picked from a combo box on another page.  Every page is laid out on the same
+two columns and the same rows, so a label starts in the same place whichever tab is open, and every
+slider has a readout beside it.  Nothing is redrawn: the controls keep the images and tooltips they
+shipped with, a label or a check box takes the lettering of the one next to it, and what is new is
+cloned from a control that is already there.
 
     python optionsmenu_layout.py <shipped OptionsMenu.wnd> <output .wnd>
 
@@ -38,28 +40,46 @@ import wndlayout
 from wndlayout import clone
 
 
-# The page frame, in the layout's own 800x600 creation resolution.
-PAGE = (151, 96, 485, 420)          # left, top, width, height
-TAB_TOP, TAB_HEIGHT, TAB_WIDTH = 60, 28, 97
+# The panel and everything on it, in the layout's own 800x600 creation resolution.  One inner edge,
+# 16 pixels in from the panel on both sides, is where the title, the tabs, the pages, the buttons
+# and the version line all start and stop.
+PANEL = (100, 16, 600, 568)          # left, top, width, height
+INNER_LEFT, INNER_WIDTH = 116, 568
+TITLE = (INNER_LEFT, 22, 400, 32)
+RULE = (100, 58, 600, 1)
+TAB_TOP, TAB_HEIGHT, TAB_GAP = 66, 28, 3
+PAGE = (INNER_LEFT, 104, INNER_WIDTH, 408)
+BUTTON_TOP, BUTTON_HEIGHT, BUTTON_WIDTH = 528, 32, 180
+VERSION = (INNER_LEFT, 564, INNER_WIDTH, 16)
 
 TABS = [
     ("PageDisplay",  "TabDisplay",  "GUI:OptionsTabDisplay"),
+    ("PageGraphics", "TabGraphics", "GUI:OptionsTabGraphics"),
     ("PageAudio",    "TabAudio",    "GUI:OptionsTabAudio"),
     ("PageControls", "TabControls", "GUI:OptionsTabControls"),
     ("PageGameplay", "TabGameplay", "GUI:OptionsTabGameplay"),
     ("PageNetwork",  "TabNetwork",  "GUI:OptionsTabNetwork"),
 ]
 
-# EA's four group panels and the loose controls that visually belong to each, with the page they
-# move to.  A group's top left corner goes to the page's top left corner; everything listed with it
-# shifts by the same amount, which is what keeps the two volume sliders with the audio panel they
-# were never actually a child of.
-GROUPS = [
-    ("PageDisplay",  "VideoParent",   []),
-    ("PageAudio",    "AudioParent",   ["SliderMusicVolume", "SliderSFXVolume"]),
-    ("PageControls", "ScrollParent",  []),
-    ("PageNetwork",  "NetworkParent", []),
+# EA's four group panels.  Each drew a framed box of its own inside the page, sized for a heading
+# and a row that are gone, so no two pages had their first control in the same place.  The panels
+# go and their controls stand on the page; the two volume sliders EA left outside the audio panel
+# come along with the rest.
+GROUPS = ["VideoParent", "AudioParent", "ScrollParent", "NetworkParent"]
+LOOSE = ["SliderMusicVolume", "SliderSFXVolume"]
+
+# The advanced display popup.  Every setting in it is a graphics setting and it opened only when
+# Custom was picked in a combo box on the display page, so a player choosing High never saw what
+# High turns on.  Its controls move onto the Graphics page; the popup, its two buttons, its heading,
+# its rules and its captions go.
+ADVANCED = "WinAdvancedDisplayOptions"
+GRAPHICS_CHECKS = [
+    "Check3DShadows", "Check2DShadows", "CheckCloudShadows", "CheckGroundLighting",
+    "CheckSmoothWater", "CheckShowProps", "CheckExtraAnimations", "CheckHeatEffects",
+    "CheckBehindBuilding", "CheckNoDynamicLOD",
 ]
+ADVANCED_KEEP = GRAPHICS_CHECKS + ["CheckUnlockFPS", "LowResSlider", "ParticleCapSlider",
+                                   "LabelTextureResolution", "LabelParticleCap"]
 
 # The tab a page opens is already captioned with the page's name, so EA's caption inside the panel
 # says the same word a second time, and the rule under it then divides nothing from nothing.  Both
@@ -73,82 +93,127 @@ RULES = ["Line1", "Line2", "Line3", "Line4"]
 # with nothing behind it: the layout its code wanted was never in any .big.
 DROP = ["ButtonKeyboardOptions"]
 
-# The antialiasing label is the one control in the file EA left unnamed that still has to be
-# positioned by hand, so it gets a name on the way through.
-NAME_THE_UNNAMED = [("GUI:AntiAliasing", "AntiAliasingLabel")]
+# Controls EA left unnamed that still have to be positioned, found by what they draw and given a
+# name on the way through.
+NAME_THE_UNNAMED = [
+    ("GUI:AntiAliasing", "AntiAliasingLabel"),
+    ("GUI:LowResSlider", "LabelTextureResolution"),
+    ("GUI:ParticleCap", "LabelParticleCap"),
+    ("GUI:Options", "LabelTitle"),
+]
 
 # Controls that are in the shipped file and are not wanted at all.  CheckAlternateMouse chose
 # between the classic mouse and the alternate one; there is one mouse now, so the choice is gone.
 DELETE = ["CheckAlternateMouse"]
 
-# The new controls, cloned from a control of the same kind that is already in the file.
-#   (page, template, name, text key, left, top, width, height)
+# The templates new controls are cloned from, and whose lettering the moved ones take.
 CHECK, LABEL, COMBO, SLIDER = "Retaliation", "DetailLabel", "ComboBoxDetail", "SliderGamma"
 
-CONTROLS = [
-    # Display: the two device settings and the two bloom levels, in the space the audio panel left
-    ("PageDisplay", LABEL,  "LabelWindowMode",       "GUI:WindowMode",       400, 104, 230, 24),
-    ("PageDisplay", COMBO,  "ComboBoxWindowMode",    None,                   400, 128, 200, 24),
-    ("PageDisplay", LABEL,  "LabelMSAA",             "GUI:MSAA",             400, 160, 230, 24),
-    ("PageDisplay", COMBO,  "ComboBoxMSAA",          None,                   400, 184, 200, 24),
-    ("PageDisplay", LABEL,  "LabelBloom",            "GUI:Bloom",            400, 216, 230, 24),
-    ("PageDisplay", COMBO,  "ComboBoxBloom",         None,                   400, 240, 200, 24),
-    ("PageDisplay", LABEL,  "LabelBloomThreshold",   "GUI:BloomThreshold",   400, 272, 230, 24),
-    ("PageDisplay", COMBO,  "ComboBoxBloomThreshold",None,                   400, 296, 200, 24),
-    ("PageDisplay", CHECK,  "CheckVSync",            "GUI:VSync",            400, 328, 200, 24),
-
-    # Gameplay: a page that did not exist at all before, and is one setting.  The eight build and
-    # HUD conveniences that used to sit here are on for everybody now and left TheOptionCatalog
-    # with their checkboxes; the four camera habits that used to be on Controls went the same way.
-    ("PageGameplay", LABEL, "LabelHealthBars",       "GUI:HealthBars",       160, 104, 230, 24),
-    ("PageGameplay", COMBO, "ComboBoxHealthBars",    None,                   160, 128, 200, 24),
-    ("PageGameplay", LABEL, "LabelPlayerColors",     "GUI:PlayerColors",     160, 160, 230, 24),
-    ("PageGameplay", COMBO, "ComboBoxPlayerColors",  None,                   160, 184, 200, 24),
+# The fork's own controls.  Where they stand is decided below with everything else.
+#   (template, name, text key)
+NEW_CONTROLS = [
+    (LABEL,  "LabelWindowMode",        "GUI:WindowMode"),
+    (COMBO,  "ComboBoxWindowMode",     None),
+    (CHECK,  "CheckVSync",             "GUI:VSync"),
+    (LABEL,  "LabelMSAA",              "GUI:MSAA"),
+    (COMBO,  "ComboBoxMSAA",           None),
+    (LABEL,  "LabelBloom",             "GUI:Bloom"),
+    (COMBO,  "ComboBoxBloom",          None),
+    (LABEL,  "LabelBloomThreshold",    "GUI:BloomThreshold"),
+    (COMBO,  "ComboBoxBloomThreshold", None),
+    (LABEL,  "LabelTextureFilter",     "GUI:TextureFilter"),
+    (COMBO,  "ComboBoxTextureFilter",  None),
+    (LABEL,  "LabelAnisotropy",        "GUI:Anisotropy"),
+    (SLIDER, "SliderAnisotropy",       None),
+    (LABEL,  "LabelHealthBars",        "GUI:HealthBars"),
+    (COMBO,  "ComboBoxHealthBars",     None),
+    (LABEL,  "LabelPlayerColors",      "GUI:PlayerColors"),
+    (COMBO,  "ComboBoxPlayerColors",   None),
 ]
 
-# What is left of EA's own controls, page by page, at the rhythm the display page's right column
-# sets: a label on the 104/160/216/272 rows and the thing it labels 24 pixels under it.  The
-# panels shrink to what they now hold - each shipped tall enough for a heading, a rule and a row
-# that is not there any more.
-#   (name, left, top, width, height)
-RELAYOUT = [
-    ("VideoParent",                   151, 100, 236, 224),
-    ("ResolutionLabel",               156, 104, 144, 24),
-    ("ComboBoxResolution",            160, 128, 144, 24),
-    ("DetailLabel",                   156, 160, 144, 24),
-    ("ComboBoxDetail",                160, 184, 144, 24),
-    ("GammaLabel",                    156, 216, 196, 24),
-    ("SliderGamma",                   164, 240, 208, 24),
-    # the antialiasing label shipped on top of the gamma slider, both of them at y=241; it is only
-    # visible at all because the shipped panel drew it before the slider
-    ("AntiAliasingLabel",             156, 272, 187, 24),
-    ("ComboBoxAntiAliasing",          160, 296, 144, 24),
+# A slider on its own says nothing about where it stands, so each one has a readout beside it that
+# OptionsMenu.cpp writes.  Cloned from a label with its caption and tooltip taken off.
+READOUTS = [
+    "ValueGamma", "ValueTextureResolution", "ValueParticleCap", "ValueAnisotropy",
+    "ValueMusicVolume", "ValueSFXVolume", "ValueVoiceVolume", "ValueScrollSpeed",
+]
 
-    ("AudioParent",                   151, 100, 244, 168),
-    ("MusicVolumeLabel",              160, 104, 184, 24),
-    ("SliderMusicVolume",             164, 128, 208, 24),
-    ("SFXVolumeLabel",                160, 160, 223, 24),
-    ("SliderSFXVolume",               164, 184, 208, 24),
-    ("VoiceVolumeLabel",              160, 216, 183, 24),
-    ("SliderVoiceVolume",             164, 240, 208, 24),
+# a cloned slider keeps its template's range unless it is given one
+SLIDER_RANGES = [("SliderAnisotropy", 0, 16)]
 
-    ("ScrollParent",                  151, 100, 484,  88),
-    ("Retaliation",                   160, 104, 192, 24),
-    ("CheckDoubleClickAttackMove",    387, 104, 246, 24),
-    ("ScrollSpeedLabel",              160, 136, 464, 24),
-    ("SliderScrollSpeed",             167, 160, 444, 24),
+# EA's captions that do not fit the page: two popup headings written in capitals, and a check box
+# caption that ran 20 pixels past the panel's right edge once it stood in a 268 pixel column.
+#   (control, text key)
+TEXT_OVERRIDES = [
+    ("LabelTextureResolution", "GUI:TextureResolution"),
+    ("LabelParticleCap", "GUI:ParticleLimit"),
+    ("CheckNoDynamicLOD", "GUI:NeverLowerDetail"),
+]
 
-    ("NetworkParent",                 151, 100, 484, 96),
-    ("StaticTextOnlineIpAddresses",   152, 104,  88, 24),
-    ("ComboBoxOnlineIP",              240, 104, 128, 24),
-    ("StaticTextLANIpAddresses",      376, 104, 104, 24),
-    ("ComboBoxIP",                    480, 104, 128, 24),
-    ("StaticTextFirewallPortOverride",152, 136, 152, 24),
-    ("TextEntryFirewallPortOverride", 304, 136, 144, 24),
-    ("ButtonFirewallRefresh",         480, 136, 116, 25),
-    ("StaticTextHTTPProxy",           152, 160, 116, 24),
-    ("TextEntryHTTPProxy",            304, 160, 144, 24),
-    ("CheckSendDelay",                480, 168, 128, 24),
+# Two columns to a page and one rhythm on all six: a setting is its label with its control under
+# it and takes 56 pixels, a check box is its own label and takes 28.  The columns are 268 wide, 16
+# apart and 8 in from the page edge.
+COLUMNS = (124, 408)
+COLUMN_WIDTH = 268
+ROW_TOP, ROW_PITCH, CHECK_PITCH, ROW_HEIGHT = 112, 56, 28, 24
+# the readout is wide enough for "Medium" in the label's 14 point, which 60 pixels cut off
+SLIDER_WIDTH, READOUT_GAP = 180, 8
+
+
+def row(index):
+    return ROW_TOP + index * ROW_PITCH
+
+
+def check_row(index):
+    return ROW_TOP + index * CHECK_PITCH
+
+
+#   (page, column, row, label, control, readout or None)
+SETTINGS = [
+    ("PageDisplay",  0, 0, "ResolutionLabel",        "ComboBoxResolution",     None),
+    ("PageDisplay",  0, 1, "LabelWindowMode",        "ComboBoxWindowMode",     None),
+    ("PageDisplay",  0, 2, "GammaLabel",             "SliderGamma",            "ValueGamma"),
+
+    ("PageGraphics", 0, 0, "DetailLabel",            "ComboBoxDetail",         None),
+    ("PageGraphics", 0, 1, "LabelTextureResolution", "LowResSlider",           "ValueTextureResolution"),
+    ("PageGraphics", 0, 2, "LabelParticleCap",       "ParticleCapSlider",      "ValueParticleCap"),
+    ("PageGraphics", 0, 3, "LabelMSAA",              "ComboBoxMSAA",           None),
+    ("PageGraphics", 0, 4, "LabelBloom",             "ComboBoxBloom",          None),
+    ("PageGraphics", 0, 5, "LabelBloomThreshold",    "ComboBoxBloomThreshold", None),
+    ("PageGraphics", 0, 6, "LabelTextureFilter",     "ComboBoxTextureFilter",  None),
+    ("PageGraphics", 1, 6, "LabelAnisotropy",        "SliderAnisotropy",       "ValueAnisotropy"),
+
+    ("PageAudio",    0, 0, "MusicVolumeLabel",       "SliderMusicVolume",      "ValueMusicVolume"),
+    ("PageAudio",    0, 1, "SFXVolumeLabel",         "SliderSFXVolume",        "ValueSFXVolume"),
+    ("PageAudio",    0, 2, "VoiceVolumeLabel",       "SliderVoiceVolume",      "ValueVoiceVolume"),
+
+    ("PageControls", 0, 0, "ScrollSpeedLabel",       "SliderScrollSpeed",      "ValueScrollSpeed"),
+
+    ("PageGameplay", 0, 0, "LabelHealthBars",        "ComboBoxHealthBars",     None),
+    ("PageGameplay", 0, 1, "LabelPlayerColors",      "ComboBoxPlayerColors",   None),
+
+    ("PageNetwork",  0, 0, "StaticTextOnlineIpAddresses",    "ComboBoxOnlineIP",              None),
+    ("PageNetwork",  0, 1, "StaticTextLANIpAddresses",       "ComboBoxIP",                    None),
+    ("PageNetwork",  0, 2, "StaticTextFirewallPortOverride", "TextEntryFirewallPortOverride", None),
+    ("PageNetwork",  0, 3, "StaticTextHTTPProxy",            "TextEntryHTTPProxy",            None),
+]
+
+#   (page, column, top, check box)
+CHECKS = [("PageDisplay", 0, row(3), "CheckVSync")] + \
+    [("PageGraphics", 1, check_row(index), name) for index, name in enumerate(GRAPHICS_CHECKS)] + [
+    ("PageControls", 0, row(1),           "Retaliation"),
+    ("PageControls", 0, row(1) + CHECK_PITCH, "CheckDoubleClickAttackMove"),
+    ("PageNetwork",  1, row(0),           "CheckSendDelay"),
+]
+
+# What fits neither shape.  The antialiasing pair and the frame rate box are EA controls that ship
+# hidden and stay hidden; they get a place on a page only so nothing is left parked off the panel.
+#   (page, name, left, top, width, height)
+OTHERS = [
+    ("PageNetwork",  "ButtonFirewallRefresh", COLUMNS[1], row(2) + ROW_HEIGHT, 160, 25),
+    ("PageDisplay",  "AntiAliasingLabel",     COLUMNS[1], row(0), COLUMN_WIDTH, ROW_HEIGHT),
+    ("PageDisplay",  "ComboBoxAntiAliasing",  COLUMNS[1], row(0) + ROW_HEIGHT, COLUMN_WIDTH, ROW_HEIGHT),
+    ("PageGraphics", "CheckUnlockFPS",        COLUMNS[1], row(5), COLUMN_WIDTH, ROW_HEIGHT),
 ]
 
 
@@ -162,6 +227,38 @@ def detach(parent, name):
         if (child.name or "").split(":")[-1] == name:
             return parent.children.pop(i)
     raise KeyError(name)
+
+
+def short(window):
+    return (window.name or "").split(":")[-1]
+
+
+def statement_end(props, start):
+    end = start
+    while ";" not in props[end]:
+        end += 1
+    return end
+
+
+def drop_prop(window, key):
+    """Take a statement out of a window, if it has one."""
+    start = window.prop_index(key)
+    if start >= 0:
+        del window.props[start:statement_end(window.props, start) + 1]
+
+
+def restyle(window, template, keys=("FONT", "HEADERTEMPLATE", "TEXTCOLOR")):
+    """Give a control the lettering of the template.  The popup's check boxes were 10 point and the
+    page's 14, and the network labels were 10 point beside 14 point labels on every other page; a
+    column of settings in two type sizes does not read as one column."""
+    for key in keys:
+        source, target = template.prop_index(key), window.prop_index(key)
+        if source < 0 or target < 0:
+            continue
+        lines = template.props[source:statement_end(template.props, source) + 1]
+        moved = [window.indent + line[len(template.indent):] if line.startswith(template.indent)
+                 else line for line in lines]
+        window.props[target:statement_end(window.props, target) + 1] = moved
 
 
 def make_page(video_parent, name):
@@ -178,10 +275,25 @@ def make_page(video_parent, name):
 
 
 def make_tab(button_template, name, text, index):
+    """Six tabs share the inner width; the last takes the pixel the division leaves over, so the
+    strip ends exactly where the pages and the buttons end."""
+    width = (INNER_WIDTH - (len(TABS) - 1) * TAB_GAP) // len(TABS)
+    left = INNER_LEFT + index * (width + TAB_GAP)
+    if index == len(TABS) - 1:
+        width = INNER_LEFT + INNER_WIDTH - left
     tab = clone(button_template, _named(name))
-    tab.place(PAGE[0] + index * TAB_WIDTH, TAB_TOP, TAB_WIDTH - 2, TAB_HEIGHT)
+    tab.place(left, TAB_TOP, width, TAB_HEIGHT)
     tab.put_prop("TEXT", '"%s"' % text)
     return tab
+
+
+def make_readout(label_template, name):
+    readout = clone(label_template, _named(name))
+    readout.children = []
+    drop_prop(readout, "TEXT")
+    drop_prop(readout, "TOOLTIPTEXT")
+    readout.put_prop("STATICTEXTDATA", "CENTERED: 0")
+    return readout
 
 
 def setting_of(name):
@@ -247,40 +359,71 @@ def build(layout):
     for name in RULES + DROP:
         detach(old, name)
 
-    pages = {}
-    for index, (page_name, tab_name, text) in enumerate(TABS):
-        pages[page_name] = make_page(templates["VideoParent"], page_name)
-        old.children.append(make_tab(templates["ButtonDefaults"], tab_name, text, index))
+    # every control that is going onto a page, by name: out of EA's group panels, off the old
+    # parent, out of the advanced popup, and new
+    waiting = {}
+    for group_name in GROUPS:
+        for child in detach(old, group_name).children:
+            waiting[short(child)] = child
+    for name in LOOSE:
+        waiting[name] = detach(old, name)
+    for node in detach(old, ADVANCED).walk():
+        if short(node) in ADVANCED_KEEP:
+            waiting[short(node)] = node
+    for template, name, text in NEW_CONTROLS:
+        waiting[name] = make_control(templates[template], name, text, 0, 0, 1, 1)
+    for name in READOUTS:
+        waiting[name] = make_readout(templates[LABEL], name)
+    for name, low, high in SLIDER_RANGES:
+        waiting[name].put_prop("SLIDERDATA", "MINVALUE: %d, MAXVALUE: %d" % (low, high))
+    for name, key in TEXT_OVERRIDES:
+        waiting[name].put_prop("TEXT", '"%s"' % key)
 
-    for page_name, group_name, along_with in GROUPS:
-        page = pages[page_name]
-        group = detach(old, group_name)
-        left, top = group.rect[:2]
-        group.move_to(PAGE[0], PAGE[1] + 4)
-        page.children.append(group)
-        for name in along_with:
-            control = detach(old, name)
-            control.move_by(PAGE[0] - left, PAGE[1] + 4 - top)
-            page.children.append(control)
+    pages = dict((page_name, make_page(templates["VideoParent"], page_name))
+                 for page_name, _tab, _text in TABS)
 
-    for page_name, template, name, text, left, top, width, height in CONTROLS:
-        pages[page_name].children.append(
-            make_control(templates[template], name, text, left, top, width, height))
-
-    for page_name, _tab, _text in TABS:
-        old.children.append(pages[page_name])
-
-    # last, because place() writes an absolute rectangle and any later move would undo it
-    for name, left, top, width, height in RELAYOUT:
-        control = layout.find(name)
-        if control is None:
-            raise KeyError("RELAYOUT names %s, which is not in the layout" % name)
+    def put(page_name, name, left, top, width, height, template=None):
+        control = waiting.pop(name)
         control.place(left, top, width, height)
+        if template is not None:
+            restyle(control, templates[template])
+        if template == LABEL:
+            # a label reads from the left edge its control starts at, not from the middle of 268 pixels
+            control.put_prop("STATICTEXTDATA", "CENTERED: 0")
+        pages[page_name].children.append(control)
+
+    for page_name, column, index, label, control, readout in SETTINGS:
+        left, top = COLUMNS[column], row(index)
+        put(page_name, label, left, top, COLUMN_WIDTH, ROW_HEIGHT, LABEL)
+        put(page_name, control, left, top + ROW_HEIGHT,
+            SLIDER_WIDTH if readout else COLUMN_WIDTH, ROW_HEIGHT)
+        if readout:
+            put(page_name, readout, left + SLIDER_WIDTH + READOUT_GAP, top + ROW_HEIGHT,
+                COLUMN_WIDTH - SLIDER_WIDTH - READOUT_GAP, ROW_HEIGHT, LABEL)
+    for page_name, column, top, name in CHECKS:
+        put(page_name, name, COLUMNS[column], top, COLUMN_WIDTH, ROW_HEIGHT, CHECK)
+    for page_name, name, left, top, width, height in OTHERS:
+        put(page_name, name, left, top, width, height)
+    if waiting:
+        raise KeyError("given no place on a page: %s" % ", ".join(sorted(waiting)))
+
+    # the frame round the pages, on the same inner edge
+    layout.find("OptionsMenuParent").place(*PANEL)
+    old.place(*PANEL)
+    layout.find("LabelTitle").place(*TITLE)
+    layout.find("Line").place(*RULE)
+    gap = (INNER_WIDTH - 3 * BUTTON_WIDTH) // 2
+    for index, name in enumerate(("ButtonDefaults", "ButtonAccept", "ButtonBack")):
+        layout.find(name).place(INNER_LEFT + index * (BUTTON_WIDTH + gap), BUTTON_TOP,
+                                BUTTON_WIDTH, BUTTON_HEIGHT)
+    layout.find("LabelVersion").place(*VERSION)
 
     # last in the file is topmost: drawWindow walks the child list from the tail back to the head,
-    # and winPointInChild answers with the head, so the advanced-display popup has to stay the last
-    # child or a page would draw over it and swallow its clicks
-    old.children.append(detach(old, "WinAdvancedDisplayOptions"))
+    # so the tabs go on after the old parent's own children and the pages after the tabs
+    for index, (page_name, tab_name, text) in enumerate(TABS):
+        old.children.append(make_tab(templates["ButtonDefaults"], tab_name, text, index))
+    for page_name, _tab, _text in TABS:
+        old.children.append(pages[page_name])
 
     return layout
 
@@ -341,6 +484,24 @@ def enum_count(name):
     return None
 
 
+def overlaps(layout):
+    """Two visible controls on one page drawn over each other.  Nothing at build time notices that,
+    and on a page laid out by arithmetic it is the one mistake arithmetic makes."""
+    found = []
+    for page_name, _tab, _text in TABS:
+        page = layout.find(page_name)
+        if page is None:
+            found.append("OptionsMenu.wnd has no %s" % page_name)
+            continue
+        visible = [(short(child), child.rect[:4]) for child in page.children
+                   if "HIDDEN" not in (child.prop("STATUS") or "")]
+        for index, (name, (left, top, right, bottom)) in enumerate(visible):
+            for other, (other_left, other_top, other_right, other_bottom) in visible[index + 1:]:
+                if left < other_right and other_left < right and top < other_bottom and other_top < bottom:
+                    found.append("%s: %s and %s overlap" % (page_name, name, other))
+    return found
+
+
 def selfcheck():
     rows = read_catalog()
     keys = read_strings()
@@ -385,6 +546,18 @@ def selfcheck():
             for entry in range(int(row["lo"]), count):
                 if "%s%d" % (label, entry) not in keys:
                     problems.append("%s entry %s%d is not in Patch.str" % (row["ini"], label, entry))
+
+    for _control, key in TEXT_OVERRIDES:
+        if key not in keys:
+            problems.append("caption %s is not in Patch.str" % key)
+
+    for name in READOUTS + GRAPHICS_CHECKS:
+        if name not in controls:
+            problems.append("OptionsMenu.wnd has no %s, which OptionsMenu.cpp fills in" % name)
+    if ADVANCED in controls:
+        problems.append("OptionsMenu.wnd still carries %s; its controls are on the Graphics page"
+                        % ADVANCED)
+    problems.extend(overlaps(layout))
 
     for problem in problems:
         print("optionsmenu: %s" % problem)

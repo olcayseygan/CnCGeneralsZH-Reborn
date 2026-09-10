@@ -727,6 +727,7 @@ GlobalData::GlobalData()
 	m_lanPlayerName.clear(); // the lobby name comes out of the preferences unless -lanname says otherwise
 	m_lanLobbyOnStart = FALSE;
 	m_skirmishLobbyOnStart = FALSE;
+	m_optionsMenuOnStart = FALSE;
 	m_randomMapsInMenus = FALSE;
 	m_horizontalScrollSpeedFactor = 1.0;
 	m_verticalScrollSpeedFactor = 1.0;

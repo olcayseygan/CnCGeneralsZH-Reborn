@@ -199,15 +199,16 @@ const OptionDef TheOptionCatalog[] =
 
 	// 0 bilinear, 1 trilinear, 2 anisotropic. Retail shipped bilinear with point mip selection,
 	// which is a 2003 fill-rate budget and is why distant ground used to shimmer; 2 is the default
-	// here. The filter table is built when the device is made, so this needs a device reset.
-	{ "TextureFilter",						"", "",
-		OPTION_INT, APPLY_DEVICE_RESET, 0, 2,
+	// here. The filter table is built when the device is made, so this needs a device reset.  A combo
+	// box on the Graphics page; stored as the same decimal the hand-edited key always was.
+	{ "TextureFilter",						OPT_WND( "ComboBoxTextureFilter" ), "GUI:TextureFilter",
+		OPTION_ENUM, APPLY_DEVICE_RESET, 0, TEXTURE_FILTER_MODE_COUNT - 1,
 		get_m_textureFilterMode, set_m_textureFilterMode },
 
 	// Samples anisotropic filtering may take. 0 means whatever the card offers, capped at 16, and
 	// asking for more than the card has still gets you the card's answer. Only read when the filter
-	// above is anisotropic.
-	{ "Anisotropy",								"", "",
+	// above is anisotropic.  The slider beside the filter box.
+	{ "Anisotropy",								OPT_WND( "SliderAnisotropy" ), "GUI:Anisotropy",
 		OPTION_INT, APPLY_DEVICE_RESET, 0, 16,
 		get_m_anisotropyLevel, set_m_anisotropyLevel },
 

@@ -10039,14 +10039,17 @@ TEST(texture_filter_defaults_to_anisotropic)
 {
 	const OptionDef *filter = findOptionDef( "TextureFilter" );
 	CHECK( filter != NULL );
-	CHECK_EQ( (Int)filter->kind, (Int)OPTION_INT );
+	// a combo box on the Graphics page now; Options.ini still stores the same 0..2
+	CHECK_EQ( (Int)filter->kind, (Int)OPTION_ENUM );
 	CHECK_EQ( filter->lo, 0 );
 	CHECK_EQ( filter->hi, 2 );
+	CHECK( filter->widgetName != NULL && strstr( filter->widgetName, "ComboBoxTextureFilter" ) != NULL );
 
 	const OptionDef *aniso = findOptionDef( "Anisotropy" );
 	CHECK( aniso != NULL );
 	CHECK_EQ( aniso->lo, 0 );
 	CHECK_EQ( aniso->hi, 16 );
+	CHECK( aniso->widgetName != NULL && strstr( aniso->widgetName, "SliderAnisotropy" ) != NULL );
 
 	GlobalData *saved = TheWritableGlobalData;
 	GlobalData *scratch = NEW GlobalData;
