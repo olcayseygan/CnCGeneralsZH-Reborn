@@ -429,11 +429,15 @@ W3DDisplay::W3DDisplay()
 
 }  // end W3DDisplay
 
+static void finishVideo(void);
+
 // W3DDisplay::~W3DDisplay ====================================================
 /** */
 //=============================================================================
 W3DDisplay::~W3DDisplay()
 {
+	// a -video run that ended before its range did, on -maxframes or a decided match, still gets its movie
+	finishVideo();
 
 	// What -ffshader did, written from here because WW3D2 is built without RELEASE_DEBUG_LOGGING
 	// and its own WWDEBUG_SAY does not exist in a shipping build.  Before W3D shuts down, which is
@@ -2031,6 +2035,7 @@ DECLARE_PERF_TIMER(BigAssRenderLoop)
 DECLARE_PERF_TIMER(W3DDisplay_draw)
 static Bool s_screenShotPending = FALSE;	// F12 pressed: save the frame at the end of the next draw()
 static void saveScreenShot(void);
+static void captureVideoFrame(void);
 
 #ifdef DEBUG_LOGGING
 //
@@ -2450,6 +2455,7 @@ AGAIN:
 					s_screenShotPending = FALSE;
 					saveScreenShot();
 				}
+				captureVideoFrame();
 				// render is all done!
 				WW3D::End_Render();
 
@@ -3644,26 +3650,10 @@ void W3DDisplay::takeScreenShot(void)
 	s_screenShotPending = TRUE;
 }
 
-static void saveScreenShot(void)
+/** Write the frame being drawn to pathname.  FALSE when there was no picture to read, which is what
+	* a device that has gone away gives.  Runs before End_Render, while the back buffers still hold it. */
+static Bool writeFrameBMP(char *pathname)
 {
-	char leafname[256];
-	char pathname[1024];
-
-	static int frame_number = 1;
-
-	Bool done = false;
-	while (!done) {
-#ifdef CAPTURE_TO_TARGA
-		snprintf( leafname, ARRAY_SIZE(leafname), "%s%.3d.tga", "sshot", frame_number++);
-#else
-		snprintf( leafname, ARRAY_SIZE(leafname), "%s%.3d.bmp", "sshot", frame_number++);
-#endif
-		strlcpy(pathname, TheGlobalData->getPath_UserData().str(), ARRAY_SIZE(pathname));
-		strlcat(pathname, leafname, ARRAY_SIZE(pathname));
-		if (_access( pathname, 0 ) == -1)
-			done = true;
-	}
-
 	// With -dx11present the picture on the screen is the Direct3D 11 one, so that is what a
 	// screenshot has to be: reading the D3D9 back buffer here would photograph a frame nobody saw
 	// and quietly compare the old renderer against itself.  This runs before End_Render, while the
@@ -3675,30 +3665,26 @@ static void saveScreenShot(void)
 		unsigned capturePitch = 0;
 		unsigned char *captured =
 			Direct3D11_Capture_Back_Buffer(captureWidth, captureHeight, capturePitch);
-		if (captured != NULL)
-		{
-			char *rows = NEW char[3*captureWidth*captureHeight];
-			for (unsigned row = 0; row < captureHeight; row++)
-			{
-				// Bottom row first, which is the order a .bmp stores them.
-				const unsigned char *in = captured + (captureHeight-1-row)*capturePitch;
-				char *out = rows + row*captureWidth*3;
-				for (unsigned column = 0; column < captureWidth; column++)
-				{
-					out[column*3+0] = (char)in[column*4+0];
-					out[column*3+1] = (char)in[column*4+1];
-					out[column*3+2] = (char)in[column*4+2];
-				}
-			}
-			CreateBMPFile(pathname, rows, captureWidth, captureHeight);
-			delete [] rows;
-			Direct3D11_Release_Capture(captured);
+		if (captured == NULL)
+			return FALSE;
 
-			UnicodeString dx11FileName;
-			dx11FileName.translate(leafname);
-			TheInGameUI->message(TheGameText->fetch("GUI:ScreenCapture"), dx11FileName.str());
+		char *rows = NEW char[3*captureWidth*captureHeight];
+		for (unsigned row = 0; row < captureHeight; row++)
+		{
+			// Bottom row first, which is the order a .bmp stores them.
+			const unsigned char *in = captured + (captureHeight-1-row)*capturePitch;
+			char *out = rows + row*captureWidth*3;
+			for (unsigned column = 0; column < captureWidth; column++)
+			{
+				out[column*3+0] = (char)in[column*4+0];
+				out[column*3+1] = (char)in[column*4+1];
+				out[column*3+2] = (char)in[column*4+2];
+			}
 		}
-		return;
+		CreateBMPFile(pathname, rows, captureWidth, captureHeight);
+		delete [] rows;
+		Direct3D11_Release_Capture(captured);
+		return TRUE;
 	}
 
 	RECT bounds;
@@ -3742,7 +3728,7 @@ static void saveScreenShot(void)
 		{
 			if (fb != NULL)
 				fb->Release();
-			return;		// nothing to save; better than a fault
+			return FALSE;		// nothing to save; better than a fault
 		}
 	}
 
@@ -3830,10 +3816,181 @@ static void saveScreenShot(void)
 #endif
 
 	delete [] image;
+	return TRUE;
+}
+
+static void saveScreenShot(void)
+{
+	char leafname[256];
+	char pathname[1024];
+
+	static int frame_number = 1;
+
+	Bool done = false;
+	while (!done) {
+#ifdef CAPTURE_TO_TARGA
+		snprintf( leafname, ARRAY_SIZE(leafname), "%s%.3d.tga", "sshot", frame_number++);
+#else
+		snprintf( leafname, ARRAY_SIZE(leafname), "%s%.3d.bmp", "sshot", frame_number++);
+#endif
+		strlcpy(pathname, TheGlobalData->getPath_UserData().str(), ARRAY_SIZE(pathname));
+		strlcat(pathname, leafname, ARRAY_SIZE(pathname));
+		if (_access( pathname, 0 ) == -1)
+			done = true;
+	}
+
+	if (!writeFrameBMP(pathname))
+		return;
 
 	UnicodeString ufileName;
 	ufileName.translate(leafname);
 	TheInGameUI->message(TheGameText->fetch("GUI:ScreenCapture"), ufileName.str());
+}
+
+//=============================================================================
+// -video <from> <to> [name]: one picture per logic frame across the range, written as numbered
+// .bmp files under Videos\<name>\ and then handed to ffmpeg for Videos\<name>.mp4.  GameEngine runs
+// one logic frame a pass over the range, so a picture is a logic frame and a second of video is
+// LOGICFRAMES_PER_SECOND of them.
+//=============================================================================
+static const char VIDEO_FRAME_PATTERN[] = "frame%06d.bmp";
+static const char VIDEO_ENCODER[] = "ffmpeg.exe";
+
+static Bool s_videoStarted = FALSE;
+static Bool s_videoFinished = FALSE;
+static UnsignedInt s_videoLastFrame = 0;
+static Int s_videoFramesWritten = 0;
+static Int s_videoFramesMissed = 0;
+static char s_videoDirectory[_MAX_PATH];
+
+static void buildVideoFramePath(char *pathname, size_t size, Int index)
+{
+	char leafname[32];
+	snprintf(leafname, ARRAY_SIZE(leafname), VIDEO_FRAME_PATTERN, index);
+	strlcpy(pathname, s_videoDirectory, size);
+	strlcat(pathname, leafname, size);
+}
+
+// frames are numbered from 0 without a gap, so the first name that is not there is the end of them
+static void deleteVideoFrames(void)
+{
+	char pathname[_MAX_PATH];
+	for (Int index = 0; ; ++index)
+	{
+		buildVideoFramePath(pathname, ARRAY_SIZE(pathname), index);
+		if (!DeleteFileA(pathname))
+			return;
+	}
+}
+
+static void finishVideo(void)
+{
+	if (!s_videoStarted || s_videoFinished)
+		return;
+	s_videoFinished = TRUE;
+
+	DEBUG_LOG(("VIDEO: %d frames written to %s, %d logic frames went by without a picture\n",
+		s_videoFramesWritten, s_videoDirectory, s_videoFramesMissed));
+	if (s_videoFramesWritten == 0)
+		return;
+
+	char encoderPath[_MAX_PATH];
+	if (SearchPathA(NULL, VIDEO_ENCODER, NULL, ARRAY_SIZE(encoderPath), encoderPath, NULL) == 0)
+	{
+		DEBUG_LOG(("VIDEO: %s is not on the PATH, so the frames stay where they are\n", VIDEO_ENCODER));
+		return;
+	}
+
+	// the directory with its trailing backslash taken off is the movie's own name
+	char moviePath[_MAX_PATH];
+	strlcpy(moviePath, s_videoDirectory, ARRAY_SIZE(moviePath));
+	moviePath[strlen(moviePath) - 1] = '\0';
+	strlcat(moviePath, ".mp4", ARRAY_SIZE(moviePath));
+
+	// yuv420p is what every player opens and it wants even dimensions, which a window need not have
+	char commandLine[4 * _MAX_PATH];
+	snprintf(commandLine, ARRAY_SIZE(commandLine),
+		"\"%s\" -y -loglevel error -framerate %d -i \"%s%s\" -vf pad=ceil(iw/2)*2:ceil(ih/2)*2 "
+		"-c:v libx264 -pix_fmt yuv420p -crf 18 \"%s\"",
+		encoderPath, LOGICFRAMES_PER_SECOND, s_videoDirectory, VIDEO_FRAME_PATTERN, moviePath);
+
+	STARTUPINFOA startup;
+	memset(&startup, 0, sizeof(startup));
+	startup.cb = sizeof(startup);
+	PROCESS_INFORMATION process;
+	if (!CreateProcessA(encoderPath, commandLine, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL,
+			&startup, &process))
+	{
+		DEBUG_LOG(("VIDEO: %s would not start (error %u), so the frames stay where they are\n",
+			encoderPath, (unsigned)GetLastError()));
+		return;
+	}
+
+	WaitForSingleObject(process.hProcess, INFINITE);
+	DWORD exitCode = 0;
+	GetExitCodeProcess(process.hProcess, &exitCode);
+	CloseHandle(process.hThread);
+	CloseHandle(process.hProcess);
+
+	if (exitCode != 0)
+	{
+		DEBUG_LOG(("VIDEO: %s exited with %u, so the frames stay where they are\n",
+			encoderPath, (unsigned)exitCode));
+		return;
+	}
+
+	deleteVideoFrames();
+	RemoveDirectoryA(s_videoDirectory);
+	DEBUG_LOG(("VIDEO: wrote %s\n", moviePath));
+}
+
+static void captureVideoFrame(void)
+{
+	if (TheGlobalData->m_videoEndFrame <= 0 || s_videoFinished || TheGameLogic == NULL
+			|| !TheGameLogic->isInGame() || TheGameLogic->isInShellGame())
+		return;
+
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	if (frame < (UnsignedInt)TheGlobalData->m_videoStartFrame)
+		return;
+
+	if (frame > (UnsignedInt)TheGlobalData->m_videoEndFrame)
+	{
+		finishVideo();
+		return;
+	}
+
+	if (!s_videoStarted)
+	{
+		s_videoStarted = TRUE;
+		snprintf(s_videoDirectory, ARRAY_SIZE(s_videoDirectory), "%sVideos\\",
+			TheGlobalData->getPath_UserData().str());
+		CreateDirectoryA(s_videoDirectory, NULL);
+		strlcat(s_videoDirectory, TheGlobalData->m_videoName.str(), ARRAY_SIZE(s_videoDirectory));
+		strlcat(s_videoDirectory, "\\", ARRAY_SIZE(s_videoDirectory));
+		CreateDirectoryA(s_videoDirectory, NULL);
+
+		// a directory left over from an earlier run would hand ffmpeg its tail as well
+		deleteVideoFrames();
+		DEBUG_LOG(("VIDEO: recording logic frames %d to %d into %s\n",
+			TheGlobalData->m_videoStartFrame, TheGlobalData->m_videoEndFrame, s_videoDirectory));
+	}
+	else if (frame == s_videoLastFrame)
+	{
+		return;
+	}
+	else if (frame > s_videoLastFrame + 1)
+	{
+		s_videoFramesMissed += frame - s_videoLastFrame - 1;
+	}
+	s_videoLastFrame = frame;
+
+	char pathname[_MAX_PATH];
+	buildVideoFramePath(pathname, ARRAY_SIZE(pathname), s_videoFramesWritten);
+	if (writeFrameBMP(pathname))
+		++s_videoFramesWritten;
+	else
+		++s_videoFramesMissed;
 }
 
 /** Start/Stop campturing an AVI movie*/

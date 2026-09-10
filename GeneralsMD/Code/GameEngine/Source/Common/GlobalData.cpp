@@ -695,6 +695,9 @@ GlobalData::GlobalData()
 	m_headless = FALSE;
 	m_maxGameFrames = 0; // run until the match ends
 	m_screenShotFrame = 0; // take no picture unless -screenshot asks for one
+	m_videoStartFrame = 0;
+	m_videoEndFrame = 0; // record nothing unless -video asks for a range
+	m_videoName.clear();
 	m_autoCameraSeconds = 0; // the camera stays where it was put
 	m_cameraLookSet = FALSE; // -camera not given: the map decides where the view starts
 	m_cameraLook.x = m_cameraLook.y = 0.0f;

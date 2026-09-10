@@ -1361,6 +1361,70 @@ Int parseScreenShot(char *args[], int num)
 	return 2;
 }
 
+/* -video <from> <to> [name]: record logic frames <from> to <to> of the match as a movie.
+	 *
+	 * -screenshot shows one frame.  A unit turning the wrong way, an animation that hitches or a
+	 * formation coming apart is a sequence, and a script cannot see a sequence one launch per picture.
+	 * Every logic frame in the range is drawn once and written as frameNNNNNN.bmp under Videos\<name>\
+	 * next to the save games; when the range is over, or the game exits first, ffmpeg.exe off the PATH
+	 * turns them into Videos\<name>.mp4 and the frames are deleted.  Without ffmpeg they stay.  The name
+	 * defaults to video_<from>_<to> and may hold letters, digits, '-' and '_' only, because it becomes a
+	 * directory and an argument on ffmpeg's command line. */
+static Bool isVideoNameUsable(const char *name)
+{
+	if (*name == '\0')
+		return FALSE;
+	for (const char *letter = name; *letter; ++letter)
+	{
+		const Bool usable = (*letter >= 'a' && *letter <= 'z') || (*letter >= 'A' && *letter <= 'Z')
+			|| (*letter >= '0' && *letter <= '9') || *letter == '-' || *letter == '_';
+		if (!usable)
+			return FALSE;
+	}
+	return TRUE;
+}
+
+Int parseVideo(char *args[], int num)
+{
+	if (num < 3)
+	{
+		DEBUG_LOG(("-video: wants the first and the last logic frame to record, got %d arguments\n", num - 1));
+		return num;
+	}
+
+	Int from = atoi(args[1]);
+	if (from < 1)
+		from = 1;
+	const Int to = atoi(args[2]);
+
+	AsciiString name;
+	name.format("video_%d_%d", from, to);
+	Int consumed = 3;
+	if (num > 3 && args[3][0] != '-')
+	{
+		consumed = 4;
+		if (isVideoNameUsable(args[3]))
+			name = args[3];
+		else
+			DEBUG_LOG(("-video: '%s' is not a usable name (letters, digits, '-' and '_'), recording as %s\n",
+				args[3], name.str()));
+	}
+
+	if (to < from)
+	{
+		DEBUG_LOG(("-video: the last frame %d comes before the first frame %d, so nothing is recorded\n", to, from));
+		return consumed;
+	}
+
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_videoStartFrame = from;
+		TheWritableGlobalData->m_videoEndFrame = to;
+		TheWritableGlobalData->m_videoName = name;
+	}
+	return consumed;
+}
+
 /* -autocamera [seconds]: every so often, put the camera wherever the fighting is.
 	 *
 	 * A soak run watches from a free camera that never moves, and a camera that never moves is the
@@ -2220,6 +2284,7 @@ static CommandLineParam params[] =
 	{ "-headless", parseHeadless },
 	{ "-maxframes", parseMaxGameFrames },
 	{ "-screenshot", parseScreenShot },
+	{ "-video", parseVideo },
 	{ "-msaa", parseMSAA },
 	{ "-d3d9", parseDirect3D9 },
 	{ "-dx11dump", parseDirect3D11Dump },

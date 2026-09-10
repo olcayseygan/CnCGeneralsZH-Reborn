@@ -1857,6 +1857,8 @@ static void updateHeadlessRun( void )
 		AIUpdate_resetMoveTrace();
 		extern void GroupDrill_reset( void );
 		GroupDrill_reset();
+		if (TheGlobalData->m_headless && TheGlobalData->m_videoEndFrame > 0)
+			DEBUG_LOG(("-video: -headless draws nothing, so there is no video to record\n"));
 	}
 
 	const UnsignedInt frame = TheGameLogic->getFrame();
@@ -1910,8 +1912,14 @@ static void updateHeadlessRun( void )
 		}
 	}
 
+	/* A -video range that runs up to or past -maxframes keeps the run alive until its last picture is
+		 drawn, which happens on the pass after the logic reaches that frame. */
+	Int maxGameFrames = TheGlobalData->m_maxGameFrames;
+	if (maxGameFrames > 0 && !TheGlobalData->m_headless && TheGlobalData->m_videoEndFrame >= maxGameFrames)
+		maxGameFrames = TheGlobalData->m_videoEndFrame + 1;
+
 	const char *why = GameEngine_headlessRunResult( frame, TheVictoryConditions->getEndFrame(),
-																									TheGlobalData->m_maxGameFrames );
+																									maxGameFrames );
 	if (why == NULL)
 		return;
 
@@ -2084,6 +2092,15 @@ void GameEngine::update( void )
 			 branch as fast-forward, different reason: this one is not a cheat, it is the whole point
 			 of an unattended run. */
 		fastMode = fastMode || TheGlobalData->m_headless;
+
+		/* -video: one logic frame a pass across the range being recorded, so the draw in front of each
+			 logic frame is the one picture of it.  Paced by the wall clock, a pass that fell behind would
+			 run two logic frames back to back and the video would jump over one. */
+		const Int videoLogicFrame = (Int)TheGameLogic->getFrame();
+		fastMode = fastMode || ( TheGlobalData->m_videoEndFrame > 0 && TheGameLogic->isInGame()
+														 && !TheGameLogic->isInShellGame()
+														 && videoLogicFrame + 1 >= TheGlobalData->m_videoStartFrame
+														 && videoLogicFrame <= TheGlobalData->m_videoEndFrame );
 
 		static DWORD prevLogicTime = timeGetTime();
 		static Real logicAccumMs = 0.0f;

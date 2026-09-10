@@ -388,6 +388,9 @@ public:
 	Int m_peaceTime;								///< -peacetime <n>: the lobby's peace time, in minutes, for an -autoskirmish run
 	Int m_maxGameFrames;						///< -maxframes <n>: quit after n logic frames however the match is going (0 = no limit)
 	Int m_screenShotFrame;					///< -screenshot <n>: save one picture when the run reaches logic frame n (0 = never)
+	Int m_videoStartFrame;					///< -video <from> <to> [name]: the first logic frame recorded
+	Int m_videoEndFrame;						///< -video: the last logic frame recorded (0 = no video)
+	AsciiString m_videoName;				///< -video: the recording is Videos\<name>.mp4 next to the save games
 	Int m_autoCameraSeconds;				///< -autocamera <n>: every n seconds, move the camera to wherever the fighting is (0 = off)
 	Bool m_cameraLookSet;						///< -camera <x> <y>: point the camera at one map position once the match starts
 	Coord2D m_cameraLook;						///< where -camera pointed it
