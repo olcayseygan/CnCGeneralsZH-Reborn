@@ -691,6 +691,7 @@ GlobalData::GlobalData()
 	m_autoSkirmishAIStateOdd = 0;		// 0 = not set: every slot plays at -aidiff
 	m_autoSkirmishTeams = 0;				// 0 = not set: every slot fights every other slot
 	m_peaceTime = 0;								// no truce unless -peacetime asks for one
+	m_unitLimit = FALSE;						// no unit limit unless -unitlimit asks for one
 	m_autoSkirmishObserver = FALSE;
 	m_headless = FALSE;
 	m_maxGameFrames = 0; // run until the match ends

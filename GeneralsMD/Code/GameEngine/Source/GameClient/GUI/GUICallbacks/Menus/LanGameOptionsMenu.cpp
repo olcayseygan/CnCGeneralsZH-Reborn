@@ -41,6 +41,7 @@
 #include "GameClient/KeyDefs.h"
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/GadgetListBox.h"
+#include "GameClient/GadgetCheckBox.h"
 #include "GameClient/GadgetComboBox.h"
 #include "GameClient/GadgetTextEntry.h"
 #include "GameClient/GadgetStaticText.h"
@@ -120,6 +121,7 @@ static NameKeyType buttonSelectMapID = NAMEKEY_INVALID;
 static NameKeyType comboBoxSuperweaponsID = NAMEKEY_INVALID;
 static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
 static NameKeyType comboBoxPeaceTimeID = NAMEKEY_INVALID;
+static NameKeyType checkBoxUnitLimitID = NAMEKEY_INVALID;
 static NameKeyType windowMapID = NAMEKEY_INVALID;
 // Window Pointers ------------------------------------------------------------------------
 static GameWindow *parentLanGameOptions = NULL;
@@ -132,6 +134,7 @@ static GameWindow *textEntryMapDisplay = NULL;
 static GameWindow *comboBoxSuperweapons = NULL;
 static GameWindow *comboBoxStartingCash = NULL;
 static GameWindow *comboBoxPeaceTime = NULL;
+static GameWindow *checkBoxUnitLimit = NULL;
 static GameWindow *windowMap = NULL;
 
 static GameWindow *comboBoxPlayer[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
@@ -660,6 +663,24 @@ static void handlePeaceTimeSelection()
   }
 }
 
+static void handleUnitLimitSelection()
+{
+  LANGameInfo *myGame = TheLAN->GetMyGame();
+
+  // setting the box from the host's options clicks it too; only a real change is worth a new options string
+  if (myGame == NULL || checkBoxUnitLimit == NULL || myGame->getUnitLimit() == GadgetCheckBoxIsChecked( checkBoxUnitLimit ))
+    return;
+
+  myGame->setUnitLimit( GadgetCheckBoxIsChecked( checkBoxUnitLimit ) );
+  myGame->resetAccepted();
+
+  if (myGame->amIHost() && !s_isIniting)
+  {
+    TheLAN->RequestGameOptions(GenerateGameOptionsString(), true);
+    lanUpdateSlotList(); // Update the accepted button UI
+  }
+}
+
 static void handleSuperweaponSelection()
 {
   LANGameInfo *myGame = TheLAN->GetMyGame();
@@ -708,6 +729,7 @@ void InitLanGameGadgets( void )
   comboBoxSuperweaponsID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxSuperweapons" ) );
   comboBoxStartingCashID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxStartingCash" ) );
   comboBoxPeaceTimeID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxPeaceTime" ) );
+  checkBoxUnitLimitID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:CheckBoxUnitLimit" ) );
 	windowMapID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:MapWindow" ) );
 
 	// Initialize the pointers to our gadgets
@@ -741,6 +763,11 @@ void InitLanGameGadgets( void )
   DEBUG_ASSERTCRASH(comboBoxPeaceTime, ("Could not find the comboBoxPeaceTime"));
 	if (comboBoxPeaceTime)
 		PopulatePeaceTimeComboBox(comboBoxPeaceTime, TheLAN->GetMyGame(), TheLAN->AmIHost());
+	// the fork's own control too, and missing is survivable the same way
+  checkBoxUnitLimit = TheWindowManager->winGetWindowFromId( parentLanGameOptions, checkBoxUnitLimitID );
+  DEBUG_ASSERTCRASH(checkBoxUnitLimit, ("Could not find the checkBoxUnitLimit"));
+	if (checkBoxUnitLimit)
+		UpdateUnitLimitCheckBox(checkBoxUnitLimit, TheLAN->GetMyGame(), TheLAN->AmIHost());
 
 	windowMap = TheWindowManager->winGetWindowFromId( parentLanGameOptions,windowMapID  );
 	DEBUG_ASSERTCRASH(windowMap, ("Could not find the LanGameOptionsMenu.wnd:MapWindow" ));
@@ -843,6 +870,7 @@ void DeinitLanGameGadgets( void )
   comboBoxSuperweapons = NULL;
   comboBoxStartingCash = NULL;
   comboBoxPeaceTime = NULL;
+  checkBoxUnitLimit = NULL;
 	windowMap = NULL;
 	for (Int i = 0; i < MAX_SLOTS; i++)
 	{
@@ -898,6 +926,7 @@ void LanGameOptionsMenuInit( WindowLayout *layout, void *userData )
 		game->setMap( pref.getPreferredMap() );
     game->setStartingCash( pref.getStartingCash() );
     game->setSuperweaponRestriction( pref.getSuperweaponRestriction() );
+    game->setUnitLimit( pref.getInt( "UnitLimit", 0 ) != 0 );
 		AsciiString lowerMap = pref.getPreferredMap();
 		lowerMap.toLower();
 		std::map<AsciiString, MapMetaData>::iterator it = TheMapCache->find(lowerMap);
@@ -1017,6 +1046,8 @@ void updateGameOptions( void )
 
 		if (comboBoxPeaceTime)
 			UpdatePeaceTimeComboBox( comboBoxPeaceTime, theGame, TheLAN->AmIHost() );
+		if (checkBoxUnitLimit)
+			UpdateUnitLimitCheckBox( checkBoxUnitLimit, theGame, TheLAN->AmIHost() );
 	}
 }
 
@@ -1246,6 +1277,12 @@ WindowMsgHandledType LanGameOptionsMenuSystem( GameWindow *window, UnsignedInt m
 					break;
 				GameWindow *control = (GameWindow *)mData1;
 				Int controlID = control->winGetWindowId();
+
+				if ( controlID == checkBoxUnitLimitID )
+				{
+					handleUnitLimitSelection();
+					break;
+				}
 
 				if ( LobbyTabClicked( (NameKeyType)controlID ) )
 					break;

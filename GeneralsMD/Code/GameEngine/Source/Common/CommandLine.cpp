@@ -1931,6 +1931,18 @@ Int parsePeaceTime(char *args[], int num)
 	return 1;
 }
 
+/* -unitlimit: turn the lobby's unit limit on for an -autoskirmish run.  The check box lives in the
+	 lobby settings page and an unattended run has no lobby, so a measurement of what the cap does to
+	 a match, or a replay check of it, needs this.  Cleared for a network game, like -peacetime. */
+Int parseUnitLimit(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_unitLimit = TRUE;
+	}
+	return 1;
+}
+
 /* -slowframe <ms> lowers the bar a logic frame has to clear before it logs its own breakdown.
 
 	 The default of 20ms is a stutter hunt: it catches the frames a player would notice. Chasing a
@@ -2295,6 +2307,7 @@ static CommandLineParam params[] =
 	{ "-slowframe", parseSlowFrame },
 	{ "-teams", parseTeams },
 	{ "-peacetime", parsePeaceTime },
+	{ "-unitlimit", parseUnitLimit },
 	{ "-aislice", parseAISlice },
 	{ "-noflowpath", parseNoFlowPath },
 	{ "-nolanes", parseNoLanePath },

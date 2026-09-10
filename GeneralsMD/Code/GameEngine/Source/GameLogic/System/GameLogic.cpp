@@ -236,6 +236,7 @@ GameLogic::GameLogic( void )
 	m_gameMode = GAME_NONE;
 	m_rankLevelLimit = 1000;
 	m_peaceTimeEndFrame = 0;
+	m_unitCap = 0;
 	m_gamePaused = FALSE;
 	m_inputEnabledMemory = TRUE;
 	m_mouseVisibleMemory = TRUE;
@@ -1175,6 +1176,7 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 		TheWritableGlobalData->m_groupDrill = 0;					// -groupdrill
 		TheWritableGlobalData->m_scenarioFile.clear();		// -scenario
 		TheWritableGlobalData->m_peaceTime = 0;						// -peacetime, and the host's options string is read below
+		TheWritableGlobalData->m_unitLimit = FALSE;						// -unitlimit, the same
 	}
 
 	m_showBehindBuildingMarkers = TRUE;
@@ -1227,13 +1229,22 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
     {
       m_superweaponRestriction = TheGameInfo->getSuperweaponRestriction();
       m_peaceTimeEndFrame = TheGameInfo->getPeaceTime() * 60 * LOGICFRAMES_PER_SECOND;
+      m_unitCap = TheGameInfo->getUnitLimit()
+                  ? (UnsignedInt)UnitLimitPerPlayer( TheGameInfo->getNumNonObserverPlayers() ) : 0;
     }
     else
     {
       // ??? Apparently this is legit? Oh well, use defaults
       m_superweaponRestriction = 0;
       m_peaceTimeEndFrame = 0;
+      m_unitCap = 0;
     }
+
+    /* -unitlimit is the lobby's check box for an -autoskirmish run, which has no lobby to tick it
+       in.  A network game reads the host's options string instead, and the switch is cleared for
+       one above. */
+    if ( TheGlobalData->m_unitLimit && TheGameInfo )
+      m_unitCap = (UnsignedInt)UnitLimitPerPlayer( TheGameInfo->getNumNonObserverPlayers() );
 
     /* -peacetime is the one way past the no-computer-players rule in GameInfo::getPeaceTime(), and
        it is deliberate: an unattended run is nothing but bots, so without this there would be no
@@ -5532,13 +5543,14 @@ void GameLogic::prepareLogicForObjectLoad( void )
 	* 11: objects are written back to front, so that loading - which prepends each one - rebuilds
 	*     the list in the order it was saved in.  Version 10 and earlier are reversed on load.
 	* 12: xfer m_peaceTimeEndFrame
+	* 13: xfer m_unitCap
 	*/
 // ------------------------------------------------------------------------------------------------
 void GameLogic::xfer( Xfer *xfer )
 {
   
 	// version
-	const XferVersion currentVersion = 12;
+	const XferVersion currentVersion = 13;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -5893,6 +5905,15 @@ void GameLogic::xfer( Xfer *xfer )
   else if ( xfer->getXferMode() == XFER_LOAD )
   {
     m_peaceTimeEndFrame = 0;
+  }
+
+  if ( version >= 13 )
+  {
+    xfer->xferUnsignedInt( &m_unitCap );
+  }
+  else if ( xfer->getXferMode() == XFER_LOAD )
+  {
+    m_unitCap = 0;
   }
 }  // end xfer
 

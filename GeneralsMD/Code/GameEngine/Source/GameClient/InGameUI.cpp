@@ -7271,6 +7271,17 @@ void InGameUI::drawHudOverlay( void )
 							 REAL_TO_INT( m_hudLogicHz + 0.5f ), REAL_TO_INT( m_hudFps + 0.5f ),
 							 TheDisplay->getRendererName() );
 
+	// the lobby's unit limit, as this player's own share and not the match total: what stands and
+	// what is queued, against the number the production queue refuses at
+	const UnsignedInt unitCap = TheGameLogic->getUnitCap();
+	const Player *localPlayer = ThePlayerList ? ThePlayerList->getLocalPlayer() : NULL;
+	if( unitCap > 0 && localPlayer && !localPlayer->isPlayerObserver() )
+	{
+		UnicodeString units;
+		units.format( L"   %d/%d units", localPlayer->countUnitsTowardCap(), unitCap );
+		text.concat( units );
+	}
+
 	if( m_hudDisplayString == NULL )
 	{
 		// bold at a small point size, because this plate is read at a glance rather than read

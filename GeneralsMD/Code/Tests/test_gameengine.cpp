@@ -991,6 +991,18 @@ TEST(force_fire_is_the_attack_key_and_nothing_else)
 	CHECK( !CommandXlat_isForceAttackTargeting( false, true ) );
 }
 
+/* Player.cpp: the lobby's unit limit is 840 units shared out by the players who are not watching. */
+TEST(unit_limit_shares_840_between_the_players)
+{
+	CHECK_EQ( UnitLimitPerPlayer( 2 ), 420 );
+	CHECK_EQ( UnitLimitPerPlayer( 3 ), 280 );
+	CHECK_EQ( UnitLimitPerPlayer( 8 ), 105 );
+
+	/* a lobby with nobody left in it is not a division by zero */
+	CHECK_EQ( UnitLimitPerPlayer( 0 ), 840 );
+	CHECK_EQ( UnitLimitPerPlayer( 1 ), 840 );
+}
+
 /* CommandXlat.cpp: a right drag spreads the selection along the line drawn, but only when there is
    a selection to spread and no GUI command already waiting for the click. */
 extern Bool Command_formationDragArmed( Bool setting, Bool haveMovableSelection,

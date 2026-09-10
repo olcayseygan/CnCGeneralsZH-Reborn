@@ -2992,8 +2992,59 @@ Int SuperweaponBuildCap( Int restriction, const AsciiString &playerTemplateName 
 
 //=============================================================================
 // Make sure that building another of this unit/structure/object won't exceed MaxSimultaneousOfType()
+Int UnitLimitPerPlayer( Int nonObserverPlayers )
+{
+  return nonObserverPlayers > 1 ? UNIT_LIMIT_TOTAL / nonObserverPlayers : UNIT_LIMIT_TOTAL;
+}
+
+//=============================================================================
+/* What the unit limit counts: infantry, vehicles and aircraft.  A structure is not a unit, and
+   neither is a drone or a projectile - those arrive with their owner or out of a weapon, nobody
+   queued them, and they should not eat the share a player spends. */
+static Bool isUnitTowardCap( const ThingTemplate *thing )
+{
+  if ( thing->isKindOf( KINDOF_STRUCTURE ) || thing->isKindOf( KINDOF_DRONE ) || thing->isKindOf( KINDOF_PROJECTILE ) )
+    return FALSE;
+
+  return thing->isKindOf( KINDOF_INFANTRY ) || thing->isKindOf( KINDOF_VEHICLE ) || thing->isKindOf( KINDOF_AIRCRAFT );
+}
+
+// one object: itself if it is a unit, and whatever units it has queued, however many each entry makes
+static void countUnitTowardCap( Object *obj, void *userData )
+{
+  Int *count = (Int *)userData;
+  if ( !obj->isEffectivelyDead() && isUnitTowardCap( obj->getTemplate() ) )
+    ++(*count);
+
+  ProductionUpdateInterface *production = ProductionUpdate::getProductionUpdateInterfaceFromObject( obj );
+  if ( production == NULL )
+    return;
+
+  for ( const ProductionEntry *entry = production->firstProduction(); entry; entry = production->nextProduction( entry ) )
+  {
+    const ThingTemplate *unit = entry->getProductionObject();
+    if ( entry->getProductionType() == PRODUCTION_UNIT && unit && isUnitTowardCap( unit ) )
+      *count += entry->getProductionQuantityRemaining();
+  }
+}
+
+Int Player::countUnitsTowardCap( void ) const
+{
+  Int count = 0;
+  iterateObjects( countUnitTowardCap, &count );
+  return count;
+}
+
+//=============================================================================
 Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild ) const
 {
+  // the lobby's unit limit: a queue entry is refused once what stands and what is queued fills the
+  // share.  Everything that decides whether a unit may be built comes through here - the command
+  // bar, the production queue and the computer players' build lists
+  const UnsignedInt unitCap = TheGameLogic ? TheGameLogic->getUnitCap() : 0;
+  if ( unitCap > 0 && isUnitTowardCap( whatToBuild ) && (UnsignedInt)countUnitsTowardCap() >= unitCap )
+    return false;
+
   // make sure we're not maxed out for this type of unit.
   UnsignedInt maxSimultaneousOfType = whatToBuild->getMaxSimultaneousOfType();
 

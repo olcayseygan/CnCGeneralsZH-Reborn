@@ -121,6 +121,11 @@ static const char *ScienceAvailabilityNames[] =
 enum { SUPERWEAPON_CAP_BANNED = -1, SUPERWEAPON_CAP_UNLIMITED = 0 };
 Int SuperweaponBuildCap( Int restriction, const AsciiString &playerTemplateName );
 
+// The lobby's unit limit is this many units for the whole match, shared out evenly between the
+// players who are not watching.  UnitLimitPerPlayer is one player's share.
+enum { UNIT_LIMIT_TOTAL = 840 };
+Int UnitLimitPerPlayer( Int nonObserverPlayers );
+
 static const Int NUM_HOTKEY_SQUADS = 10;
 
 enum { NO_HOTKEY_SQUAD = -1 };
@@ -303,6 +308,7 @@ public:
   
   // Check MaxSimultaneousOfType
   Bool canBuildMoreOfType( const ThingTemplate *whatToBuild ) const;
+  Int countUnitsTowardCap( void ) const;	///< units standing and queued, what the lobby's unit limit is checked against
   
 	/// Difficulty level for this player.
 	GameDifficulty getPlayerDifficulty(void) const;

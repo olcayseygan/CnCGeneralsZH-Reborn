@@ -118,6 +118,11 @@ PAGE = "PageLobbySettings"
 # in the LAN layout than in the other two.
 SUPERWEAPON_CHECKBOX = ("CheckboxLimitSuperweapons", "CheckBoxLimitSuperweapons")
 
+# The unit limit check box was put on all three pages by hand after the pages were generated, so
+# build() does not make it; the selfcheck still wants it on every page, because the menu code names it
+# and a missing control is as silent as the rest.
+UNIT_LIMIT_CHECKBOX = "CheckBoxUnitLimit"
+
 # Cloned from a control that is already on the screen, so they inherit its images and font.  A
 # layout gets the ones its own page has a row for: the skirmish lobby has no peace time, because a
 # skirmish is played against computer players and those do not honour a truce.
@@ -138,6 +143,8 @@ STRINGS = [
     "GUI:SuperweaponsLimit",
     "GUI:SuperweaponsNone",
     "TOOLTIP:Superweapons",
+    "GUI:UnitLimit",
+    "TOOLTIP:UnitLimit",
 ]
 
 
@@ -275,6 +282,12 @@ def selfcheck():
                 problems.append("%s.wnd has no %s" % (menu, name))
             elif page is not None and control not in list(page.walk()):
                 problems.append("%s.wnd: %s is not on the settings page" % (menu, name))
+
+        unit_limit = layout.find(UNIT_LIMIT_CHECKBOX)
+        if unit_limit is None:
+            problems.append("%s.wnd has no %s" % (menu, UNIT_LIMIT_CHECKBOX))
+        elif page is not None and unit_limit not in list(page.walk()):
+            problems.append("%s.wnd: %s is not on the settings page" % (menu, UNIT_LIMIT_CHECKBOX))
 
         for name in SUPERWEAPON_CHECKBOX:
             if layout.find(name) is not None:

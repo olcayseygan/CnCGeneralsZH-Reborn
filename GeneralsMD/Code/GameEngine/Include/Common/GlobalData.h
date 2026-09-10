@@ -386,6 +386,7 @@ public:
 	Int m_autoSkirmishAIStateOdd;		///< -aidiff2 <name>: rung for the odd-numbered slots (0 = same as -aidiff)
 	Int m_autoSkirmishTeams;				///< -teams <n>: split the auto-skirmish slots into n allied teams (0 or 1 = free-for-all)
 	Int m_peaceTime;								///< -peacetime <n>: the lobby's peace time, in minutes, for an -autoskirmish run
+	Bool m_unitLimit;								///< -unitlimit: the lobby's unit limit for an -autoskirmish run
 	Int m_maxGameFrames;						///< -maxframes <n>: quit after n logic frames however the match is going (0 = no limit)
 	Int m_screenShotFrame;					///< -screenshot <n>: save one picture when the run reaches logic frame n (0 = never)
 	Int m_videoStartFrame;					///< -video <from> <to> [name]: the first logic frame recorded

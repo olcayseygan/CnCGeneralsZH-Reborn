@@ -34,6 +34,7 @@
 #include "Common/NameKeyGenerator.h"
 
 #include "Common/MultiplayerSettings.h"
+#include "GameClient/GadgetCheckBox.h"
 #include "GameClient/GadgetListBox.h"
 #include "GameClient/GadgetComboBox.h"
 #include "GameClient/GadgetTextEntry.h"
@@ -531,6 +532,15 @@ Int SuperweaponRestrictionFromComboBox(GameWindow *comboBox)
   if ( selIndex < 0 )
     return SUPERWEAPONS_ALLOW;
   return (Int)GadgetComboBoxGetItemData(comboBox, selIndex);
+}
+
+void UpdateUnitLimitCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMayEdit)
+{
+  checkBox->winEnable( hostMayEdit );
+
+  const Bool unitLimit = myGame->getUnitLimit();
+  if ( GadgetCheckBoxIsChecked( checkBox ) != unitLimit )
+    GadgetCheckBoxSetChecked( checkBox, unitLimit );
 }
 
 // -----------------------------------------------------------------------------

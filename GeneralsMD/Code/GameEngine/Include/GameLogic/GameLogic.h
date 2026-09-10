@@ -258,6 +258,10 @@ public:
 	/// TRUE while the truce forbids these two hurting each other; the one question both gates ask
 	Bool peaceTimeForbids( const Object *attacker, const Object *victim ) const;
 
+	/** Each player's share of the lobby's unit limit, the same number for everybody.  0 when the
+			limit is off, which is every campaign mission and every game it was not ticked for. */
+	UnsignedInt getUnitCap( void ) const { return m_unitCap; }
+
 #ifdef DUMP_PERF_STATS
 	void getAIMetricsStatistics( UnsignedInt *numAI, UnsignedInt *numMoving, UnsignedInt *numAttacking, UnsignedInt *numWaitingForPath, UnsignedInt *overallFailedPathfinds );
 	void resetOverallFailedPathfinds() { m_overallFailedPathfinds = 0; }
@@ -374,6 +378,7 @@ private:
 	Int m_rankLevelLimit;
   UnsignedShort m_superweaponRestriction;
 	UnsignedInt m_peaceTimeEndFrame;	///< logic frame the lobby's peace time runs out on, 0 = no peace time
+	UnsignedInt m_unitCap;						///< units each player may have standing and queued, 0 = no limit
 
 	LoadScreen *getLoadScreen( Bool loadSaveGame );
 	LoadScreen *m_loadScreen;

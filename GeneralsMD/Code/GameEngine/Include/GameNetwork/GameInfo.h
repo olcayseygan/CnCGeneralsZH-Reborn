@@ -245,6 +245,11 @@ public:
   inline Int getPeaceTime( void ) const;
   void setPeaceTime( Int minutes );
 
+  // The lobby's unit limit: UNIT_LIMIT_TOTAL units shared out evenly between the players.  Off is
+  // the retail game.  UnitLimitPerPlayer in Player.h turns the player count into each one's share.
+  inline Bool getUnitLimit( void ) const;
+  void setUnitLimit( Bool unitLimit );
+
   Bool hasAIPlayers( void ) const;									///< is any slot held by a computer player?
 
 protected:
@@ -269,6 +274,7 @@ protected:
   UnsignedShort m_superweaponRestriction;
   Bool m_oldFactionsOnly; // Only USA, China, GLA -- not USA Air Force General, GLA Toxic General, et al
   Int m_peaceTime; // minutes of enforced peace at the start of the match, 0 = off
+  Bool m_unitLimit; // the lobby's unit limit is on
 };
 
 extern GameInfo *TheGameInfo;
@@ -297,6 +303,7 @@ void        GameInfo::setOldFactionsOnly( Bool oldFactionsOnly ) { m_oldFactions
 	 read it here, so none of them has to remember.  The host's pick is kept, not cleared - take the
 	 bot back out and it is still there. */
 Int         GameInfo::getPeaceTime( void ) const            { return hasAIPlayers() ? 0 : m_peaceTime; }
+Bool        GameInfo::getUnitLimit( void ) const            { return m_unitLimit; }
 
 AsciiString GameInfoToAsciiString( const GameInfo *game );
 Bool ParseAsciiStringToGameInfo( GameInfo *game, AsciiString options );

@@ -394,6 +394,7 @@ void GameInfo::reset( void )
   m_superweaponRestriction = 0;
   m_startingCash = TheGlobalData->m_defaultStartingCash;
   m_peaceTime = 0;
+  m_unitLimit = FALSE;
   
 	//
 
@@ -805,6 +806,11 @@ void GameInfo::setPeaceTime( Int minutes )
   m_peaceTime = minutes;
 }
 
+void GameInfo::setUnitLimit( Bool unitLimit )
+{
+  m_unitLimit = unitLimit;
+}
+
 Bool GameInfo::isColorTaken(Int colorIdx, Int slotToIgnore ) const
 {
 	for (Int i=0; i<MAX_SLOTS; ++i)
@@ -1024,9 +1030,10 @@ AsciiString GameInfoToAsciiString( const GameInfo *game )
 	}
 
 	AsciiString optionsString;
-	optionsString.format("US=%d;M=%2.2x%s;MC=%X;MS=%d;SD=%d;C=%d;SR=%u;SC=%u;O=%c;PT=%d;", game->getUseStats(), game->getMapContentsMask(), newMapName.str(),
+	optionsString.format("US=%d;M=%2.2x%s;MC=%X;MS=%d;SD=%d;C=%d;SR=%u;SC=%u;O=%c;PT=%d;UL=%d;", game->getUseStats(), game->getMapContentsMask(), newMapName.str(),
 		game->getMapCRC(), game->getMapSize(), game->getSeed(), game->getCRCInterval(), game->getSuperweaponRestriction(),
-		game->getStartingCash().countMoney(), game->oldFactionsOnly() ? 'Y' : 'N', game->getPeaceTime() );
+		game->getStartingCash().countMoney(), game->oldFactionsOnly() ? 'Y' : 'N', game->getPeaceTime(),
+		game->getUnitLimit() ? 1 : 0 );
 
 	//add player info for each slot
 	optionsString.concat(slotListID);
@@ -1113,6 +1120,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
   Money startingCash = TheGlobalData->m_defaultStartingCash;
   UnsignedShort restriction = 0; // Always the default
   Int peaceTime = 0; // absent from the string = off, so an older host is still joinable
+  Bool unitLimit = FALSE; // the same
   
 	Bool sawMap, sawMapCRC, sawMapSize, sawSeed, sawSlotlist, sawUseStats, sawSuperweaponRestriction, sawStartingCash, sawOldFactions;
 	sawMap = sawMapCRC = sawMapSize = sawSeed = sawSlotlist = sawUseStats = sawSuperweaponRestriction = sawStartingCash = sawOldFactions = FALSE;
@@ -1218,6 +1226,10 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
     else if (key.compare("PT") == 0 )
     {
       peaceTime = atoi(val.str());
+    }
+    else if (key.compare("UL") == 0 )
+    {
+      unitLimit = atoi(val.str()) != 0;
     }
 		else if (key.getLength() == 1 && *key.str() == slotListID)
 		{
@@ -1565,6 +1577,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
     game->setStartingCash( startingCash );
     game->setOldFactionsOnly( oldFactionsOnly );
     game->setPeaceTime( peaceTime );
+    game->setUnitLimit( unitLimit );
 
 		return true;
 	}
@@ -1591,7 +1604,7 @@ void SkirmishGameInfo::crc( Xfer *xfer )
 // ------------------------------------------------------------------------------------------------
 void SkirmishGameInfo::xfer( Xfer *xfer )
 {
-	const XferVersion currentVersion = 5;	// 5 adds m_peaceTime
+	const XferVersion currentVersion = 6;	// 5 adds m_peaceTime, 6 m_unitLimit
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -1696,6 +1709,15 @@ void SkirmishGameInfo::xfer( Xfer *xfer )
   else if ( xfer->getXferMode() == XFER_LOAD )
   {
     m_peaceTime = 0;
+  }
+
+  if ( version >= 6 )
+  {
+    xfer->xferBool( &m_unitLimit );
+  }
+  else if ( xfer->getXferMode() == XFER_LOAD )
+  {
+    m_unitLimit = FALSE;
   }
 
 }  // end xfer

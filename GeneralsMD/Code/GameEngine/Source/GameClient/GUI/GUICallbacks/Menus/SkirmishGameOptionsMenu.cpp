@@ -120,6 +120,7 @@ static NameKeyType sliderGameSpeedID = NAMEKEY_INVALID;
 static NameKeyType staticTextGameSpeedID = NAMEKEY_INVALID;
 static NameKeyType comboBoxSuperweaponsID = NAMEKEY_INVALID;
 static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
+static NameKeyType checkBoxUnitLimitID = NAMEKEY_INVALID;
 
 // Window Pointers ------------------------------------------------------------------------
 static GameWindow *staticTextGameSpeed = NULL;
@@ -133,6 +134,7 @@ static GameWindow *windowMap = NULL;
 static GameWindow *textEntryPlayerName = NULL;
 static GameWindow *comboBoxSuperweapons = NULL;
 static GameWindow *comboBoxStartingCash = NULL;
+static GameWindow *checkBoxUnitLimit = NULL;
 static GameWindow *comboBoxPlayer[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 																									 NULL,NULL,NULL,NULL };
 
@@ -363,6 +365,7 @@ Bool SkirmishPreferences::write(void)
 
   setStartingCash( TheSkirmishGameInfo->getStartingCash() );
   setSuperweaponRestriction( TheSkirmishGameInfo->getSuperweaponRestriction() );
+  setInt( "UnitLimit", TheSkirmishGameInfo->getUnitLimit() ? 1 : 0 );
 
 	setSlotList();
 
@@ -1081,6 +1084,7 @@ void InitSkirmishGameGadgets( void )
 	staticTextGameSpeedID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:StaticTextGameSpeed" ) );
   comboBoxSuperweaponsID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxSuperweapons" ) );
   comboBoxStartingCashID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxStartingCash" ) );
+  checkBoxUnitLimitID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:CheckBoxUnitLimit" ) );
 
 	// Initialize the pointers to our gadgets
 	parentSkirmishGameOptions = TheWindowManager->winGetWindowFromId( NULL, parentSkirmishGameOptionsID );
@@ -1104,6 +1108,11 @@ void InitSkirmishGameGadgets( void )
   comboBoxStartingCash = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, comboBoxStartingCashID );
   DEBUG_ASSERTCRASH(comboBoxStartingCash, ("Could not find the comboBoxStartingCash"));
   PopulateStartingCashComboBox(comboBoxStartingCash, TheSkirmishGameInfo );
+  // the fork's own control; a stale Run/Window has a layout without it, and that is survivable
+  checkBoxUnitLimit = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, checkBoxUnitLimitID );
+  DEBUG_ASSERTCRASH(checkBoxUnitLimit, ("Could not find the checkBoxUnitLimit"));
+  if ( checkBoxUnitLimit )
+    UpdateUnitLimitCheckBox( checkBoxUnitLimit, TheSkirmishGameInfo, TRUE );
 
 	textEntryPlayerNameID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:TextEntryPlayerName" ) );
   textEntryPlayerName = TheWindowManager->winGetWindowFromId( NULL, textEntryPlayerNameID );
@@ -1276,6 +1285,8 @@ void updateSkirmishGameOptions( void )
 
   if ( comboBoxSuperweapons )
     UpdateSuperweaponComboBox( comboBoxSuperweapons, TheSkirmishGameInfo, TRUE );
+  if ( checkBoxUnitLimit )
+    UpdateUnitLimitCheckBox( checkBoxUnitLimit, TheSkirmishGameInfo, TRUE );
   Int itemCount = GadgetComboBoxGetLength(comboBoxStartingCash);
   for ( Int index = 0; index < itemCount; index++ )
   {
@@ -1359,6 +1370,7 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
 
   TheSkirmishGameInfo->setStartingCash( prefs.getStartingCash() );
   TheSkirmishGameInfo->setSuperweaponRestriction( prefs.getSuperweaponRestriction() );
+  TheSkirmishGameInfo->setUnitLimit( prefs.getInt( "UnitLimit", 0 ) != 0 );
  
   TheSkirmishGameInfo->setMap(prefs.getPreferredMap());
 	const MapMetaData *md = TheMapCache->findMap(TheSkirmishGameInfo->getMap());
@@ -1641,6 +1653,11 @@ WindowMsgHandledType SkirmishGameOptionsMenuSystem( GameWindow *window, Unsigned
 ///				static NameKeyType buttonResetFPSID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ButtonResetFPS" ) );
 				if(buttonPushed)
 					break;
+				if ( controlID == checkBoxUnitLimitID )
+				{
+					TheSkirmishGameInfo->setUnitLimit( GadgetCheckBoxIsChecked( control ) );
+					break;
+				}
 				if ( LobbyTabClicked( (NameKeyType)controlID ) )
 					break;
 				if ( controlID == buttonExitID )
