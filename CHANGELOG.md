@@ -3,7 +3,7 @@
 EA released the 2003 source for preservation. It did not compile, did not run, and nobody had touched
 the bugs inside it in twenty-two years. This build compiles, runs and plays.
 
-**119 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
+**120 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
 found and fixed â€” EA's own, not port damage.**
 
 ---
@@ -588,6 +588,7 @@ found and fixed â€” EA's own, not port damage.**
 ## Soldiers cast real shadows
 
 - Infantry shadows are built from the pose: arms, head, weapon, moving with him.
+- A crowd of infantry no longer rebuilds a posed shadow for every man too small to make out. Zoom in and the pose is still there.
 - `UseShadowVolumesForSkins = No` puts the old flat blobs back.
 - Scuds, rockets and falling bombs cast a shadow running along the ground.
 - A big smoke cloud darkens the ground under it and fades as it does.

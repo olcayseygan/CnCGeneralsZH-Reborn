@@ -65,6 +65,16 @@ static const char* TheShadowNames[] =
 
 #define MAX_SHADOW_LIGHTS 1	//maximum number of shadow casting light sources in scene - support for more than 1 has been dropped from most code.
 
+// A posed skin volume whose bounding sphere is smaller than this many pixels
+// on screen is not rebuilt or drawn that frame. Zoom in and it comes back.
+enum { SHADOW_SKIN_VOLUME_MIN_SCREEN_RADIUS = 20 };
+
+inline Bool Shadow_skinVolumeLargeEnoughOnScreen( Int dx, Int dy )
+{
+	return ( dx * dx + dy * dy ) >=
+		SHADOW_SKIN_VOLUME_MIN_SCREEN_RADIUS * SHADOW_SKIN_VOLUME_MIN_SCREEN_RADIUS;
+}
+
 class RenderObjClass; //forward reference
 class RenderCost;	//forward reference
 
