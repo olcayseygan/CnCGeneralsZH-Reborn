@@ -1138,11 +1138,16 @@ UpdateSleepTime AIUpdateInterface::update( void )
 	// set a rally point, attack moves to it - so it stops and fights whatever it runs into on the way
 	// instead of taking the shots and walking on.  This is checked right after the machine ran,
 	// because finishing (or failing) the exit path is what drops us into idle in the first place.
+	// Something with nothing to fight with - a dozer, a supply truck, an empty ambulance - has no
+	// reason to stop for what it meets, so it takes the plain move instead.
 	if (m_hasExitProductionRallyPoint && getAIStateType() == AI_IDLE)
 	{
 		Coord3D rallyPoint = m_exitProductionRallyPoint;
 		m_hasExitProductionRallyPoint = FALSE;
-		privateAttackMoveToPosition( &rallyPoint, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
+		if (getObject()->isAbleToAttack())
+			privateAttackMoveToPosition( &rallyPoint, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
+		else
+			privateMoveToPosition( &rallyPoint, CMD_FROM_AI );
 		stRet = STATE_CONTINUE;
 	}
 
