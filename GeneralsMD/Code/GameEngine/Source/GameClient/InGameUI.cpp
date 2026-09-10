@@ -7265,10 +7265,11 @@ void InGameUI::drawHudOverlay( void )
 	UnsignedInt realSecs = (nowMs - m_hudRealClockBaseMs) / 1000;
 
 	UnicodeString text;
-	text.format( L"%02d:%02d:%02d(%02d:%02d:%02d)   %dhz(%dfps)",
+	text.format( L"%02d:%02d:%02d(%02d:%02d:%02d)   %dhz(%dfps) %s",
 							 gameSecs / 3600, (gameSecs / 60) % 60, gameSecs % 60,
 							 realSecs / 3600, (realSecs / 60) % 60, realSecs % 60,
-							 REAL_TO_INT( m_hudLogicHz + 0.5f ), REAL_TO_INT( m_hudFps + 0.5f ) );
+							 REAL_TO_INT( m_hudLogicHz + 0.5f ), REAL_TO_INT( m_hudFps + 0.5f ),
+							 TheDisplay->getRendererName() );
 
 	if( m_hudDisplayString == NULL )
 	{

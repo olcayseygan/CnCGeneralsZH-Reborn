@@ -3842,6 +3842,13 @@ void W3DDisplay::toggleMovieCapture(void)
 	WW3D::Toggle_Movie_Capture("Movie",30);
 }
 
+/** Asks the device rather than the switch: a machine that cannot make a Direct3D 11 device carries
+	* on with Direct3D 9 whatever -d3d9 said, and the corner has to name what is actually drawing. */
+const wchar_t *W3DDisplay::getRendererName(void) const
+{
+	return Direct3D11_Is_Active() ? L"DX11" : L"DX9";
+}
+
 
 #if defined(_DEBUG) || defined(_INTERNAL)
 

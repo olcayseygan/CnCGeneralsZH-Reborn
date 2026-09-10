@@ -192,6 +192,7 @@ public:
 	virtual void enableLetterBox(Bool enable) = 0;						///< forces letter-boxed display on/off
 	virtual Bool isLetterBoxFading( void ) { return FALSE; }	///< returns true while letterbox fades in/out
 	virtual Bool isLetterBoxed( void ) { return FALSE; }	//WST 10/2/2002. Added query interface
+	virtual const wchar_t *getRendererName( void ) const = 0;	///< the graphics API the picture is presented through, for the HUD corner
 
 	virtual void setCinematicText( AsciiString string ) { m_cinematicText = string; }
 	virtual void setCinematicFont( GameFont *font ) { m_cinematicFont = font; }

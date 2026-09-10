@@ -128,6 +128,7 @@ public:
 
 	virtual void takeScreenShot(void);						//save screenshot to file
 	virtual void toggleMovieCapture(void);			//enable AVI or frame capture mode.
+	virtual const wchar_t *getRendererName(void) const;
 
 	virtual void toggleLetterBox(void);	///<enabled letter-boxed display
 	virtual void enableLetterBox(Bool enable);	///<forces letter-boxed display on/off
