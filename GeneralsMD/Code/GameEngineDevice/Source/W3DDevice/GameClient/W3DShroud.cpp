@@ -181,6 +181,11 @@ void W3DShroud::init(WorldHeightMap *pMap, Real worldCellSizeX, Real worldCellSi
 		m_pSrcTexture = DX8Wrapper::_Create_DX8_Surface(srcWidth,srcHeight, WW3D_FORMAT_R5G6B5);
 
 	DEBUG_ASSERTCRASH( m_pSrcTexture != NULL, ("Failed to Allocate Shroud Src Surface"));
+	if (m_pSrcTexture == NULL)
+	{
+		DEBUG_LOG(("W3DShroud::init - no src surface (device missing or lost)\n"));
+		return;
+	}
 
 	D3DLOCKED_RECT rect;
 

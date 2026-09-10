@@ -20,10 +20,11 @@
 ** The Direct3D 11 copy of a texture the engine already built in Direct3D 9.
 **
 ** Textures are not buffers.  A vertex buffer is write-only and had to have its write moved, but a
-** managed texture can be read back level by level, and every path that produces one - the .dds and
-** .tga loaders, the procedural surfaces, the shroud - has finished writing before anything binds
-** it.  So the copy is made at the moment of the first bind and from the D3D9 texture itself, which
-** costs one read of each level once and needs no hook in any of the loaders.
+** managed texture can be read back level by level, and the loaders have finished writing before
+** anything binds it.  So the copy is made at the moment of the first bind and from the D3D9
+** texture itself, which costs one read of each level once and needs no hook in any of the loaders.
+** Movies rewrite the same texture every frame after that; Unlock marks it dirty and the next bind
+** fills the copy again.
 **
 ** The copy is kept on the D3D9 texture as private data, so it is released when that texture is,
 ** and a texture that cannot be mirrored - a render target, a format D3D11 does not name - is
@@ -52,6 +53,10 @@ ID3D11ShaderResourceView * DX11Texture_Mirror(ID3D11Device * device, ID3D11Devic
 bool DX11Texture_Update(ID3D11Device * device, ID3D11DeviceContext * context,
 	IDirect3DSurface9 * destination, IDirect3DSurface9 * source,
 	const struct tagRECT * source_rectangle, const struct tagPOINT * destination_point);
+
+// The CPU has just written this surface.  The next bind of its texture recopies the pixels; a
+// surface with no texture behind it is ignored.
+void DX11Texture_Mark_Dirty(IDirect3DSurface9 * surface);
 
 // The render target view over the copy of the texture this surface is a level of, built on the
 // first call and kept on that texture with the shader resource view.  Null when the surface has no

@@ -1961,7 +1961,16 @@ void DX8Wrapper::End_Scene(bool flip_frames)
 		HRESULT hr;
 		{
 			WWPROFILE("DX8Device::Present()");
-			hr=_Get_D3D_Device()->Present(NULL, NULL, NULL, NULL);
+			//
+			// -dx11present owns the window.  Presenting both swap chains into it loses the Direct3D 9
+			// device (DEVICELOST on the next call, then a null shroud surface when a match starts).
+			// Direct3D11_End_Scene has already shown the frame.
+			//
+			if (Direct3D11_Present_Is_Enabled()) {
+				hr = D3D_OK;
+			} else {
+				hr=_Get_D3D_Device()->Present(NULL, NULL, NULL, NULL);
+			}
 		}
 
 		number_of_DX8_calls++;

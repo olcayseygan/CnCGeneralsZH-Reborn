@@ -3,7 +3,7 @@
 EA released the 2003 source for preservation. It did not compile, did not run, and nobody had touched
 the bugs inside it in twenty-two years. This build compiles, runs and plays.
 
-**121 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
+**122 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
 found and fixed â€” EA's own, not port damage.**
 
 ---
@@ -638,6 +638,8 @@ found and fixed â€” EA's own, not port damage.**
 
 ## It does not crash
 
+- Starting a match with the Direct3D 11 picture on took the game down. Both devices were presenting into the same window, the old one lost itself, and the fog texture then locked a surface that was never made.
+- The opening movies froze on their first frame with that picture on. A movie writes a new image every frame into a texture the copy had already taken.
 - Two blocks of 2003 assembly destroyed registers and took down the main menu.
 - Quitting faulted twice every time; it now takes about half a second.
 - A long chat message or an unusual map name could kill the process.

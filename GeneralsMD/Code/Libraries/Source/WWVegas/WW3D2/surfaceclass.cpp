@@ -51,6 +51,7 @@
 #include "surfaceclass.h"
 #include "formconv.h"
 #include "dx8wrapper.h"
+#include "dx11runtime.h"
 #include "vector2i.h"
 #include "colorspace.h"
 #include "bound.h"
@@ -269,6 +270,7 @@ void * SurfaceClass::Lock(int * pitch)
 void SurfaceClass::Unlock(void)
 {
 	DX8_ErrorCode(D3DSurface->UnlockRect());
+	Direct3D11_Mark_Surface_Dirty(D3DSurface);
 }
 
 /***********************************************************************************************

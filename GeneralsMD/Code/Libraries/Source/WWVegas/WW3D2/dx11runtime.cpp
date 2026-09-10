@@ -207,6 +207,14 @@ DX11BufferTwinClass * Direct3D11_Twin_Index_Buffer(unsigned byte_count, bool dyn
 		byte_count);
 }
 
+void Direct3D11_Mark_Surface_Dirty(struct IDirect3DSurface9 * surface)
+{
+	if (!Active || surface == NULL) {
+		return;
+	}
+	DX11Texture_Mark_Dirty(surface);
+}
+
 void Direct3D11_Mirror_Texture(unsigned stage, struct IDirect3DBaseTexture9 * texture)
 {
 	if (!Active) {

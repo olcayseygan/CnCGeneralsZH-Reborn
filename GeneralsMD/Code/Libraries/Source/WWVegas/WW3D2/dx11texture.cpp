@@ -40,6 +40,11 @@ static const GUID DX11_TEXTURE_REFUSED =
 // {2E2E9C23-1B2A-4C7E-9E2F-1D0B7E9A5C01}
 static const GUID DX11_TEXTURE_TARGET =
 	{ 0x2e2e9c23, 0x1b2a, 0x4c7e, { 0x9e, 0x2f, 0x1d, 0x0b, 0x7e, 0x9a, 0x5c, 0x01 } };
+// Set when the CPU has written the D3D9 texture since the copy was last filled.  Movies do this
+// every frame; the loaders do not.
+// {2E2E9C24-1B2A-4C7E-9E2F-1D0B7E9A5C01}
+static const GUID DX11_TEXTURE_DIRTY =
+	{ 0x2e2e9c24, 0x1b2a, 0x4c7e, { 0x9e, 0x2f, 0x1d, 0x0b, 0x7e, 0x9a, 0x5c, 0x01 } };
 
 // Why the first texture that could not be copied could not be copied.  A count of refusals says
 // how much of the picture is missing its texture; this says what to fix.
@@ -296,6 +301,61 @@ static ID3D11ShaderResourceView * build(ID3D11Device * device, ID3D11DeviceConte
 	return view;
 }
 
+static void clear_dirty(IDirect3DBaseTexture9 * texture)
+{
+	const unsigned char clear = 0;
+	texture->SetPrivateData(DX11_TEXTURE_DIRTY, &clear, sizeof(clear), 0);
+}
+
+static bool texture_is_dirty(IDirect3DBaseTexture9 * texture)
+{
+	unsigned char dirty = 0;
+	DWORD size = sizeof(dirty);
+	return SUCCEEDED(texture->GetPrivateData(DX11_TEXTURE_DIRTY, &dirty, &size)) && dirty != 0;
+}
+
+// Put the D3D9 texture's current pixels into a copy that already exists.  Default-pool and render
+// target copies are filled another way and cannot be locked, so they are left alone.
+static bool refresh_copy(ID3D11DeviceContext * context, ID3D11ShaderResourceView * view,
+	IDirect3DBaseTexture9 * texture)
+{
+	IDirect3DTexture9 * two_dimensional = NULL;
+	if (FAILED(texture->QueryInterface(IID_IDirect3DTexture9, (void **)&two_dimensional))) {
+		return false;
+	}
+
+	D3DSURFACE_DESC description;
+	if (FAILED(two_dimensional->GetLevelDesc(0, &description))) {
+		two_dimensional->Release();
+		return false;
+	}
+	if ((description.Usage & D3DUSAGE_RENDERTARGET) != 0 || description.Pool == D3DPOOL_DEFAULT) {
+		two_dimensional->Release();
+		return false;
+	}
+
+	ID3D11Resource * resource = NULL;
+	view->GetResource(&resource);
+	if (resource == NULL) {
+		two_dimensional->Release();
+		return false;
+	}
+
+	ID3D11Texture2D * copy = NULL;
+	resource->QueryInterface(__uuidof(ID3D11Texture2D), (void **)&copy);
+	resource->Release();
+	if (copy == NULL) {
+		two_dimensional->Release();
+		return false;
+	}
+
+	const bool uploaded = upload_levels(context, copy, two_dimensional, description.Format,
+		two_dimensional->GetLevelCount());
+	copy->Release();
+	two_dimensional->Release();
+	return uploaded;
+}
+
 ID3D11ShaderResourceView * DX11Texture_Mirror(ID3D11Device * device, ID3D11DeviceContext * context,
 	IDirect3DBaseTexture9 * texture)
 {
@@ -305,6 +365,10 @@ ID3D11ShaderResourceView * DX11Texture_Mirror(ID3D11Device * device, ID3D11Devic
 		// GetPrivateData on an IUnknown adds a reference for the caller and the texture keeps its
 		// own, so this one is handed straight back.
 		view->Release();
+		if (texture_is_dirty(texture)) {
+			refresh_copy(context, view, texture);
+			clear_dirty(texture);
+		}
 		++Reused;
 		return view;
 	}
@@ -325,8 +389,26 @@ ID3D11ShaderResourceView * DX11Texture_Mirror(ID3D11Device * device, ID3D11Devic
 
 	texture->SetPrivateData(DX11_TEXTURE_VIEW, view, sizeof(view), D3DSPD_IUNKNOWN);
 	view->Release();
+	clear_dirty(texture);
 	++Mirrored;
 	return view;
+}
+
+void DX11Texture_Mark_Dirty(IDirect3DSurface9 * surface)
+{
+	if (surface == NULL) {
+		return;
+	}
+
+	IDirect3DTexture9 * texture = NULL;
+	if (FAILED(surface->GetContainer(IID_IDirect3DTexture9, (void **)&texture))
+		|| texture == NULL) {
+		return;
+	}
+
+	const unsigned char dirty = 1;
+	texture->SetPrivateData(DX11_TEXTURE_DIRTY, &dirty, sizeof(dirty), 0);
+	texture->Release();
 }
 
 bool DX11Texture_Update(ID3D11Device * device, ID3D11DeviceContext * context,

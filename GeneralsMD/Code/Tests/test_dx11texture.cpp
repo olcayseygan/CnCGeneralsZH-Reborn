@@ -242,6 +242,50 @@ TEST(dx11texture_a_second_bind_finds_the_copy)
 	texture->Release();
 }
 
+// A movie writes a new image into the same texture every frame.  Without a dirty mark the copy
+// made on the first bind is what every later frame draws.
+TEST(dx11texture_a_cpu_write_reaches_the_copy)
+{
+	Direct3D9Fixture d3d9;
+	if (!d3d9.Create()) {
+		printf("skip: no Direct3D 9 device on this machine\n");
+		return;
+	}
+
+	DX11DeviceClass d3d11;
+	CHECK(d3d11.Create_Offscreen());
+
+	IDirect3DTexture9 * texture = filled_texture(d3d9.Get(), D3DFMT_A8R8G8B8, 0x80);
+	CHECK(texture != NULL);
+
+	ID3D11ShaderResourceView * view =
+		DX11Texture_Mirror(d3d11.Get_Device(), d3d11.Get_Context(), texture);
+	CHECK(view != NULL);
+
+	D3DLOCKED_RECT locked;
+	CHECK(SUCCEEDED(texture->LockRect(0, &locked, NULL, 0)));
+	for (unsigned row = 0; row < TEXTURE_SIZE; ++row) {
+		memset((unsigned char *)locked.pBits + row * locked.Pitch, 0x20, TEXTURE_SIZE * 4);
+	}
+	texture->UnlockRect(0);
+
+	IDirect3DSurface9 * surface = NULL;
+	CHECK(SUCCEEDED(texture->GetSurfaceLevel(0, &surface)));
+	DX11Texture_Mark_Dirty(surface);
+	surface->Release();
+
+	view = DX11Texture_Mirror(d3d11.Get_Device(), d3d11.Get_Context(), texture);
+	CHECK(view != NULL);
+
+	unsigned char pixels[TEXTURE_SIZE * TEXTURE_SIZE * 4];
+	CHECK(read_back(d3d11, view, pixels, TEXTURE_SIZE * 4));
+	for (unsigned i = 0; i < TEXTURE_SIZE * TEXTURE_SIZE * 4; ++i) {
+		CHECK_EQ(pixels[i], (unsigned char)0x20);
+	}
+
+	texture->Release();
+}
+
 // X8R8G8B8 has no alpha channel and the byte where DXGI reads one holds whatever the loader left.
 // Left alone, a texture whose unused byte is zero is a texture that draws nothing at all.
 TEST(dx11texture_an_alphaless_format_comes_out_opaque)
