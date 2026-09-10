@@ -158,7 +158,7 @@ GUI:ToggleAttackMove
 END
 
 GUI:ToggleAttackMoveDescription
-"Arms attack move: the next move order makes the selected units fight anything they meet on the way."
+"Arms attack move: left click where the selected units should go, fighting anything they meet on the way. Right click puts it down."
 END
 
 GUI:ToggleForceAttack
@@ -166,7 +166,7 @@ GUI:ToggleForceAttack
 END
 
 GUI:ToggleForceAttackDescription
-"Arms force fire: the next order click is an attack on whatever is under it, your own units and bare ground included."
+"Arms force fire: the next left click is an attack on whatever is under it, your own units and bare ground included. Right click puts it down."
 END
 
 GUI:ToggleGuard

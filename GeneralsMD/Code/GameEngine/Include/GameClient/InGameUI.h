@@ -863,6 +863,7 @@ public:  // ********************************************************************
 	// same call that drops attack move
 	void toggleForceAttackArmed( void )				{ m_forceAttackArmed = !m_forceAttackArmed; m_attackMoveToMode = FALSE; m_guardArmed = FALSE; }
 	Bool isForceAttackArmed( void ) const			{ return m_forceAttackArmed; }
+	Bool isAttackOrderArmed( void ) const			{ return m_forceAttackArmed || m_attackMoveToMode; }	///< the next left click is an attack or an attack move
 
 	// and the guard key arms guard the same way: the next order click posts the selection on that
 	// spot, or on that object, and a drag posts them along the line instead of stacking them all

@@ -453,7 +453,7 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				//      when we're not in force attackable mode!
 				UnsignedInt pickType = getPickTypesForContext( true /*TheInGameUI->isInForceAttackMode()*/ );
 				
-				Drawable *underCursor = TheTacticalView->pickDrawable( &pixel, TheInGameUI->isInForceAttackMode(), (PickType) pickType );
+				Drawable *underCursor = TheTacticalView->pickDrawable( &pixel, TheInGameUI->isForceAttackArmed(), (PickType) pickType );
 
 				//
 				// a click on a health bar selects its owner, so the cursor has to say so before the
@@ -498,8 +498,8 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				break;
 			}
 
-			// Pressing ctrl is disallowed for double clicking
-			if (TheInGameUI->isInForceAttackMode())
+			// an armed attack key makes this click an order, which CommandXlat gives
+			if (TheInGameUI->isAttackOrderArmed())
 				break;
 
 			const IRegion2D& region = msg->getArgument(0)->pixelRegion;
@@ -648,6 +648,11 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				break;
 			}
 
+			// With the attack or attack move key armed and something selected, a point click is the
+			// order and not a selection.  It goes on to CommandXlat untouched, drawable under it or not
+			if (TheInGameUI->isAttackOrderArmed() && TheInGameUI->getSelectCount() > 0)
+				break;
+
 			// Basically, we need to first determine if there are any drawables in the region of interest.
 			// If there aren't then this click should move forward.
 			IRegion2D selectionRegion = msg->getArgument(0)->pixelRegion;
@@ -676,7 +681,7 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				 was a way to take things back out and a way to leave the base staff behind: Alt keeps
 				 only what can shoot, Ctrl removes the box from the selection instead of replacing it.
 				 Both are drag-only.  A point click has to stay exactly what it was - a filter that eats
-				 single clicks reads as a broken mouse, and Ctrl on a point click is force fire. */
+				 single clicks reads as a broken mouse. */
 			if (!isPoint)
 			{
 				if (TheKeyboard->isAlt())
@@ -1093,7 +1098,9 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 
 				//Added support to cancel the GUI command without deselecting the unit(s) involved
 				//when you right click.
-				if( !TheInGameUI->getGUICommand() && !TheKeyboard->isShift() && !TheKeyboard->isCtrl() && !TheKeyboard->isAlt() )
+				// an armed attack key keeps the group: the click behind this release is its order
+				if( !TheInGameUI->getGUICommand() && !TheInGameUI->isAttackOrderArmed()
+						&& !TheKeyboard->isShift() && !TheKeyboard->isCtrl() && !TheKeyboard->isAlt() )
 				{
 					//No GUI command mode, so a click on empty ground deselects everyone.
 					if( TheInGameUI->getPendingPlaceSourceObjectID() == INVALID_ID )

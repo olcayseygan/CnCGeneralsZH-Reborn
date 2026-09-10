@@ -3519,7 +3519,7 @@ void InGameUI::queueAttackWaypoint( const Coord3D *pos, Object *targetObj )
 
 	// remembered rather than read again when the order goes out: the attack key drops the moment the
 	// first order of the queue is sent, so everything behind it used to lose its force attack
-	order.forceAttack = isInForceAttackMode();
+	order.forceAttack = isForceAttackArmed();
 
 	// who the queue belongs to.  A selection that is not part of the group holding the queue starts
 	// a fresh one rather than adding to whatever the old selection was doing

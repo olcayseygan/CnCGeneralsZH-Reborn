@@ -974,20 +974,19 @@ TEST(physics_forward_speed_is_the_projection_not_a_per_axis_norm)
 	CHECK_NEAR( PhysicsBehavior::calcForwardSpeed( climb, up ), 12.0f, 0.01f );
 }
 
-/* CommandXlat.cpp: ctrl is the force fire modifier, but while the attack move cursor is up it
-   means "one shared pace" for the group instead.  The click dispatch used to read the raw ctrl
-   state, so A then ctrl+click fired at the ground rather than issuing the attack move. */
-extern Bool CommandXlat_isForceAttackTargeting( Bool ctrlHeld, Bool attackMoveArmed );
+/* CommandXlat.cpp: only the attack key arms force fire.  Holding ctrl did it too, and ctrl is the
+   "one shared pace" modifier, so a ctrl click on the ground shelled the dirt instead of moving. */
+extern Bool CommandXlat_isForceAttackTargeting( Bool forceAttackArmed, Bool attackMoveArmed );
 
-TEST(ctrl_is_force_fire_only_while_the_attack_move_cursor_is_down)
+TEST(force_fire_is_the_attack_key_and_nothing_else)
 {
-	/* plain ctrl+click: force fire, as in retail. */
+	/* A armed: the next click is a force fire. */
 	CHECK(  CommandXlat_isForceAttackTargeting( true,  false ) );
 
-	/* attack move armed: ctrl is the group speed modifier, so nothing force fires. */
+	/* attack move armed on top of it: the click is the attack move. */
 	CHECK( !CommandXlat_isForceAttackTargeting( true,  true ) );
 
-	/* no ctrl at all, either way. */
+	/* neither key: nothing force fires, which is what ctrl held down now gets. */
 	CHECK( !CommandXlat_isForceAttackTargeting( false, false ) );
 	CHECK( !CommandXlat_isForceAttackTargeting( false, true ) );
 }

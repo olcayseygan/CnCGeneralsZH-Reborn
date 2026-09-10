@@ -101,22 +101,18 @@
 
 //-------------------------------------------------------------------------------------------------
 /**
- * Is the ctrl key asking for force fire right now?
- * While the attack move cursor is up, ctrl means "one shared pace" instead (see
- * issueMoveToLocationCommand), so the targeting code must not read it as force attack - otherwise
- * ctrl + click on the ground fires at the dirt instead of ordering the attack move.
+ * Is the next order click a force fire?
+ * Only the attack key arms it.  Holding ctrl used to do the same, and ctrl is the "one shared pace"
+ * modifier on a move (see issueMoveToLocationCommand), so a ctrl click could not ask for both.
  */
-Bool CommandXlat_isForceAttackTargeting( Bool ctrlHeld, Bool attackMoveArmed )
+Bool CommandXlat_isForceAttackTargeting( Bool forceAttackArmed, Bool attackMoveArmed )
 {
-	return ctrlHeld && !attackMoveArmed;
+	return forceAttackArmed && !attackMoveArmed;
 }
 
 static Bool isForceAttackTargeting( void )
 {
-	// ctrl still does it while held; the attack key arms the same thing for one click, which is
-	// what leaves ctrl free to mean something else on a plain move
-	return CommandXlat_isForceAttackTargeting( TheInGameUI->isInForceAttackMode()
-																						 || TheInGameUI->isForceAttackArmed(),
+	return CommandXlat_isForceAttackTargeting( TheInGameUI->isForceAttackArmed(),
 																						 TheInGameUI->isInAttackMoveToMode() );
 }
 
@@ -4071,6 +4067,16 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			// The right button is the order button, always.  It used to depend on UseAlternateMouse,
 			// which is gone: a click here commands, a drag draws a formation line, and neither of
 			// them scrolls.
+			//
+			// The one exception is the attack or attack move key.  Those orders are aimed with the left
+			// button, so a right click while one is armed puts the key down and gives no order.
+			if( TheInGameUI->isAttackOrderArmed() )
+			{
+				TheInGameUI->clearAttackMoveToMode();
+				disp = DESTROY_MESSAGE;
+				break;
+			}
+
 			if (TheMouse->isClick(&m_mouseRightDragAnchor, &m_mouseRightDragLift,
 					NULL, NULL,
 					m_mouseRightDown, m_mouseRightUp))
@@ -4151,10 +4157,11 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 												|| command->getCommandType() == GUICOMMANDMODE_HIJACK_VEHICLE
 												|| command->getCommandType() == GUICOMMANDMODE_CONVERT_TO_CARBOMB));
 
-			// The left button selects and nothing else.  The one exception is a GUI command that is
-			// already armed and waiting for a target, which is aimed with the left button because the
-			// right one cancels it.
-			if( !isFiringGUICommand )
+			// The left button selects and nothing else.  The exceptions are a GUI command that is
+			// already armed and waiting for a target, and the attack and attack move keys: all of them
+			// are aimed with the left button, because the right one cancels them.
+			const Bool isAttackOrder = TheInGameUI->isAttackOrderArmed();
+			if( !isFiringGUICommand && !isAttackOrder )
 				break;
 
 			Bool controllable = TheInGameUI->areSelectedObjectsControllable()
@@ -4174,6 +4181,11 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 
 				disp = DESTROY_MESSAGE;
 				TheInGameUI->clearAttackMoveToMode();
+
+				// the same rule the right button's orders follow: a hand-given attack ends the list the
+				// group was working through, unless shift says it is being added to
+				if( isAttackOrder && !TheInGameUI->isInWaypointMode() )
+					TheInGameUI->clearShiftAttackQueue();
 
 				//issueMoveToLocationCommand( &pos, draw, DO_COMMAND );
 			}

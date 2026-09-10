@@ -74,7 +74,7 @@ PickDrawableStruct::PickDrawableStruct() : drawableListToFill(NULL)
 	//Initializations inserted
 	drawableListToFill = FALSE;
 	//
-	forceAttackMode = TheInGameUI->isInForceAttackMode();
+	forceAttackMode = TheInGameUI->isForceAttackArmed();
 	UnsignedInt pickType = getPickTypesForContext(forceAttackMode);
 	translatePickTypesToKindof(pickType, kindofsToMatch);
 	if (!forceAttackMode)
@@ -96,7 +96,7 @@ extern Bool contextCommandForNewSelection(const DrawableList *currentlySelectedD
 	if (!(currentlySelectedDrawables && newlySelectedDrawables && outSelectionInfo))
 		return FALSE;
 
-	Bool forceFire = TheInGameUI->isInForceAttackMode();
+	Bool forceFire = TheInGameUI->isForceAttackArmed();
 	Bool forceMove = TheInGameUI->isInForceMoveToMode();
 
 	if (forceFire || forceMove) {

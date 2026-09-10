@@ -2426,7 +2426,7 @@ Int W3DView::iterateDrawablesInRegion( IRegion2D *screenRegion,
 	if (regionIsPoint)
 	{
 		// Allow all drawables to be picked.
-		onlyDrawableToTest = pickDrawable(&screenRegion->lo, TRUE, (PickType) getPickTypesForContext(TheInGameUI->isInForceAttackMode()));
+		onlyDrawableToTest = pickDrawable(&screenRegion->lo, TRUE, (PickType) getPickTypesForContext(TheInGameUI->isForceAttackArmed()));
 
 		//
 		// Nothing under the cursor in the scene, so a health bar is allowed to answer for its owner.
