@@ -200,6 +200,35 @@ private:
 		ID3D11InputLayout * Layout;
 	};
 
+	// The whole constant block the generated vertex shader reads, always uploaded in full.  A shader
+	// generated for fewer lights declares a prefix of this, and a constant buffer larger than what a
+	// shader declares is legal, so one buffer serves every program.
+	struct VertexConstantBlock
+	{
+		float WorldViewProjection[16];
+		float WorldView[16];
+		float NormalTransform[16];
+		float TextureMatrix[MAXIMUM_VERTEX_STAGES][16];
+		float MaterialAmbient[4];
+		float MaterialDiffuse[4];
+		float MaterialSpecular[4];
+		float MaterialEmissive[4];
+		float MaterialPower[4];
+		float GlobalAmbient[4];
+		float FogParameters[4];
+		// One over the viewport's width and height, for the pre-transformed draws.  It goes before
+		// the lights because the generated block declares only as many lights as the state has.
+		float ViewportInverse[4];
+		float LightFields[MAXIMUM_VERTEX_LIGHTS][6][4];
+	};
+
+	struct PixelConstantBlock
+	{
+		float TextureFactor[4];
+		float FogColour[4];
+		float AlphaReference[4];
+	};
+
 	bool Resolve(Pipeline & pipeline);
 	bool Build_Vertex_Description(VertexPipelineDescription & description) const;
 	bool Build_Combiner_Description(CombinerDescription & description) const;
@@ -274,6 +303,30 @@ private:
 	// program reads registers and not the fixed-function fields.
 	ID3D11Buffer * EngineConstantBuffer;
 	float EngineConstants[ENGINE_SHADER_CONSTANTS][4];
+
+	// What each constant buffer already holds.
+	//
+	// Upload_Constants runs on every draw and each Map asks for D3D11_MAP_WRITE_DISCARD, which is
+	// the driver being told to hand back a fresh region: three renames a draw, thousands of draws a
+	// frame, and NtGdiDdDDICreateAllocation sitting in a steady-state profile where nothing should
+	// be allocating at all.  Most draws in a row change none of this - the transforms, the material
+	// and the lights are set once for a whole batch - so the block is built into a local, compared
+	// against the copy here, and written through only when it differs.
+	//
+	// Comparing bytes rather than flagging the setters dirty is deliberate: there are a dozen ways
+	// into these blocks, including three render states read straight out of the state block, and a
+	// setter nobody flagged would draw with the previous batch's lighting.
+	VertexConstantBlock HeldVertexConstants;
+	PixelConstantBlock HeldPixelConstants;
+	float HeldEngineConstants[ENGINE_SHADER_CONSTANTS][4];
+
+	// A freshly created dynamic buffer holds nothing in particular, and a Map can fail, so a copy
+	// above only stands for what is in its buffer once a write has actually gone through.  One flag
+	// each rather than one between them: the engine bank is skipped on every draw that takes no
+	// transcribed program, and a shared flag would claim it was written when it was not.
+	bool VertexConstantsHeld;
+	bool PixelConstantsHeld;
+	bool EngineConstantsHeld;
 	EngineShaderProgram VertexProgram;
 	EngineShaderProgram PixelProgram;
 

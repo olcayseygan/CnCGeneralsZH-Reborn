@@ -38,42 +38,14 @@ static const char * const ENTRY_POINT = "main";
 static const char * const VERTEX_PROFILE = "vs_4_0";
 static const char * const PIXEL_PROFILE = "ps_4_0";
 
-// The whole constant block the generated vertex shader reads, always uploaded in full.  A shader
-// generated for fewer lights declares a prefix of this, and a constant buffer larger than what a
-// shader declares is legal, so one buffer serves every program.
-struct VertexConstantBlock
-{
-	float WorldViewProjection[16];
-	float WorldView[16];
-	float NormalTransform[16];
-	float TextureMatrix[MAXIMUM_VERTEX_STAGES][16];
-	float MaterialAmbient[4];
-	float MaterialDiffuse[4];
-	float MaterialSpecular[4];
-	float MaterialEmissive[4];
-	float MaterialPower[4];
-	float GlobalAmbient[4];
-	float FogParameters[4];
-	// One over the viewport's width and height, for the pre-transformed draws.  It goes before the
-	// lights because the generated block declares only as many lights as the state has.
-	float ViewportInverse[4];
-	float LightFields[MAXIMUM_VERTEX_LIGHTS][6][4];
-};
-
-// The three stage counts are one count in three headers.  The block above is copied wholesale out
-// of the backend's own texture transforms, the generated pixel shader declares one sampler per
-// texture the backend binds, and a mismatch is a silent overrun rather than a build failure.
+// The three stage counts are one count in three headers.  The vertex constant block is copied
+// wholesale out of the backend's own texture transforms, the generated pixel shader declares one
+// sampler per texture the backend binds, and a mismatch is a silent overrun rather than a build
+// failure.  Both blocks are declared in the header, because the backend keeps a copy of each.
 static_assert(MAXIMUM_VERTEX_STAGES == DX11_BACKEND_TEXTURE_STAGES,
 	"ffvertex declares one texture matrix per stage and the backend uploads one per stage");
 static_assert(MAXIMUM_COMBINER_STAGES == DX11_BACKEND_TEXTURE_STAGES,
 	"ffshader declares one sampler per stage and the backend binds one per stage");
-
-struct PixelConstantBlock
-{
-	float TextureFactor[4];
-	float FogColour[4];
-	float AlphaReference[4];
-};
 
 static D3DCompileFunction compiler_function()
 {
@@ -205,6 +177,12 @@ DX11BackendClass::DX11BackendClass()
 	, ForeignVertexShader(false)
 {
 	memset(&Memo, 0, sizeof(Memo));
+	memset(&HeldVertexConstants, 0, sizeof(HeldVertexConstants));
+	memset(&HeldPixelConstants, 0, sizeof(HeldPixelConstants));
+	memset(HeldEngineConstants, 0, sizeof(HeldEngineConstants));
+	VertexConstantsHeld = false;
+	PixelConstantsHeld = false;
+	EngineConstantsHeld = false;
 	memset(StageStates, 0, sizeof(StageStates));
 	memset(Textures, 0, sizeof(Textures));
 	memset(EngineConstants, 0, sizeof(EngineConstants));
@@ -244,6 +222,11 @@ DX11BackendClass::~DX11BackendClass()
 bool DX11BackendClass::Initialise(DX11DeviceClass * device)
 {
 	Device = device;
+
+	// New buffers hold nothing the copies below know about.
+	VertexConstantsHeld = false;
+	PixelConstantsHeld = false;
+	EngineConstantsHeld = false;
 
 	D3D11_BUFFER_DESC description;
 	memset(&description, 0, sizeof(description));
@@ -1068,18 +1051,28 @@ void DX11BackendClass::Upload_Constants()
 		++slot;
 	}
 
+	// See HeldVertexConstants in the header: the buffer is only written through when the bytes
+	// going into it differ from the bytes already there.
 	D3D11_MAPPED_SUBRESOURCE mapped;
-	if (SUCCEEDED(context->Map(VertexConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+	if ((!VertexConstantsHeld
+			|| memcmp(&HeldVertexConstants, &vertex_block, sizeof(vertex_block)) != 0)
+		&& SUCCEEDED(context->Map(VertexConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
 		memcpy(mapped.pData, &vertex_block, sizeof(vertex_block));
 		context->Unmap(VertexConstantBuffer, 0);
+		HeldVertexConstants = vertex_block;
+		VertexConstantsHeld = true;
 	}
 
 	// A transcribed program reads the engine's own register bank instead of the block above, so
 	// that bank goes up only on the draws that take one.
 	if (VertexProgram != ENGINE_SHADER_NONE
+		&& (!EngineConstantsHeld
+			|| memcmp(HeldEngineConstants, EngineConstants, sizeof(EngineConstants)) != 0)
 		&& SUCCEEDED(context->Map(EngineConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
 		memcpy(mapped.pData, EngineConstants, sizeof(EngineConstants));
 		context->Unmap(EngineConstantBuffer, 0);
+		memcpy(HeldEngineConstants, EngineConstants, sizeof(EngineConstants));
+		EngineConstantsHeld = true;
 	}
 
 	PixelConstantBlock pixel_block;
@@ -1098,9 +1091,13 @@ void DX11BackendClass::Upload_Constants()
 	pixel_block.AlphaReference[0] =
 		static_cast<float>(RenderStates.Get_Render_State(D3DRS_ALPHAREF) & 0xff);
 
-	if (SUCCEEDED(context->Map(PixelConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+	if ((!PixelConstantsHeld
+			|| memcmp(&HeldPixelConstants, &pixel_block, sizeof(pixel_block)) != 0)
+		&& SUCCEEDED(context->Map(PixelConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
 		memcpy(mapped.pData, &pixel_block, sizeof(pixel_block));
 		context->Unmap(PixelConstantBuffer, 0);
+		HeldPixelConstants = pixel_block;
+		PixelConstantsHeld = true;
 	}
 }
 
