@@ -344,6 +344,22 @@ void DX8Wrapper::Set_Requested_MultiSample_Level(unsigned samples)
 	_RequestedMultiSampleLevel = samples;
 }
 
+// Off is the default, matching the uncapped picture: present as soon as the frame is ready.
+static bool _RequestedVSync = false;
+
+void DX8Wrapper::Set_Requested_VSync(bool enabled)
+{
+	_RequestedVSync = enabled;
+	_PresentParameters.PresentationInterval = enabled
+		? D3DPRESENT_INTERVAL_ONE
+		: D3DPRESENT_INTERVAL_IMMEDIATE;
+}
+
+bool DX8Wrapper::Get_Requested_VSync(void)
+{
+	return _RequestedVSync;
+}
+
 // Non-multisampled depth/stencil for render-to-texture.  A multisampled back buffer gets a
 // multisampled auto depth/stencil, and Direct3D requires the depth buffer to match the render
 // target - so the plain render target textures the screen filters and the water reflection draw
@@ -1178,13 +1194,13 @@ bool DX8Wrapper::Set_Render_Device(int dev, int width, int height, int bits, int
 	_PresentParameters.Flags=0;											// We're not going to lock the backbuffer
 	
 	//
-	// D3DPRESENT_INTERVAL_DEFAULT is vsync, so fullscreen used to be pinned to the monitor's
-	// refresh however fast the machine could draw. The frame rate is deliberately uncapped now -
-	// everything that used to ride on the render rate keeps its own clock instead - so present
-	// as soon as the frame is ready. (Windowed presents are unaffected: this field only applies
-	// fullscreen, and the desktop compositor paces a windowed present regardless.)
+	// D3D9 honours this in a window as well as fullscreen, unlike D3D8.  Off (IMMEDIATE) is the
+	// uncapped picture; on (ONE) waits for the monitor.  The request is pushed in from the app
+	// layer because WW3D2 cannot see GlobalData.
 	//
-	_PresentParameters.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+	_PresentParameters.PresentationInterval = _RequestedVSync
+		? D3DPRESENT_INTERVAL_ONE
+		: D3DPRESENT_INTERVAL_IMMEDIATE;
 	_PresentParameters.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 
 	/*

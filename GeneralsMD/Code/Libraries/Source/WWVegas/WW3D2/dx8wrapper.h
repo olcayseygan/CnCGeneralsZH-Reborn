@@ -535,6 +535,10 @@ public:
 	// Samples per pixel to ask the next device for; 0, or 2..16.  Set this before Set_Render_Device
 	// or the device is created without multisampling.
 	static void					Set_Requested_MultiSample_Level (unsigned samples);
+	// Wait for the monitor on the next device create or reset.  WW3D2 cannot see GlobalData, so
+	// the app layer pushes this in the same way it pushes the sample count.
+	static void					Set_Requested_VSync (bool enabled);
+	static bool					Get_Requested_VSync (void);
 	// Samples per pixel actually in use, 0 if not multisampling.
 	static unsigned				Get_MultiSample_Level (void);
 	// Depth/stencil to use with a non-multisampled render target; NULL if not multisampling.

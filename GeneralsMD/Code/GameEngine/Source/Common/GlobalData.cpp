@@ -646,6 +646,7 @@ GlobalData::GlobalData()
 	m_windowed = 0;
 	m_windowMode = WINDOW_MODE_FULLSCREEN;
 	m_msaaLevel = 0;
+	m_vsync = FALSE;
 	m_fixedFunctionProbe = FALSE;
 	m_combinerShaders = FALSE;
 	m_direct3D11 = FALSE;

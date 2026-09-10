@@ -769,6 +769,14 @@ Bool W3DDisplay::setDisplayMode( UnsignedInt xres, UnsignedInt yres, UnsignedInt
 {
 	extern Bool ApplicationIsBorderless;
 
+	// WW3D2 cannot see GlobalData, so a vsync change has to be pushed in before the reset below
+	// the way the sample count is pushed in before the device exists.
+	if( TheGlobalData )
+	{
+		DX8Wrapper::Set_Requested_VSync( TheGlobalData->m_vsync != FALSE );
+		Direct3D11_Set_VSync( TheGlobalData->m_vsync != FALSE );
+	}
+
 	//
 	// Which of the three the window is wearing, and which it is being asked for.  The test cannot be
 	// on the windowed flag alone: borderless and windowed are both windowed devices and differ only
@@ -1024,6 +1032,8 @@ void W3DDisplay::init( void )
 	// the sample count is handed to it here.  msaaSamplesForLevel turns the stored index into 0, 2,
 	// 4, 8 or 16; the device degrades an unsupported one on its own.
 	DX8Wrapper::Set_Requested_MultiSample_Level( msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
+	DX8Wrapper::Set_Requested_VSync( TheGlobalData->m_vsync != FALSE );
+	Direct3D11_Set_VSync( TheGlobalData->m_vsync != FALSE );
 
 	// Same reason: WW3D2 cannot see GlobalData, so -ffprobe and -ffshader are pushed in from here.
 	FixedFunctionProbe_Enable( TheGlobalData->m_fixedFunctionProbe != FALSE );
@@ -1100,6 +1110,7 @@ void W3DDisplay::init( void )
 	// multisampling is opt-in with "-msaa" / "-msaa N" and silently degrades to whatever the
 	// device supports, so log what was actually granted
 	DEBUG_LOG(("W3DDisplay::init - multisampling: %ux\n", DX8Wrapper::Get_MultiSample_Level()));
+	DEBUG_LOG(("W3DDisplay::init - vsync: %s\n", DX8Wrapper::Get_Requested_VSync() ? "on" : "off"));
 
 	//Check if level was never set and default to setting most suitable for system.
 	if (TheGameLODManager->getStaticLODLevel() == STATIC_GAME_LOD_UNKNOWN)

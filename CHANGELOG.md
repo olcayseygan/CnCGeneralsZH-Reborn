@@ -3,7 +3,7 @@
 EA released the 2003 source for preservation. It did not compile, did not run, and nobody had touched
 the bugs inside it in twenty-two years. This build compiles, runs and plays.
 
-**120 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
+**121 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
 found and fixed â€” EA's own, not port damage.**
 
 ---
@@ -11,6 +11,7 @@ found and fixed â€” EA's own, not port damage.**
 ## The frame rate cap is gone
 
 - The picture now runs uncapped; the rules keep their own steady clock.
+- Display options has a vertical sync box. Off, the picture still runs free. On, it waits for the monitor so the frame does not tear. The box takes effect when you Accept.
 - A slow moment costs you a dropped frame, not a slow game.
 - Every animation runs on a clock instead of counting frames.
 - Briefing and cutscene subtitles hold long enough to read again.

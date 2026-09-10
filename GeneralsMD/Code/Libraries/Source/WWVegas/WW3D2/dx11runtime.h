@@ -111,6 +111,10 @@ void Direct3D11_Dump_Programs_To(const char * directory);
 void Direct3D11_Present_Enable(bool enabled);
 bool Direct3D11_Present_Is_Enabled();
 
+// Wait for the monitor on the Direct3D 11 present.  DXGI takes the interval per Present, so this
+// does not need a device reset the way Direct3D 9's presentation interval does.
+void Direct3D11_Set_VSync(bool enabled);
+
 // -dx11post: the effects run over the finished frame, named in the order they run, as in "fxaa" or
 // "fxaa,sharpen".  "off" or an empty chain draws straight into the swap chain the way the backend
 // always has.  Returns false for a name it does not know and turns the chain off, so a misspelt

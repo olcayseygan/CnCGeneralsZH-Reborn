@@ -9927,6 +9927,29 @@ TEST(msaa_levels_map_to_the_counts_a_device_offers)
 	CHECK_EQ( msaaLevelForSamples( 64 ), OPTION_MSAA_LEVEL_COUNT - 1 );
 }
 
+TEST(vsync_is_off_until_the_player_asks)
+{
+	const OptionDef *vsync = findOptionDef( "VSync" );
+	CHECK( vsync != NULL );
+	CHECK_EQ( (Int)vsync->kind, (Int)OPTION_BOOL );
+	CHECK_EQ( (Int)vsync->apply, (Int)APPLY_DEVICE_RESET );
+	CHECK( vsync->widgetName != NULL && strstr( vsync->widgetName, "CheckVSync" ) != NULL );
+
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+
+	CHECK_EQ( scratch->m_vsync, FALSE );
+
+	vsync->set( 1 );
+	CHECK_EQ( TheGlobalData->m_vsync, TRUE );
+	vsync->set( 0 );
+	CHECK_EQ( TheGlobalData->m_vsync, FALSE );
+
+	TheWritableGlobalData = saved;
+	delete scratch;
+}
+
 TEST(window_mode_derives_the_boolean_the_device_layer_reads)
 {
 	GlobalData *saved = TheWritableGlobalData;

@@ -29,6 +29,7 @@
 
 static bool Requested = false;
 static bool PresentRequested = false;
+static bool VSyncRequested = false;
 static bool Active = false;
 static DX11DeviceClass Device;
 static DX11BackendClass Backend;
@@ -272,6 +273,11 @@ void Direct3D11_Present_Enable(bool enabled)
 	PresentRequested = enabled;
 }
 
+void Direct3D11_Set_VSync(bool enabled)
+{
+	VSyncRequested = enabled;
+}
+
 bool Direct3D11_Present_Is_Enabled()
 {
 	return PresentRequested && Active;
@@ -400,7 +406,7 @@ void Direct3D11_End_Scene(bool flip_frames)
 {
 	if (Active && flip_frames && PresentRequested) {
 		Direct3D11_Finish_Frame();
-		Device.Present(0);
+		Device.Present(VSyncRequested ? 1 : 0);
 	}
 }
 

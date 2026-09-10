@@ -1119,6 +1119,7 @@ static void saveOptions( void )
 
 	// which of the three the window is wearing right now, before the controls overwrite it
 	const Int oldWindowMode = TheGlobalData->m_windowMode;
+	const Bool oldVSync = TheGlobalData->m_vsync;
 
 	//-------------------------------------------------------------------------------------------------
 	// The catalog's controls, read back into GlobalData before the pass below writes GlobalData out.
@@ -1300,8 +1301,9 @@ static void saveOptions( void )
 	//
 	const Bool sizeChanged = ( oldDispSettings.xRes != xres || oldDispSettings.yRes != yres );
 	const Bool modeChanged = ( oldWindowMode != TheGlobalData->m_windowMode );
+	const Bool vsyncChanged = ( oldVSync != TheGlobalData->m_vsync );
 
-	if( sizeChanged || modeChanged )
+	if( sizeChanged || modeChanged || vsyncChanged )
 	{
 		if (TheDisplay->setDisplayMode(xres,yres,bitDepth,TheGlobalData->m_windowed))
 		{
