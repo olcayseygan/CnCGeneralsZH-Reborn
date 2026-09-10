@@ -6,8 +6,8 @@
 # those right and still draw the wrong picture: the white terrain had a correct atlas, a correct
 # program and a correct draw count for two sessions.  Only two pictures of one frame settle it.
 #
-# All three shots come from one exe.  -dx11present is the only difference between them, so a view
-# that comes back apart is the backend and not a build, a map or a seed.
+# All three shots come from one exe.  -d3d9 is the only difference between them, so a view that
+# comes back apart is the backend and not a build, a map or a seed.
 #
 # Three shots, not two.  The instrument has noise of its own: particles advance per rendered frame,
 # so each view is photographed twice through Direct3D 9 as well and the pair's own disagreement is
@@ -133,13 +133,13 @@ if ($cases.Count -eq 0) { throw "no view matches -Map $Map" }
 $fail = 0
 foreach ($c in $cases) {
   $tag = ($c.map -replace '[^A-Za-z]','') + "_$($c.x)_$($c.f)"
-  $nine = Shoot $c "d3d9a_$tag" @()
-  $eleven = Shoot $c "dx11_$tag" @('-dx11present')
+  $nine = Shoot $c "d3d9a_$tag" @('-d3d9')
+  $eleven = Shoot $c "dx11_$tag" @()
   if ($BackendNoise) {
-    $again = Shoot $c "dx11b_$tag" @('-dx11present')
+    $again = Shoot $c "dx11b_$tag" @()
     $noise = DiffPct $eleven $again
   } else {
-    $again = Shoot $c "d3d9b_$tag" @()
+    $again = Shoot $c "d3d9b_$tag" @('-d3d9')
     $noise = DiffPct $nine $again
   }
   $signal = DiffPct $nine $eleven

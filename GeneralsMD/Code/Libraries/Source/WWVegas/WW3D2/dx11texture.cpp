@@ -22,6 +22,8 @@
 
 #include <d3d9.h>
 #include <d3d11.h>
+#include <algorithm>
+#include <map>
 #include <stdio.h>
 #include <string.h>
 #include <string>
@@ -62,6 +64,19 @@ static std::vector<std::string> Notes;
 static unsigned Mirrored = 0;
 static unsigned Refused = 0;
 static unsigned Reused = 0;
+static double FrameCopyMilliseconds = 0.0;
+static unsigned FrameCopyCount = 0;
+
+// Builds and refreshes by the shape of the texture, for the report.  A shape built thousands of
+// times in a match is a texture the engine makes and throws away every frame.
+struct CopyShapeCounts
+{
+	unsigned Builds;
+	unsigned Refreshes;
+};
+static std::map<std::string, CopyShapeCounts> CopyShapes;
+static std::vector<std::string> CopyShapeLines;
+static const unsigned COPY_SHAPE_REPORT_LINES = 10;
 
 // D3DFMT_X8R8G8B8 has no alpha and its bytes hold whatever the loader left there.  Read as
 // B8G8R8A8 those bytes are the alpha channel, and a texture whose alpha reads as zero is a texture
@@ -356,6 +371,28 @@ static bool refresh_copy(ID3D11DeviceContext * context, ID3D11ShaderResourceView
 	return uploaded;
 }
 
+static CopyShapeCounts & copy_shape(IDirect3DBaseTexture9 * texture)
+{
+	char shape[96] = "not a 2D texture";
+	IDirect3DTexture9 * two_dimensional = NULL;
+	if (SUCCEEDED(texture->QueryInterface(IID_IDirect3DTexture9, (void **)&two_dimensional))) {
+		D3DSURFACE_DESC description;
+		if (SUCCEEDED(two_dimensional->GetLevelDesc(0, &description))) {
+			snprintf(shape, sizeof(shape), "%ux%u format %d pool %d, %lu levels", description.Width,
+				description.Height, static_cast<int>(description.Format),
+				static_cast<int>(description.Pool), two_dimensional->GetLevelCount());
+		}
+		two_dimensional->Release();
+	}
+
+	std::map<std::string, CopyShapeCounts>::iterator entry = CopyShapes.find(shape);
+	if (entry == CopyShapes.end()) {
+		const CopyShapeCounts none = { 0, 0 };
+		entry = CopyShapes.insert(std::make_pair(std::string(shape), none)).first;
+	}
+	return entry->second;
+}
+
 ID3D11ShaderResourceView * DX11Texture_Mirror(ID3D11Device * device, ID3D11DeviceContext * context,
 	IDirect3DBaseTexture9 * texture)
 {
@@ -366,8 +403,12 @@ ID3D11ShaderResourceView * DX11Texture_Mirror(ID3D11Device * device, ID3D11Devic
 		// own, so this one is handed straight back.
 		view->Release();
 		if (texture_is_dirty(texture)) {
+			const double refresh_started = DX11Resource_Milliseconds_Now();
 			refresh_copy(context, view, texture);
 			clear_dirty(texture);
+			FrameCopyMilliseconds += DX11Resource_Milliseconds_Now() - refresh_started;
+			++FrameCopyCount;
+			++copy_shape(texture).Refreshes;
 		}
 		++Reused;
 		return view;
@@ -379,7 +420,11 @@ ID3D11ShaderResourceView * DX11Texture_Mirror(ID3D11Device * device, ID3D11Devic
 		return NULL;
 	}
 
+	const double build_started = DX11Resource_Milliseconds_Now();
 	view = build(device, context, texture);
+	FrameCopyMilliseconds += DX11Resource_Milliseconds_Now() - build_started;
+	++FrameCopyCount;
+	++copy_shape(texture).Builds;
 	if (view == NULL) {
 		const unsigned char marker = 1;
 		texture->SetPrivateData(DX11_TEXTURE_REFUSED, &marker, sizeof(marker), 0);
@@ -537,6 +582,14 @@ ID3D11RenderTargetView * DX11Texture_Target(ID3D11Device * device, ID3D11DeviceC
 	return target;
 }
 
+void DX11Texture_Take_Frame_Cost(double & milliseconds, unsigned & copies)
+{
+	milliseconds = FrameCopyMilliseconds;
+	copies = FrameCopyCount;
+	FrameCopyMilliseconds = 0.0;
+	FrameCopyCount = 0;
+}
+
 void DX11Texture_Statistics(unsigned & mirrored, unsigned & reused, unsigned & refused)
 {
 	mirrored = Mirrored;
@@ -557,4 +610,31 @@ unsigned DX11Texture_Note_Count()
 const char * DX11Texture_Note(unsigned index)
 {
 	return (index < Notes.size()) ? Notes[index].c_str() : "";
+}
+
+static bool more_copies(const std::pair<std::string, CopyShapeCounts> & left,
+	const std::pair<std::string, CopyShapeCounts> & right)
+{
+	return left.second.Builds + left.second.Refreshes > right.second.Builds + right.second.Refreshes;
+}
+
+unsigned DX11Texture_Copy_Shape_Count()
+{
+	std::vector<std::pair<std::string, CopyShapeCounts> > ranked(CopyShapes.begin(),
+		CopyShapes.end());
+	std::sort(ranked.begin(), ranked.end(), more_copies);
+
+	CopyShapeLines.clear();
+	for (size_t index = 0; index < ranked.size() && index < COPY_SHAPE_REPORT_LINES; ++index) {
+		char line[160];
+		snprintf(line, sizeof(line), "%s: %u built, %u refreshed", ranked[index].first.c_str(),
+			ranked[index].second.Builds, ranked[index].second.Refreshes);
+		CopyShapeLines.push_back(line);
+	}
+	return static_cast<unsigned>(CopyShapeLines.size());
+}
+
+const char * DX11Texture_Copy_Shape(unsigned index)
+{
+	return (index < CopyShapeLines.size()) ? CopyShapeLines[index].c_str() : "";
 }

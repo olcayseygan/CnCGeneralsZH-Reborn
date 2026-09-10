@@ -14,6 +14,8 @@ found and fixed â€” EA's own, not port damage.**
 - On a machine with two graphics chips, the game used to draw on the first one it found, which was the slow one. It now uses the dedicated card, and a match holds about 260 frames a second with the trees, the shadows and the filtering left on.
 - Display options has a vertical sync box. Off, the picture still runs free. On, it waits for the monitor so the frame does not tear. The box takes effect when you Accept.
 - A slow moment costs you a dropped frame, not a slow game.
+- Explosions no longer catch the picture. The first time each kind of fire, smoke or blast reached the screen, the game stopped for 25 to 60ms to prepare it, and the opening volley of a fight cost 300ms at once. That work is kept on disk and ships with the game, so it happens while the map loads, in about 3ms, and the worst frame of the same battle went from 141ms to 38ms.
+- The price, build time and power figures on the command bar buttons stopped costing you frames. All the buttons shared one piece of text, so every figure on the bar was lettered from scratch every frame, about 33 of them. Each now keeps its own: a battle that averaged 14ms a frame averages 11.7ms, frames slower than 60 a second went from one in six to one in a hundred, and the old renderer gets about 0.8ms back too. The money readout was lettered again every frame as well, for a number that had not changed; it is lettered when the number moves. Over a whole battle the game now letters 163 pieces of text where it lettered 68,227.
 - Every animation runs on a clock instead of counting frames.
 - Briefing and cutscene subtitles hold long enough to read again.
 - The radar's under-attack pulse throbs instead of strobing, and no longer ends early.
@@ -196,6 +198,7 @@ found and fixed â€” EA's own, not port damage.**
 
 ## Sharper textures, for free
 
+- The game draws its picture through Direct3D 11 now, and falls back to the old renderer on a machine that cannot make a Direct3D 11 device. Eight views over five maps come out within one step of one colour channel of the old picture, which is the smallest difference a screen can show.
 - 481 base-game textures at four times the resolution now beat Zero Hour's downscaled copies.
 - A long thin texture loads at the size it was drawn at. Anything wider than eight to one used to be stretched onto a bigger, blurrier one, because that was the limit of a 2002 graphics card; the card is asked now, and modern ones have no such limit.
 - Anything standing still keeps its shadow in the fog. A town you have already walked through used
@@ -1069,4 +1072,6 @@ found and fixed â€” EA's own, not port damage.**
 
 ## Not there yet
 - Online and LAN play are untested.
+- A frame through Direct3D 11 still costs more than it did through the old renderer: 13.6ms against 8.6ms in a screen full of inferno cannon fire, down from 16.9ms once the old renderer stopped drawing a second copy of every frame that nobody saw. `-d3d9` on the command line puts the old renderer back on its own.
+- Antialiasing from the display page does not reach the Direct3D 11 picture yet, and the rolling-wave sea is drawn only by the old renderer, so it is missing from the new one.
 - You need to own the game; no game data ships here.

@@ -34,13 +34,14 @@
 
 #include <d3d9.h>
 
-// Off unless -ffprobe was given.  Reading forty states back per draw call is not free.
+// Off until W3DDisplay turns it on, which the game always does.  Reading forty states back per
+// draw call is not free.
 void FixedFunctionProbe_Enable(bool enabled);
 bool FixedFunctionProbe_Is_Enabled();
 
-// Off unless -ffshader was given.  Replaces the texture stage combiners with a generated pixel
-// shader for every draw the generator will take, which is what phase 2 compares against the
-// fixed-function pipeline before carrying any of it to a second backend.
+// Off until W3DDisplay turns it on, which the game always does.  Replaces the texture stage
+// combiners on the Direct3D 9 device with a generated pixel shader for every draw the generator
+// will take.
 void CombinerShaders_Enable(bool enabled);
 bool CombinerShaders_Are_Enabled();
 

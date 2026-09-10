@@ -38,6 +38,16 @@
 #include <d3d9.h>
 #include <d3d11.h>
 
+// Wall time in milliseconds, for the per-frame costs the backend and the texture copies report.
+inline double DX11Resource_Milliseconds_Now()
+{
+	LARGE_INTEGER counter;
+	LARGE_INTEGER frequency;
+	QueryPerformanceCounter(&counter);
+	QueryPerformanceFrequency(&frequency);
+	return 1000.0 * static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
+}
+
 // DXGI_FORMAT_UNKNOWN comes back for a format with no D3D11 counterpart, which the caller has to
 // treat as a refusal: a texture created as UNKNOWN is not a texture.  Two of the engine's formats
 // are in that class - the palettised ones, which D3D11 dropped outright.

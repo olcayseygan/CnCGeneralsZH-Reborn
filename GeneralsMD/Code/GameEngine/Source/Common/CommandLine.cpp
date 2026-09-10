@@ -1325,6 +1325,8 @@ Int parseHeadless(char *args[], int num)
 		TheWritableGlobalData->m_soundsOn = FALSE;
 		TheWritableGlobalData->m_speechOn = FALSE;
 		TheWritableGlobalData->m_videoOn = FALSE;
+		// a run that draws nothing has no use for a second device mirroring every buffer it loads
+		TheWritableGlobalData->m_direct3D11 = FALSE;
 	}
 	return 1;
 }
@@ -1388,68 +1390,31 @@ Int parseMSAA(char *args[], int num)
 	return 1;
 }
 
-/* -ffprobe: count the fixed-function combinations the frame actually uses.
+/* -d3d9: draw and present with Direct3D 9 alone, the way the game did before the Direct3D 11
+	 * backend became the renderer.
 	 *
-	 * RENDERER-ROADMAP.md's phase 2 replaces fixed-function multitexture with HLSL, and the size of
-	 * that job is not the number of combinations shader.h can express - tens of thousands - but the
-	 * number the game sets during a match.  This reads the stage combiners and the pixel-affecting
-	 * render states back off the device at every draw call, so a call site that set its own states
-	 * without going through DX8Wrapper is counted too, and writes Run/ffprobe.txt at shutdown, most
-	 * used first.  Reading forty states per draw is slow; pair it with -maxframes. */
-Int parseFixedFunctionProbe(char *args[], int num)
+	 * The Direct3D 11 frame is the default, and this is the reference it is measured against:
+	 * dx11-check.ps1 photographs one frame both ways, and a frame-time comparison of the two
+	 * backends needs a run where the second device does not exist at all. */
+Int parseDirect3D9(char *args[], int num)
 {
 	if (TheWritableGlobalData)
 	{
-		TheWritableGlobalData->m_fixedFunctionProbe = TRUE;
+		TheWritableGlobalData->m_direct3D11 = FALSE;
 	}
 	return 1;
 }
 
-/* -ffshader: draw with generated pixel shaders instead of the texture stage combiners.
-	 *
-	 * The other half of -ffprobe, and RENDERER-ROADMAP.md phase 2's way of proving a generator
-	 * before anything is carried to a second backend: D3D11 has no combiners, so what they compute
-	 * has to be written as a shader, and a shader that runs on the existing D3D9 device can be
-	 * compared against the pipeline it replaces with tree-check.ps1.  A draw whose description the
-	 * generator refuses stays on the fixed-function path, and one that brought its own pixel shader
-	 * is left alone.  The counts go to the log at shutdown. */
-Int parseDirect3D11(char *args[], int num)
-{
-	if (TheWritableGlobalData)
-	{
-		TheWritableGlobalData->m_direct3D11 = TRUE;
-	}
-	return 1;
-}
-
-/* -dx11present: put the Direct3D 11 frame on the screen, and read screenshots back from it.
-	 *
-	 * Implies -dx11.  Without it the backend draws into a back buffer nothing ever shows, which is
-	 * how both renderers can run in the same frame while phase 2 is unfinished; with it the window
-	 * and the .bmp are the D3D11 picture, so tree-check.ps1 can photograph one against the other.
-	 * A frame the backend refuses parts of is a frame with those parts missing - that is the point
-	 * of looking. */
 /* -dx11dump <directory>: write every program the Direct3D 11 backend generates into that
 	 * directory as it is built, named by the order it was built in with the state it came from on
-	 * its first line.  Implies -dx11.  A generated program that draws the wrong thing cannot be read
-	 * any other way: the state is a key and the key is not the code. */
+	 * its first line.  A generated program that draws the wrong thing cannot be read any other way:
+	 * the state is a key and the key is not the code. */
 Int parseDirect3D11Dump(char *args[], int num)
 {
 	if (num > 1 && TheWritableGlobalData)
 	{
-		TheWritableGlobalData->m_direct3D11 = TRUE;
 		TheWritableGlobalData->m_direct3D11DumpPath = args[1];
 		return 2;
-	}
-	return 1;
-}
-
-Int parseDirect3D11Present(char *args[], int num)
-{
-	if (TheWritableGlobalData)
-	{
-		TheWritableGlobalData->m_direct3D11 = TRUE;
-		TheWritableGlobalData->m_direct3D11Present = TRUE;
 	}
 	return 1;
 }
@@ -1459,8 +1424,8 @@ Int parseDirect3D11Present(char *args[], int num)
 	 * The chain is the effects in the order they run, comma separated: "bloom", "fxaa", "sharpen",
 	 * "copy" for the pass that changes nothing, or "off".  Bare -dx11post is "fxaa", which is the
 	 * cheapest one worth having: the swap chain asks for a single sample, so an edge in the D3D11
-	 * frame has nothing else working on it.  Implies -dx11present, because a chain over a frame
-	 * nobody sees is only a cost.
+	 * frame has nothing else working on it.  Under -d3d9 there is no such frame and the chain does
+	 * nothing.
 	 *
 	 * "bloom" has to come first and it changes what the scene is kept in.  Explosion particles are
 	 * blended additively, so a stack of them is brighter than white before it is written down, and
@@ -1476,23 +1441,12 @@ Int parseDirect3D11Post(char *args[], int num)
 {
 	if (TheWritableGlobalData)
 	{
-		TheWritableGlobalData->m_direct3D11 = TRUE;
-		TheWritableGlobalData->m_direct3D11Present = TRUE;
 		if (num > 1 && args[1][0] != '-')
 		{
 			TheWritableGlobalData->m_direct3D11PostChain = args[1];
 			return 2;
 		}
 		TheWritableGlobalData->m_direct3D11PostChain = "fxaa";
-	}
-	return 1;
-}
-
-Int parseCombinerShaders(char *args[], int num)
-{
-	if (TheWritableGlobalData)
-	{
-		TheWritableGlobalData->m_combinerShaders = TRUE;
 	}
 	return 1;
 }
@@ -2255,10 +2209,7 @@ static CommandLineParam params[] =
 	{ "-maxframes", parseMaxGameFrames },
 	{ "-screenshot", parseScreenShot },
 	{ "-msaa", parseMSAA },
-	{ "-ffprobe", parseFixedFunctionProbe },
-	{ "-ffshader", parseCombinerShaders },
-	{ "-dx11", parseDirect3D11 },
-	{ "-dx11present", parseDirect3D11Present },
+	{ "-d3d9", parseDirect3D9 },
 	{ "-dx11dump", parseDirect3D11Dump },
 	{ "-dx11post", parseDirect3D11Post },
 	{ "-autocamera", parseAutoCamera },

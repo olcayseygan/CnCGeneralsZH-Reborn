@@ -202,11 +202,20 @@ const char * Direct3D11_Texture_First_Refusal();
 unsigned Direct3D11_Texture_Note_Count();
 const char * Direct3D11_Texture_Note(unsigned index);
 
+// The texture shapes copied most often, most first.  Count before reading the lines.
+unsigned Direct3D11_Texture_Copy_Shape_Count();
+const char * Direct3D11_Texture_Copy_Shape(unsigned index);
+
 // What the run did, for the log: how many pipelines were built and how many draws the backend
 // refused.  A backend that refuses most of the draws looks like a renderer with a lot missing and
 // says nothing about it otherwise.
 void Direct3D11_Statistics(unsigned & pipelines_built, unsigned long long & draws_made,
 	unsigned long long & draws_refused);
+
+// What the frame since the last call spent building pipelines and copying textures, and how many
+// of each.  Taking it resets it.
+void Direct3D11_Take_Frame_Cost(double & pipeline_milliseconds, unsigned & pipelines,
+	double & texture_milliseconds, unsigned & textures);
 
 // The refusals split by cause: no buffer bound, no texture stage enabled, a vertex format with no
 // input layout, and a program that could not be generated or compiled.

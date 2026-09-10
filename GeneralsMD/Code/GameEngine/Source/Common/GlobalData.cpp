@@ -647,10 +647,7 @@ GlobalData::GlobalData()
 	m_windowMode = WINDOW_MODE_FULLSCREEN;
 	m_msaaLevel = 0;
 	m_vsync = FALSE;
-	m_fixedFunctionProbe = FALSE;
-	m_combinerShaders = FALSE;
-	m_direct3D11 = FALSE;
-	m_direct3D11Present = FALSE;
+	m_direct3D11 = TRUE;
 	m_direct3D11DumpPath.clear();
 	m_direct3D11PostChain.clear();
 	m_xResolution = 800;

@@ -38,6 +38,9 @@ static unsigned TwinBuffers = 0;
 static unsigned long long TwinBytes = 0;
 static std::string DumpDirectory;
 
+// Relative to the working directory, which for the game is Run/, next to the exe.
+static const char * const SHADER_CACHE_FILE = "dx11shaders.cache";
+
 // What -dx11post asked for, kept as the effects rather than as the text so a name nobody knows is
 // refused when the switch is read and not once a frame.
 static DX11PostEffect PostChain[DX11_POST_CHAIN_LIMIT];
@@ -86,6 +89,7 @@ bool Direct3D11_Create(HWND window, unsigned width, unsigned height)
 	}
 
 	Backend.Set_Dump_Directory(DumpDirectory.c_str());
+	Backend.Set_Shader_Cache_Path(SHADER_CACHE_FILE);
 
 	// The chain is the one thing here that is allowed to fail without taking the backend with it:
 	// a machine whose compiler refuses the passes still gets the frame, just not the effect.
@@ -266,6 +270,16 @@ unsigned Direct3D11_Texture_Note_Count()
 const char * Direct3D11_Texture_Note(unsigned index)
 {
 	return DX11Texture_Note(index);
+}
+
+unsigned Direct3D11_Texture_Copy_Shape_Count()
+{
+	return DX11Texture_Copy_Shape_Count();
+}
+
+const char * Direct3D11_Texture_Copy_Shape(unsigned index)
+{
+	return DX11Texture_Copy_Shape(index);
 }
 
 void Direct3D11_Dump_Programs_To(const char * directory)
@@ -597,4 +611,15 @@ void Direct3D11_Statistics(unsigned & pipelines_built, unsigned long long & draw
 	if (Active) {
 		Backend.Statistics(pipelines_built, draws_made, draws_refused);
 	}
+}
+
+void Direct3D11_Take_Frame_Cost(double & pipeline_milliseconds, unsigned & pipelines,
+	double & texture_milliseconds, unsigned & textures)
+{
+	pipeline_milliseconds = 0.0;
+	pipelines = 0;
+	if (Active) {
+		Backend.Take_Frame_Build_Cost(pipeline_milliseconds, pipelines);
+	}
+	DX11Texture_Take_Frame_Cost(texture_milliseconds, textures);
 }

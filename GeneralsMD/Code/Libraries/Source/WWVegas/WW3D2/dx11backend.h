@@ -117,6 +117,12 @@ public:
 	// description is a key, and the key is not the code.
 	void Set_Dump_Directory(const char * directory);
 
+	// Keep every compiled program in this file across runs: read now, written at Shutdown when a
+	// program was compiled that the file did not hold.  A program compiled mid-match costs 25 to
+	// 60ms on the frame that first needs it, which is the stutter a new explosion brought.
+	void Set_Shader_Cache_Path(const char * path);
+	unsigned Compiled_Program_Count() const { return static_cast<unsigned>(CompiledPrograms.size()); }
+
 	// Binds the swap chain's back buffer and depth buffer and sets the viewport over the whole of
 	// it.  D3D11 keeps no default target: without this every draw is complete, legal, and lands
 	// nowhere.  Called at the start of each scene rather than once, because a resize replaces both
@@ -151,6 +157,11 @@ public:
 	// draws looks like a renderer with a lot missing and no error anywhere.
 	void Statistics(unsigned & pipelines_built, unsigned long long & draws_made,
 		unsigned long long & draws_refused) const;
+
+	// The pipelines built since the last call and the milliseconds they took, generation, compile
+	// and device objects together.  A pipeline is built the first time its state reaches a draw, so
+	// this is the stutter a new effect costs on the frame it first appears.
+	void Take_Frame_Build_Cost(double & milliseconds, unsigned & pipelines);
 
 	// Why the refusals happened, in the order Draw checks them: no buffer bound, no texture stage
 	// enabled, a vertex format with no input layout, and a program the generator or the compiler
@@ -408,6 +419,8 @@ private:
 	unsigned PipelinesBuilt;
 	unsigned long long DrawsMade;
 	unsigned long long DrawsRefused;
+	double FrameBuildMilliseconds;
+	unsigned FrameBuildCount;
 	enum RefusalReason { REFUSED_NO_STAGE, REFUSED_NO_LAYOUT, REFUSED_NO_PROGRAM,
 		REFUSED_NO_OBJECT };
 
@@ -417,9 +430,18 @@ private:
 	bool Any_Missing_Texture() const;
 	void Dump_Program(const std::string & key, const std::string & vertex_hlsl,
 		const std::string & pixel_hlsl);
+	bool Compile_Program(const std::string & source, const char * name, const char * profile,
+		std::vector<unsigned char> & bytecode);
+	void Save_Shader_Cache() const;
 
 	std::string CompilerError;
 	std::string DumpDirectory;
+
+	// Bytecode by the hash of the profile and the source it was compiled from.  Two pipelines that
+	// generate the same vertex program share one compile, and so do two runs through the file.
+	std::map<unsigned long long, std::vector<unsigned char> > CompiledPrograms;
+	std::string ShaderCachePath;
+	bool ShaderCacheChanged;
 
 	unsigned long long RefusedNoBuffer;
 	unsigned long long RefusedNoStage;

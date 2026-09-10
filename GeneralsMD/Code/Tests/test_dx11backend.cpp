@@ -29,7 +29,9 @@
 #include "dx11backend.h"
 #include "dx11resource.h"
 
+#include <stdio.h>
 #include <string.h>
+#include <vector>
 
 static const unsigned TARGET_SIZE = 64;
 static const DWORD BACKEND_FVF = D3DFVF_XYZ|D3DFVF_NORMAL|D3DFVF_TEX2|D3DFVF_DIFFUSE;
@@ -363,6 +365,81 @@ TEST(dx11backend_the_same_state_resolves_to_one_pipeline)
 	indices->Release();
 	vertices->Release();
 	backend.Shutdown();
+}
+
+static const char * const CACHE_FILE_NAME = "dx11backend_test_shaders.cache";
+static const long LAST_RECORD_CUT_BYTES = 4;
+
+// A pipeline compiled in one run is not compiled again in the next: the backend writes what it
+// compiled when it shuts down, and a second one reading the file holds both halves of the program
+// before it has drawn anything.  A file cut short while it was written gives up its last record and
+// keeps the rest, which is what a crash during the write leaves behind.
+TEST(dx11backend_compiled_programs_are_kept_in_the_cache_file)
+{
+	char path[MAX_PATH];
+	const DWORD directory_length = GetTempPathA(MAX_PATH, path);
+	CHECK(directory_length > 0 && directory_length + strlen(CACHE_FILE_NAME) < MAX_PATH);
+	strcat(path, CACHE_FILE_NAME);
+	DeleteFileA(path);
+
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+
+	DX11BackendClass writer;
+	CHECK(writer.Initialise(&device));
+	writer.Set_Shader_Cache_Path(path);
+	CHECK_EQ(writer.Compiled_Program_Count(), 0u);
+
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(device.Get_Device(), sizeof(QUAD_VERTICES),
+		D3DPOOL_MANAGED, 0, QUAD_VERTICES, &vertices));
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(device.Get_Device(), sizeof(QUAD_INDICES),
+		D3DPOOL_MANAGED, 0, QUAD_INDICES, &indices));
+
+	writer.Set_Viewport(0, 0, TARGET_SIZE, TARGET_SIZE);
+	configure_unlit_pass_through(writer);
+	writer.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	writer.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+	CHECK(writer.Draw_Indexed_Triangles(6, 0, 0));
+	CHECK_EQ(writer.Compiled_Program_Count(), 2u);
+
+	indices->Release();
+	vertices->Release();
+	writer.Shutdown();
+
+	DX11BackendClass reader;
+	CHECK(reader.Initialise(&device));
+	reader.Set_Shader_Cache_Path(path);
+	CHECK_EQ(reader.Compiled_Program_Count(), 2u);
+	reader.Shutdown();
+
+	std::vector<unsigned char> bytes;
+	FILE * file = fopen(path, "rb");
+	CHECK(file != NULL);
+	if (file != NULL) {
+		fseek(file, 0, SEEK_END);
+		bytes.resize(static_cast<size_t>(ftell(file)));
+		fseek(file, 0, SEEK_SET);
+		CHECK(fread(&bytes[0], bytes.size(), 1, file) == 1);
+		fclose(file);
+	}
+	CHECK(bytes.size() > static_cast<size_t>(LAST_RECORD_CUT_BYTES));
+
+	file = fopen(path, "wb");
+	CHECK(file != NULL);
+	if (file != NULL) {
+		fwrite(&bytes[0], bytes.size() - LAST_RECORD_CUT_BYTES, 1, file);
+		fclose(file);
+	}
+
+	DX11BackendClass cut_short;
+	CHECK(cut_short.Initialise(&device));
+	cut_short.Set_Shader_Cache_Path(path);
+	CHECK_EQ(cut_short.Compiled_Program_Count(), 1u);
+	cut_short.Shutdown();
+
+	DeleteFileA(path);
 }
 
 // The alpha test, which on D3D11 is a clip inside the generated pixel shader rather than anything

@@ -1569,7 +1569,8 @@ void W3DVolumetricShadow::RenderMeshVolume(Int meshIndex, Int lightIndex, const 
 	if (DX8Wrapper::_Is_Triangle_Draw_Enabled())
 	{
 		Debug_Statistics::Record_DX8_Polys_And_Vertices(numPolys,numVerts,ShaderClass::_PresetOpaqueShader);
-		m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,vbSlot->m_start,0,numVerts,ibSlot->m_start,numPolys);
+		if (!Direct3D11_Present_Is_Enabled())
+			m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,vbSlot->m_start,0,numVerts,ibSlot->m_start,numPolys);
 		Direct3D11_Draw_Indexed_Triangles(numIndex,ibSlot->m_start,vbSlot->m_start);
 	}
 
@@ -1710,7 +1711,8 @@ void W3DVolumetricShadow::RenderDynamicMeshVolume(Int meshIndex, Int lightIndex,
 	if (DX8Wrapper::_Is_Triangle_Draw_Enabled())
 	{
 		Debug_Statistics::Record_DX8_Polys_And_Vertices(numPolys,numVerts,ShaderClass::_PresetOpaqueShader);
-		m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,nShadowStartBatchVertex,0,numVerts,nShadowStartBatchIndex,numPolys);
+		if (!Direct3D11_Present_Is_Enabled())
+			m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,nShadowStartBatchVertex,0,numVerts,nShadowStartBatchIndex,numPolys);
 		Direct3D11_Draw_Indexed_Triangles(numIndex,nShadowStartBatchIndex,nShadowStartBatchVertex);
 	}
 
@@ -1862,7 +1864,8 @@ void W3DVolumetricShadow::RenderMeshVolumeBounds(Int meshIndex, Int lightIndex, 
 	m_pDev->SetStreamSource(0,shadowVertexBufferD3D,0,sizeof(SHADOW_DYNAMIC_VOLUME_VERTEX));
 	m_pDev->SetFVF(SHADOW_DYNAMIC_VOLUME_FVF);
 
-	m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,nShadowStartBatchVertex,0,numVerts,nShadowStartBatchIndex,numPolys);
+	if (!Direct3D11_Present_Is_Enabled())
+		m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,nShadowStartBatchVertex,0,numVerts,nShadowStartBatchIndex,numPolys);
 
 	nShadowVertsInBuf += numVerts;
 	nShadowStartBatchVertex=nShadowVertsInBuf;

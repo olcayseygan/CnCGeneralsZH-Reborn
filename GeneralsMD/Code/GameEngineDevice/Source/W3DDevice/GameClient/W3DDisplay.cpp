@@ -84,6 +84,7 @@ static void drawFramerateBar(void);
 #include "W3DDevice/GameClient/W3DVideoBuffer.h"
 #include "W3DDevice/GameClient/W3DShaderManager.h"
 #include "W3DDevice/GameClient/W3DDebugDisplay.h"
+#include "W3DDevice/GameClient/W3DDisplayString.h"
 #include "W3DDevice/GameClient/W3DProjectedShadow.h"
 #include "W3DDevice/GameClient/W3DShroud.h"
 #include "WWMath/WWMath.h"
@@ -493,6 +494,13 @@ W3DDisplay::~W3DDisplay()
 
 		if( Direct3D11_Texture_First_Refusal()[0] != '\0' )
 			DEBUG_LOG(("-dx11 texture: %s\n", Direct3D11_Texture_First_Refusal()));
+
+		const unsigned shapeCount = Direct3D11_Texture_Copy_Shape_Count();
+		for( unsigned shape = 0; shape < shapeCount; shape++ )
+			DEBUG_LOG(("-dx11 copies: %s\n", Direct3D11_Texture_Copy_Shape( shape )));
+
+		// The text textures lead that list, and these are the strings they were built for.
+		W3DDisplayString_logSentenceBuilds();
 
 		unsigned long long targetsBound = 0;
 		unsigned long long targetsRestored = 0;
@@ -1035,11 +1043,12 @@ void W3DDisplay::init( void )
 	DX8Wrapper::Set_Requested_VSync( TheGlobalData->m_vsync != FALSE );
 	Direct3D11_Set_VSync( TheGlobalData->m_vsync != FALSE );
 
-	// Same reason: WW3D2 cannot see GlobalData, so -ffprobe and -ffshader are pushed in from here.
-	FixedFunctionProbe_Enable( TheGlobalData->m_fixedFunctionProbe != FALSE );
-	CombinerShaders_Enable( TheGlobalData->m_combinerShaders != FALSE );
+	// Same reason: WW3D2 cannot see GlobalData, so the backend choice is pushed in from here.  The
+	// fixed-function probe and the generated combiner shaders are always on.
+	FixedFunctionProbe_Enable( true );
+	CombinerShaders_Enable( true );
 	Direct3D11_Enable( TheGlobalData->m_direct3D11 != FALSE );
-	Direct3D11_Present_Enable( TheGlobalData->m_direct3D11Present != FALSE );
+	Direct3D11_Present_Enable( TheGlobalData->m_direct3D11 != FALSE );
 	Direct3D11_Dump_Programs_To( TheGlobalData->m_direct3D11DumpPath.str() );
 	if( !Direct3D11_Post_Chain( TheGlobalData->m_direct3D11PostChain.str() )
 		&& !TheGlobalData->m_direct3D11PostChain.isEmpty() )
@@ -2443,6 +2452,22 @@ AGAIN:
 				}
 				// render is all done!
 				WW3D::End_Render();
+
+				/* A pipeline is compiled and a texture copied the first time it reaches a Direct3D 11
+					 draw, which is the frame a new explosion first shows up on.  A frame that spent more
+					 than a few milliseconds doing that says so, with the logic frame to set beside the
+					 SLOW PASS line it caused. */
+				{
+					const double DX11_FRAME_COST_REPORT_MS = 5.0;
+					double pipelineMS = 0.0;
+					unsigned pipelines = 0;
+					double textureMS = 0.0;
+					unsigned textures = 0;
+					Direct3D11_Take_Frame_Cost( pipelineMS, pipelines, textureMS, textures );
+					if( pipelineMS + textureMS > DX11_FRAME_COST_REPORT_MS )
+						DEBUG_LOG(("DX11 FRAME COST frame %d: %u pipelines built in %.1f ms, %u textures copied in %.1f ms\n",
+							TheGameLogic->getFrame(), pipelines, pipelineMS, textures, textureMS));
+				}
 
 				/* End_Render is where a lost device is noticed and reset, and that reset is the most
 					 dangerous thing this process does: it hands every default-pool resource back and asks

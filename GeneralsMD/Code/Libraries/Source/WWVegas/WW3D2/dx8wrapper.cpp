@@ -1362,11 +1362,9 @@ bool DX8Wrapper::Set_Render_Device(int dev, int width, int height, int bits, int
 
 	WWDEBUG_SAY(("Reset/Create_Device done, reset_device=%d, restore_assets=%d\n", reset_device, restore_assets));
 
-	// -dx11 builds the Direct3D 11 device beside the Direct3D 9 one rather than instead of it.
-	// Phase 2 of RENDERER-ROADMAP.md is not finished: 236 places still call the D3D9 device
-	// directly, so taking it away would be a black screen rather than a second backend.  What this
-	// gets is a device and a backend that the wrapper's own state calls reach, and a count at
-	// shutdown of how much of the frame that turned out to be.
+	// The Direct3D 11 device is built beside the Direct3D 9 one rather than instead of it: 236
+	// places still call the D3D9 device directly, so taking it away would be a black screen.  It
+	// is on unless -d3d9 or -headless turned it off.
 	if (Direct3D11_Is_Enabled() && !Direct3D11_Is_Active()) {
 		const bool created = Direct3D11_Create((HWND)_Hwnd,
 			_PresentParameters.BackBufferWidth, _PresentParameters.BackBufferHeight);
@@ -2341,13 +2339,15 @@ void DX8Wrapper::Draw_Sorting_IB_VB(
 	DX8_RECORD_INDEX_BUFFER_CHANGE();
 
 	DX8_RECORD_DRAW_CALLS();
-	DX8CALL(DrawIndexedPrimitive(
-		D3DPT_TRIANGLELIST,
-		dyn_vb_access.VertexBufferOffset,	// base vertex index, was SetIndices' second argument
-		0,		// start vertex
-		vertex_count,
-		dyn_ib_access.IndexBufferOffset,
-		polygon_count));
+	if (!Direct3D11_Present_Is_Enabled()) {
+		DX8CALL(DrawIndexedPrimitive(
+			D3DPT_TRIANGLELIST,
+			dyn_vb_access.VertexBufferOffset,	// base vertex index, was SetIndices' second argument
+			0,		// start vertex
+			vertex_count,
+			dyn_ib_access.IndexBufferOffset,
+			polygon_count));
+	}
 
 	DX8_RECORD_RENDER(polygon_count,vertex_count,render_state.shader);
 }
@@ -2531,13 +2531,20 @@ void DX8Wrapper::Draw(
 				}*/
 				DX8_RECORD_RENDER(polygon_count,vertex_count,render_state.shader);
 				DX8_RECORD_DRAW_CALLS();
-				DX8CALL(DrawIndexedPrimitive(
-					(D3DPRIMITIVETYPE)primitive_type,
-					render_state.index_base_offset+render_state.vba_offset,	// base vertex index, was SetIndices' second argument
-					min_vertex_index,
-					vertex_count,
-					start_index+render_state.iba_offset,
-					polygon_count));
+				// When Direct3D 11 owns the window, the Direct3D 9 frame is never shown and nothing
+				// reads its pixels back, so drawing it is only GPU time.  The state is still set on
+				// the D3D9 device above: the fixed-function probe reads it, and the wrapper's own
+				// cache relies on it.  _Draw_DX8_Primitive_UP keeps its D3D9 draw, because the smudge
+				// hardware test draws with it and reads the D3D9 target back.
+				if (!Direct3D11_Present_Is_Enabled()) {
+					DX8CALL(DrawIndexedPrimitive(
+						(D3DPRIMITIVETYPE)primitive_type,
+						render_state.index_base_offset+render_state.vba_offset,	// base vertex index, was SetIndices' second argument
+						min_vertex_index,
+						vertex_count,
+						start_index+render_state.iba_offset,
+						polygon_count));
+				}
 
 				// The same draw through the Direct3D 11 backend, into its own back buffer.  Only
 				// triangle lists go: a strip or a fan would need its indices rebuilt, and the

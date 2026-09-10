@@ -201,30 +201,58 @@ static void drawButtonText( GameWindow *window, WinInstanceData *instData )
 
 }  // end drawButtonText
 
+// badgeString ================================================================
+/** The display string for one badge's text.  A display string keeps the texture
+	* its text was built into, so each one is only ever handed text it already
+	* holds: one shared string set to every button's number in turn rebuilt a text
+	* texture for every badge on the bar every frame, about 33 of them, and on the
+	* Direct3D 11 frame each of those was a texture made and copied as well. */
+//=============================================================================
+static const Int BADGE_STRING_SLOTS = 64;
+static DisplayString *theBadgeStrings[ BADGE_STRING_SLOTS ] = { NULL };
+static Int theNextBadgeSlot = 0;
+
+static DisplayString *badgeString( const UnicodeString &text, GameFont *font )
+{
+	for( Int slot = 0; slot < BADGE_STRING_SLOTS; ++slot )
+	{
+		DisplayString *candidate = theBadgeStrings[ slot ];
+		if( candidate != NULL && candidate->getFont() == font && candidate->getText() == text )
+			return candidate;
+	}
+
+	// ponytail: round-robin eviction; a bar never shows 64 different badges at once, a per-button
+	// string would be the upgrade if one ever does
+	DisplayString *&slotString = theBadgeStrings[ theNextBadgeSlot ];
+	theNextBadgeSlot = ( theNextBadgeSlot + 1 ) % BADGE_STRING_SLOTS;
+	if( slotString == NULL )
+	{
+		slotString = TheDisplayStringManager->newDisplayString();
+		if( slotString == NULL )
+			return NULL;
+	}
+
+	slotString->setText( text );
+	if( font != NULL )
+		slotString->setFont( font );
+	return slotString;
+
+}  // end badgeString
+
 // drawCountBadge =============================================================
 /** Draw a small number badge in the button's bottom right corner (queued unit
 	* counts, selection sizes).  One shared DisplayString serves every button. */
 //=============================================================================
 static void drawCountBadge( GameWindow *window, Int count )
 {
-	static DisplayString *badge = NULL;
 	ICoord2D origin, size, textPos;
 	Int width, height;
 
-	if( badge == NULL )
-	{
-		badge = TheDisplayStringManager->newDisplayString();
-		if( badge == NULL )
-			return;
-	}
-
 	UnicodeString text;
 	text.format( L"%d", count );
-	badge->setText( text );
-
-	GameFont *font = getBadgeFont( window );
-	if( font != NULL && badge->getFont() != font )
-		badge->setFont( font );
+	DisplayString *badge = badgeString( text, getBadgeFont( window ) );
+	if( badge == NULL )
+		return;
 
 	window->winGetScreenPosition( &origin.x, &origin.y );
 	window->winGetSize( &size.x, &size.y );
@@ -251,24 +279,14 @@ static void drawCountBadge( GameWindow *window, Int count )
 //=============================================================================
 static void drawSecondsBadge( GameWindow *window, Int seconds )
 {
-	static DisplayString *label = NULL;
 	ICoord2D origin, size, textPos;
 	Int width, height;
 
-	if( label == NULL )
-	{
-		label = TheDisplayStringManager->newDisplayString();
-		if( label == NULL )
-			return;
-	}
-
 	UnicodeString text;
 	text.format( L"%ds", seconds );
-	label->setText( text );
-
-	GameFont *font = getBadgeFont( window );
-	if( font != NULL && label->getFont() != font )
-		label->setFont( font );
+	DisplayString *label = badgeString( text, getBadgeFont( window ) );
+	if( label == NULL )
+		return;
 
 	window->winGetScreenPosition( &origin.x, &origin.y );
 	window->winGetSize( &size.x, &size.y );
@@ -292,24 +310,14 @@ static void drawSecondsBadge( GameWindow *window, Int seconds )
 //=============================================================================
 static void drawCostBadge( GameWindow *window, Int cost )
 {
-	static DisplayString *label = NULL;
 	ICoord2D origin, size, textPos;
 	Int width, height;
 
-	if( label == NULL )
-	{
-		label = TheDisplayStringManager->newDisplayString();
-		if( label == NULL )
-			return;
-	}
-
 	UnicodeString text;
 	text.format( L"$%d", cost );
-	label->setText( text );
-
-	GameFont *font = getBadgeFont( window );
-	if( font != NULL && label->getFont() != font )
-		label->setFont( font );
+	DisplayString *label = badgeString( text, getBadgeFont( window ) );
+	if( label == NULL )
+		return;
 
 	window->winGetScreenPosition( &origin.x, &origin.y );
 	window->winGetSize( &size.x, &size.y );
@@ -336,27 +344,17 @@ static void drawCostBadge( GameWindow *window, Int cost )
 //=============================================================================
 static void drawPowerBadge( GameWindow *window, Int power )
 {
-	static DisplayString *label = NULL;
 	ICoord2D origin, size, textPos;
 	Int width, height;
-
-	if( label == NULL )
-	{
-		label = TheDisplayStringManager->newDisplayString();
-		if( label == NULL )
-			return;
-	}
 
 	// the game's own sign: a template's EnergyProduction is negative when it consumes
 	const Int draws = -power;
 
 	UnicodeString text;
 	text.format( draws > 0 ? L"-%d" : L"+%d", draws > 0 ? draws : -draws );
-	label->setText( text );
-
-	GameFont *font = getBadgeFont( window );
-	if( font != NULL && label->getFont() != font )
-		label->setFont( font );
+	DisplayString *label = badgeString( text, getBadgeFont( window ) );
+	if( label == NULL )
+		return;
 
 	window->winGetScreenPosition( &origin.x, &origin.y );
 	window->winGetSize( &size.x, &size.y );

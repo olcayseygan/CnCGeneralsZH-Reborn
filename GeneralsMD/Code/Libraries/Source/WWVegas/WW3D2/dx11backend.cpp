@@ -61,6 +61,28 @@ static D3DCompileFunction compiler_function()
 	return compiler;
 }
 
+// The cache file is this marker, then one record a program: the hash, the byte count, the bytes.
+static const char SHADER_CACHE_MAGIC[8] = { 'D', 'X', '1', '1', 'S', 'C', '1', '\0' };
+static const unsigned SHADER_CACHE_LARGEST_PROGRAM = 1u << 20;
+
+// FNV-1a over the profile and the source, which between them decide the bytecode.  The generated
+// text is the key rather than the pipeline's state key, so a build that changes what a state
+// generates compiles again instead of drawing with the previous build's program.
+static unsigned long long program_hash(const char * profile, const std::string & source)
+{
+	const unsigned long long FNV_OFFSET = 14695981039346656037ULL;
+	const unsigned long long FNV_PRIME = 1099511628211ULL;
+
+	unsigned long long hash = FNV_OFFSET;
+	for (const char * cursor = profile; *cursor != '\0'; ++cursor) {
+		hash = (hash ^ static_cast<unsigned char>(*cursor)) * FNV_PRIME;
+	}
+	for (size_t index = 0; index < source.size(); ++index) {
+		hash = (hash ^ static_cast<unsigned char>(source[index])) * FNV_PRIME;
+	}
+	return hash;
+}
+
 static void set_identity(float matrix[16])
 {
 	memset(matrix, 0, sizeof(float) * 16);
@@ -157,6 +179,9 @@ DX11BackendClass::DX11BackendClass()
 	, UserBuffer(NULL)
 	, UserBufferBytes(0)
 	, PipelinesBuilt(0)
+	, FrameBuildMilliseconds(0.0)
+	, FrameBuildCount(0)
+	, ShaderCacheChanged(false)
 	, TracedUserStrip(false)
 	, MaskWhileTargeted(0)
 	, TargetsBound(0)
@@ -298,6 +323,10 @@ void DX11BackendClass::Release_Cached()
 
 void DX11BackendClass::Shutdown()
 {
+	if (ShaderCacheChanged) {
+		Save_Shader_Cache();
+		ShaderCacheChanged = false;
+	}
 	Release_Cached();
 
 	if (EngineConstantBuffer != NULL) {
@@ -506,6 +535,95 @@ void DX11BackendClass::Set_Dump_Directory(const char * directory)
 	if (!DumpDirectory.empty()) {
 		CreateDirectoryA(DumpDirectory.c_str(), NULL);
 	}
+}
+
+void DX11BackendClass::Set_Shader_Cache_Path(const char * path)
+{
+	ShaderCachePath = (path == NULL) ? "" : path;
+	if (ShaderCachePath.empty()) {
+		return;
+	}
+
+	FILE * file = fopen(ShaderCachePath.c_str(), "rb");
+	if (file == NULL) {
+		return;
+	}
+
+	// A file cut short by a crash while it was written loses its last record and nothing else:
+	// every record is read whole or not at all.
+	char magic[sizeof(SHADER_CACHE_MAGIC)];
+	if (fread(magic, sizeof(magic), 1, file) == 1
+		&& memcmp(magic, SHADER_CACHE_MAGIC, sizeof(magic)) == 0) {
+		unsigned long long hash = 0;
+		unsigned int size = 0;
+		while (fread(&hash, sizeof(hash), 1, file) == 1 && fread(&size, sizeof(size), 1, file) == 1
+			&& size > 0 && size <= SHADER_CACHE_LARGEST_PROGRAM) {
+			std::vector<unsigned char> bytecode(size);
+			if (fread(&bytecode[0], size, 1, file) != 1) {
+				break;
+			}
+			CompiledPrograms[hash].swap(bytecode);
+		}
+	}
+	fclose(file);
+}
+
+void DX11BackendClass::Save_Shader_Cache() const
+{
+	if (ShaderCachePath.empty()) {
+		return;
+	}
+
+	FILE * file = fopen(ShaderCachePath.c_str(), "wb");
+	if (file == NULL) {
+		return;
+	}
+
+	fwrite(SHADER_CACHE_MAGIC, sizeof(SHADER_CACHE_MAGIC), 1, file);
+	for (std::map<unsigned long long, std::vector<unsigned char> >::const_iterator entry
+			= CompiledPrograms.begin(); entry != CompiledPrograms.end(); ++entry) {
+		const unsigned int size = static_cast<unsigned int>(entry->second.size());
+		fwrite(&entry->first, sizeof(entry->first), 1, file);
+		fwrite(&size, sizeof(size), 1, file);
+		fwrite(&entry->second[0], size, 1, file);
+	}
+	fclose(file);
+}
+
+bool DX11BackendClass::Compile_Program(const std::string & source, const char * name,
+	const char * profile, std::vector<unsigned char> & bytecode)
+{
+	const unsigned long long hash = program_hash(profile, source);
+	std::map<unsigned long long, std::vector<unsigned char> >::const_iterator known
+		= CompiledPrograms.find(hash);
+	if (known != CompiledPrograms.end()) {
+		bytecode = known->second;
+		return true;
+	}
+
+	D3DCompileFunction compiler = compiler_function();
+	if (compiler == NULL) {
+		return false;
+	}
+
+	ID3DBlob * code = NULL;
+	ID3DBlob * errors = NULL;
+	if (FAILED(compiler(source.c_str(), source.size(), name, NULL, NULL, ENTRY_POINT, profile, 0, 0,
+			&code, &errors))) {
+		Record_Compiler_Error(name, errors);
+		return false;
+	}
+	if (errors != NULL) {
+		errors->Release();
+	}
+
+	const unsigned char * bytes = static_cast<const unsigned char *>(code->GetBufferPointer());
+	bytecode.assign(bytes, bytes + code->GetBufferSize());
+	code->Release();
+
+	CompiledPrograms[hash] = bytecode;
+	ShaderCacheChanged = true;
+	return true;
 }
 
 // The key has characters a file name cannot carry, so it becomes the file's first line and the
@@ -834,12 +952,7 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 		return false;
 	}
 
-	D3DCompileFunction compiler = compiler_function();
-	if (compiler == NULL) {
-		Refuse(key, REFUSED_NO_PROGRAM);
-		return false;
-	}
-
+	const double build_started = DX11Resource_Milliseconds_Now();
 	std::string vertex_hlsl;
 	std::string pixel_hlsl;
 	const bool wrote_vertex = (VertexProgram != ENGINE_SHADER_NONE)
@@ -869,28 +982,12 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 		return false;
 	}
 
-	ID3DBlob * vertex_code = NULL;
-	ID3DBlob * pixel_code = NULL;
-	ID3DBlob * errors = NULL;
-	if (FAILED(compiler(vertex_hlsl.c_str(), vertex_hlsl.size(), "ffvertex", NULL, NULL,
-			ENTRY_POINT, VERTEX_PROFILE, 0, 0, &vertex_code, &errors))) {
-		Record_Compiler_Error("ffvertex", errors);
+	std::vector<unsigned char> vertex_code;
+	std::vector<unsigned char> pixel_code;
+	if (!Compile_Program(vertex_hlsl, "ffvertex", VERTEX_PROFILE, vertex_code)
+		|| !Compile_Program(pixel_hlsl, "ffshader", PIXEL_PROFILE, pixel_code)) {
 		Refuse(key, REFUSED_NO_PROGRAM);
 		return false;
-	}
-	if (errors != NULL) {
-		errors->Release();
-		errors = NULL;
-	}
-	if (FAILED(compiler(pixel_hlsl.c_str(), pixel_hlsl.size(), "ffshader", NULL, NULL,
-			ENTRY_POINT, PIXEL_PROFILE, 0, 0, &pixel_code, &errors))) {
-		Record_Compiler_Error("ffshader", errors);
-		vertex_code->Release();
-		Refuse(key, REFUSED_NO_PROGRAM);
-		return false;
-	}
-	if (errors != NULL) {
-		errors->Release();
 	}
 
 	Pipeline built;
@@ -899,15 +996,12 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 	built.Layout = NULL;
 
 	ID3D11Device * device = Device->Get_Device();
-	const bool created = SUCCEEDED(device->CreateVertexShader(vertex_code->GetBufferPointer(),
-			vertex_code->GetBufferSize(), NULL, &built.VertexShader))
-		&& SUCCEEDED(device->CreatePixelShader(pixel_code->GetBufferPointer(),
-			pixel_code->GetBufferSize(), NULL, &built.PixelShader))
-		&& SUCCEEDED(device->CreateInputLayout(elements, element_count,
-			vertex_code->GetBufferPointer(), vertex_code->GetBufferSize(), &built.Layout));
-
-	pixel_code->Release();
-	vertex_code->Release();
+	const bool created = SUCCEEDED(device->CreateVertexShader(&vertex_code[0], vertex_code.size(),
+			NULL, &built.VertexShader))
+		&& SUCCEEDED(device->CreatePixelShader(&pixel_code[0], pixel_code.size(), NULL,
+			&built.PixelShader))
+		&& SUCCEEDED(device->CreateInputLayout(elements, element_count, &vertex_code[0],
+			vertex_code.size(), &built.Layout));
 
 	if (!created) {
 		if (built.Layout != NULL) {
@@ -926,6 +1020,8 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 
 	Pipelines[key] = built;
 	++PipelinesBuilt;
+	FrameBuildMilliseconds += DX11Resource_Milliseconds_Now() - build_started;
+	++FrameBuildCount;
 	pipeline = built;
 	Remember_Resolution(key, pipeline, vertex_description, combiner_description);
 	return true;
@@ -1583,4 +1679,12 @@ void DX11BackendClass::Statistics(unsigned & pipelines_built, unsigned long long
 	pipelines_built = PipelinesBuilt;
 	draws_made = DrawsMade;
 	draws_refused = DrawsRefused;
+}
+
+void DX11BackendClass::Take_Frame_Build_Cost(double & milliseconds, unsigned & pipelines)
+{
+	milliseconds = FrameBuildMilliseconds;
+	pipelines = FrameBuildCount;
+	FrameBuildMilliseconds = 0.0;
+	FrameBuildCount = 0;
 }

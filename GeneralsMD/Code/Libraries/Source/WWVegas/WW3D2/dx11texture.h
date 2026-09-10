@@ -68,6 +68,9 @@ ID3D11RenderTargetView * DX11Texture_Target(ID3D11Device * device, ID3D11DeviceC
 // the texture, and how many could not be copied at all.
 void DX11Texture_Statistics(unsigned & mirrored, unsigned & reused, unsigned & refused);
 
+// The copies built or refreshed since the last call and the milliseconds they took.
+void DX11Texture_Take_Frame_Cost(double & milliseconds, unsigned & copies);
+
 // Why the first refused texture was refused.  Empty when none was.
 const char * DX11Texture_First_Refusal();
 
@@ -77,5 +80,10 @@ const char * DX11Texture_First_Refusal();
 // white one, which no count of mirrored textures can tell apart.
 unsigned DX11Texture_Note_Count();
 const char * DX11Texture_Note(unsigned index);
+
+// The texture shapes copied most often, most first, one line each with how many copies were built
+// and how many refreshed.  The count ranks them, so it is called before the lines are read.
+unsigned DX11Texture_Copy_Shape_Count();
+const char * DX11Texture_Copy_Shape(unsigned index);
 
 #endif // DX11TEXTURE_H
