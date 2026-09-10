@@ -204,6 +204,7 @@ DX11BackendClass::DX11BackendClass()
 	, ForeignPixelShader(false)
 	, ForeignVertexShader(false)
 {
+	memset(&Memo, 0, sizeof(Memo));
 	memset(StageStates, 0, sizeof(StageStates));
 	memset(Textures, 0, sizeof(Textures));
 	memset(EngineConstants, 0, sizeof(EngineConstants));
@@ -266,6 +267,9 @@ bool DX11BackendClass::Initialise(DX11DeviceClass * device)
 
 void DX11BackendClass::Release_Cached()
 {
+	// The memo holds a copy of one of these pipelines, so it goes first.
+	Memo.Valid = false;
+
 	for (std::map<std::string, Pipeline>::iterator entry = Pipelines.begin();
 			entry != Pipelines.end(); ++entry) {
 		entry->second.VertexShader->Release();
@@ -804,6 +808,21 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 		return false;
 	}
 
+	// Nothing below this line runs for a draw that asks for the pipeline the last one did, which is
+	// most of them: the renderer walks its texture categories, so a category's meshes arrive in a
+	// row with the same material and the same stage state.  See ResolveMemo in the header for what
+	// building the key costs and why memcmp is safe here.
+	if (Memo.Valid
+		&& Memo.Format == VertexFormat
+		&& Memo.VertexProgram == VertexProgram
+		&& Memo.PixelProgram == PixelProgram
+		&& memcmp(&Memo.Vertex, &vertex_description, sizeof(vertex_description)) == 0
+		&& memcmp(&Memo.Combiner, &combiner_description, sizeof(combiner_description)) == 0) {
+		pipeline = Memo.Resolved;
+		++Memo.Use->Draws;
+		return true;
+	}
+
 	char format[32];
 	snprintf(format, sizeof(format), "|%lu", VertexFormat);
 
@@ -823,7 +842,7 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 	std::map<std::string, Pipeline>::const_iterator existing = Pipelines.find(key);
 	if (existing != Pipelines.end()) {
 		pipeline = existing->second;
-		Record_Use(key);
+		Remember_Resolution(key, pipeline, vertex_description, combiner_description);
 		return true;
 	}
 	std::map<std::string, unsigned>::const_iterator refused = RefusedPipelines.find(key);
@@ -925,27 +944,40 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 	Pipelines[key] = built;
 	++PipelinesBuilt;
 	pipeline = built;
-	Record_Use(key);
+	Remember_Resolution(key, pipeline, vertex_description, combiner_description);
 	return true;
 }
 
-void DX11BackendClass::Record_Use(const std::string & key)
+void DX11BackendClass::Remember_Resolution(const std::string & key, const Pipeline & resolved,
+	const VertexPipelineDescription & vertex, const CombinerDescription & combiner)
+{
+	Memo.Valid = true;
+	Memo.Vertex = vertex;
+	Memo.Combiner = combiner;
+	Memo.Format = VertexFormat;
+	Memo.VertexProgram = VertexProgram;
+	Memo.PixelProgram = PixelProgram;
+	Memo.Resolved = resolved;
+	Memo.Use = Record_Use(key);
+}
+
+DX11BackendClass::PipelineUse * DX11BackendClass::Record_Use(const std::string & key)
 {
 	PipelineUse & use = PipelineUses[key];
 	if (use.Draws++ != 0) {
-		return;
+		return &use;
 	}
 
 	use.TextureWidth = 0;
 	use.TextureHeight = 0;
 	if (Textures[0] == NULL) {
-		return;
+		return &use;
 	}
 
 	ID3D11Resource * resource = NULL;
 	Textures[0]->GetResource(&resource);
 	if (resource == NULL) {
-		return;
+		return &use;
 	}
 
 	ID3D11Texture2D * texture = NULL;
@@ -957,6 +989,7 @@ void DX11BackendClass::Record_Use(const std::string & key)
 		texture->Release();
 	}
 	resource->Release();
+	return &use;
 }
 
 unsigned DX11BackendClass::Pipeline_Report_Count() const

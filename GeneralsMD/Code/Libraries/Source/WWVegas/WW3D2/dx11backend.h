@@ -299,7 +299,34 @@ private:
 	};
 	std::map<std::string, PipelineUse> PipelineUses;
 	std::string ReportLine;
-	void Record_Use(const std::string & key);
+	PipelineUse * Record_Use(const std::string & key);
+
+	// The last pipeline Resolve worked out, and the state it was worked out from.
+	//
+	// Resolve runs once a draw and its key costs about twenty snprintf calls, a handful of string
+	// appends and two lookups in a map keyed by that string.  Sampling a burning column at 1280x720
+	// put a eighth of the whole frame inside the C runtime's integer formatter.  The renderer
+	// batches by texture and material, so consecutive draws ask for the same pipeline far more
+	// often than not, and a draw that matches this skips the key entirely.
+	//
+	// The descriptions are compared with memcmp, which is safe because Build_Vertex_Description and
+	// Build_Combiner_Description both memset before they fill: no padding byte is ever undefined.
+	// Use points into PipelineUses, whose nodes are stable across insertion; the whole memo is
+	// dropped in Release_Cached, where the pipelines it names are released.
+	struct ResolveMemo
+	{
+		bool Valid;
+		VertexPipelineDescription Vertex;
+		CombinerDescription Combiner;
+		DWORD Format;
+		EngineShaderProgram VertexProgram;
+		EngineShaderProgram PixelProgram;
+		Pipeline Resolved;
+		PipelineUse * Use;
+	};
+	ResolveMemo Memo;
+	void Remember_Resolution(const std::string & key, const Pipeline & resolved,
+		const VertexPipelineDescription & vertex, const CombinerDescription & combiner);
 
 	// Where the draws are landing.  Null means the device's own back buffer and depth buffer.
 	// The first few target changes, in order, with the draw count at each one.  Which target is
