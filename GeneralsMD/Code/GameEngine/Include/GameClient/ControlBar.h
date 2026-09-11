@@ -723,6 +723,13 @@ public:
 		a mouse click would.  This is what the COMMAND_SLOTnn grid keys are wired to. */
 	void pressCommandButton( Int index );
 
+	/** The window in a command slot, or NULL when the slot is empty or hidden. */
+	GameWindow *getVisibleCommandWindow( Int index ) const;
+
+	/** Click a command slot the way the mouse does.  Unlike pressCommandButton there is no structure
+		chord to get through: that chord belongs to the keys, and a click never needed one. */
+	void clickCommandButton( Int index );
+
 	/** The general's powers are laid out SPECIAL_POWER_SHORTCUT_COLS to a row, so one key press
 		cannot reach eleven of them.  The first press picks a row (F1 is the row in the corner,
 		F2 the one above it) and the second picks a power inside that row (F1 is the rightmost),

@@ -11521,6 +11521,71 @@ TEST(control_server_answers_the_rfc_handshake_example)
 	CHECK( !ControlServer_computeAcceptKey( "dGhlIHNhbXBsZSBub25jZQ==", tooSmall, sizeof( tooSmall ) ) );
 }
 
+/* The control socket's framing, without a socket.  A frame cut in half has to wait for the rest
+ * rather than run half a command, the client's mask has to come off, a continuation frame has to
+ * say it is one, and a length no command could have is refused instead of allocated.
+ */
+TEST(control_server_parses_frames_in_every_length_form)
+{
+	ControlFrame frame;
+
+	// "ping", masked the way every client frame is
+	const unsigned char mask[ 4 ] = { 0x12, 0x34, 0x56, 0x78 };
+	const char *word = "ping";
+	char masked[ 10 ];
+	masked[ 0 ] = (char)0x81;
+	masked[ 1 ] = (char)(0x80 | 4);
+	for( Int i = 0; i < 4; ++i )
+	{
+		masked[ 2 + i ] = (char)mask[ i ];
+		masked[ 6 + i ] = (char)(word[ i ] ^ mask[ i ]);
+	}
+
+	CHECK_EQ( ControlServer_parseFrame( masked, 10, &frame ), 10 );
+	CHECK_EQ( (Int)frame.opcode, 1 );
+	CHECK( frame.isFinal );
+	CHECK( frame.payload == "ping" );
+
+	// every prefix of it is a frame still arriving
+	for( Int have = 0; have < 10; ++have )
+		CHECK_EQ( ControlServer_parseFrame( masked, have, &frame ), 0 );
+
+	// 300 bytes take the 16-bit length, and a continuation frame without FIN says it is not the end
+	std::string longer( 4, '\0' );
+	longer[ 1 ] = (char)126;
+	longer[ 2 ] = (char)(300 >> 8);
+	longer[ 3 ] = (char)(300 & 0xFF);
+	longer.append( 300, 'x' );
+	CHECK_EQ( ControlServer_parseFrame( longer.data(), (Int)longer.size(), &frame ), 304 );
+	CHECK_EQ( (Int)frame.opcode, 0 );
+	CHECK( !frame.isFinal );
+	CHECK_EQ( (Int)frame.payload.size(), 300 );
+
+	// a 64-bit length with anything in its high half is a broken client
+	const char huge[ 10 ] = { (char)0x81, (char)127, 0, 0, 0, 1, 0, 0, 0, 0 };
+	CHECK_EQ( ControlServer_parseFrame( huge, 10, &frame ), -1 );
+}
+
+/* A command is words, and a reply is JSON that a strict parser accepts: the game's 8-bit text is not
+ * UTF-8, so anything past 0x7F goes out escaped rather than as bytes the client would refuse.
+ */
+TEST(control_server_splits_words_and_escapes_reply_text)
+{
+	std::vector<std::string> words;
+	ControlServer_splitWords( "  mouse\tclick left  12 34 ", &words );
+	CHECK_EQ( (Int)words.size(), 5 );
+	CHECK( words[ 0 ] == "mouse" );
+	CHECK( words[ 2 ] == "left" );
+	CHECK( words[ 4 ] == "34" );
+
+	ControlServer_splitWords( "   ", &words );
+	CHECK( words.empty() );
+
+	std::string json;
+	ControlServer_appendJsonString( "a\"b\\c\n\x01" "\xE9", &json );
+	CHECK( json == "\"a\\\"b\\\\c\\n\\u0001\\u00e9\"" );
+}
+
 /* Telling a click from a drag.
  *
  * Three terms, and each of them has been wrong at some point. The screen distance was compared one

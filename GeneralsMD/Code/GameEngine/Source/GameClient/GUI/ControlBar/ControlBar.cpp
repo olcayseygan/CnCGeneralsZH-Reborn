@@ -258,6 +258,26 @@ void ControlBar::pressCommandButton( Int index )
 }  // end pressCommandButton
 
 //-------------------------------------------------------------------------------------------------
+GameWindow *ControlBar::getVisibleCommandWindow( Int index ) const
+{
+	GameWindow *win = m_commandWindows[ index ];
+	if( win == NULL || BitTest( win->winGetStatus(), WIN_STATUS_HIDDEN ) )
+		return NULL;
+	return win;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ControlBar::clickCommandButton( Int index )
+{
+	GameWindow *win = getVisibleCommandWindow( index );
+	if( win == NULL || !BitTest( win->winGetStatus(), WIN_STATUS_ENABLED ) )
+		return;
+
+	TheWindowManager->winSendSystemMsg( win->winGetParent(), GBM_SELECTED,
+																			(WindowMsgData)win, win->winGetWindowId() );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** The second key of a structure chord is the cell's own position inside the group, so it is
 	whatever the grid has bound to slots 0..7 - Q Z W X E C R V on the shipped map, which is what is
 	painted on the cells.  MetaEventTranslator hands the raw key here while a chord is armed. */

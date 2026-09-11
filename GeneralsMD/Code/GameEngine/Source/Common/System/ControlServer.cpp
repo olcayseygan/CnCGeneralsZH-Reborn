@@ -18,34 +18,33 @@
 
 // FILE: ControlServer.cpp ///////////////////////////////////////////////////////////////////////
 //
-// -control [port]: a WebSocket on 127.0.0.1 that drives the game from outside it.  See
-// ControlServer.h for the command grammar and for why world commands are queued rather than run
-// where they arrive.
+// -control [port]: the socket, the WebSocket framing, the reply queue, and the commands that are
+// about the connection or the whole run.  ControlServer.h says where the rest of the commands live.
 //
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
+#include "Common/ControlCommands.h"
 #include "Common/ControlServer.h"
 #include "Common/GameEngine.h"
 #include "Common/GlobalData.h"
-#include "Common/MessageStream.h"
 #include "Common/Money.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
-#include "GameClient/Display.h"
-#include "GameClient/KeyDefs.h"
-#include "GameClient/MetaEvent.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/ScenarioDrill.h"
 #include "GameNetwork/GameInfo.h"		// MAX_SLOTS, for the skirmish command's player count
 
-#include <vector>
+#include <deque>
 
 // windows.h, which PreRTS.h already pulled in, brings Winsock 1.1 with it.  That is every call
 // this file makes, so it takes the one already on the table rather than starting the winsock2
 // header fight described in the hard constraints.
+
+extern void GameEngine_startSkirmish( Int numPlayers );
+extern void GameEngine_endMatchAndQuit( void );
 
 // ------------------------------------------------------------------------------------------------
 // sizes and constants
@@ -53,9 +52,9 @@
 
 static const Int CONTROL_LOOPBACK_ONLY = INADDR_LOOPBACK;
 static const Int CONTROL_BACKLOG = 1;
-static const Int CONTROL_READ_CHUNK = 4096;
-static const Int CONTROL_MAX_REQUEST = 16384;
-static const Int CONTROL_MAX_COMMANDS_PER_FRAME = 64;
+static const Int CONTROL_READ_CHUNK = 16384;
+static const Int CONTROL_FRAME_HEADER_BYTES = 14;			///< the longest header a client frame can carry
+static const Int CONTROL_MAX_WAITING_COMMANDS = 256;
 
 /// RFC 6455's magic string, appended to the client key before hashing
 static const char *CONTROL_WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -64,6 +63,7 @@ static const Int SHA1_DIGEST_BYTES = 20;
 static const Int SHA1_BLOCK_BYTES = 64;
 
 // WebSocket opcodes, from RFC 6455 section 5.2
+static const unsigned char WS_OPCODE_CONTINUATION = 0x0;
 static const unsigned char WS_OPCODE_TEXT = 0x1;
 static const unsigned char WS_OPCODE_CLOSE = 0x8;
 static const unsigned char WS_OPCODE_PING = 0x9;
@@ -230,6 +230,190 @@ Bool ControlServer_computeAcceptKey( const char *clientKey, char *out, Int outSi
 }
 
 // ------------------------------------------------------------------------------------------------
+// text: words in, JSON out
+// ------------------------------------------------------------------------------------------------
+
+static Bool isWordBreak( char c )
+{
+	return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+void ControlServer_splitWords( const char *line, std::vector<std::string> *words )
+{
+	words->clear();
+	const char *at = line;
+	for( ;; )
+	{
+		while (*at && isWordBreak( *at ))
+			++at;
+		if (*at == 0)
+			return;
+
+		const char *start = at;
+		while (*at && !isWordBreak( *at ))
+			++at;
+		words->push_back( std::string( start, at - start ) );
+	}
+}
+
+/** One character of a JSON string.  Below a space is a control character, and from 0x80 up it is
+	  escaped by code rather than written as bytes; see ControlServer_appendJsonString. */
+static void appendJsonCharacter( UnsignedInt character, std::string *json )
+{
+	if (character == '"')
+		json->append( "\\\"" );
+	else if (character == '\\')
+		json->append( "\\\\" );
+	else if (character == '\n')
+		json->append( "\\n" );
+	else if (character < 0x20 || character >= 0x80)
+	{
+		char escaped[ 8 ];
+		sprintf( escaped, "\\u%04x", character & 0xFFFF );
+		json->append( escaped );
+	}
+	else
+		json->push_back( (char)character );
+}
+
+void ControlServer_appendJsonString( const char *text, std::string *json )
+{
+	json->push_back( '"' );
+	for( const char *at = text; *at; ++at )
+		appendJsonCharacter( (unsigned char)*at, json );
+	json->push_back( '"' );
+}
+
+ControlJson::ControlJson( void )
+{
+}
+
+void ControlJson::clear( void )
+{
+	m_text.clear();
+	m_isFirstInContainer.clear();
+}
+
+void ControlJson::writeName( const char *name )
+{
+	if (!m_isFirstInContainer.empty())
+	{
+		if (!m_isFirstInContainer.back())
+			m_text.push_back( ',' );
+		m_isFirstInContainer.back() = FALSE;
+	}
+
+	if (name)
+	{
+		ControlServer_appendJsonString( name, &m_text );
+		m_text.push_back( ':' );
+	}
+}
+
+void ControlJson::beginObject( const char *name )
+{
+	writeName( name );
+	m_text.push_back( '{' );
+	m_isFirstInContainer.push_back( TRUE );
+}
+
+void ControlJson::endObject( void )
+{
+	m_text.push_back( '}' );
+	m_isFirstInContainer.pop_back();
+}
+
+void ControlJson::beginArray( const char *name )
+{
+	writeName( name );
+	m_text.push_back( '[' );
+	m_isFirstInContainer.push_back( TRUE );
+}
+
+void ControlJson::endArray( void )
+{
+	m_text.push_back( ']' );
+	m_isFirstInContainer.pop_back();
+}
+
+void ControlJson::addInt( const char *name, Int value )
+{
+	writeName( name );
+	char number[ 16 ];
+	sprintf( number, "%d", value );
+	m_text.append( number );
+}
+
+void ControlJson::addReal( const char *name, Real value )
+{
+	writeName( name );
+	char number[ 64 ];
+	sprintf( number, "%.3f", value );
+	m_text.append( number );
+}
+
+void ControlJson::addBool( const char *name, Bool value )
+{
+	writeName( name );
+	m_text.append( value ? "true" : "false" );
+}
+
+void ControlJson::addString( const char *name, const char *value )
+{
+	writeName( name );
+	ControlServer_appendJsonString( value, &m_text );
+}
+
+void ControlJson::addWide( const char *name, const WideChar *value )
+{
+	writeName( name );
+	m_text.push_back( '"' );
+	for( const WideChar *at = value; *at; ++at )
+		appendJsonCharacter( (UnsignedInt)*at, &m_text );
+	m_text.push_back( '"' );
+}
+
+const char *ControlCommand_word( const ControlCommand &command, size_t index )
+{
+	return index < command.words.size() ? command.words[ index ].c_str() : "";
+}
+
+Bool ControlCommand_getInt( const ControlCommand &command, size_t index, Int *value )
+{
+	if (index >= command.words.size())
+		return FALSE;
+
+	const char *text = command.words[ index ].c_str();
+	char *end = NULL;
+	const long parsed = strtol( text, &end, 10 );
+	if (end == text || *end != 0)
+		return FALSE;
+
+	*value = (Int)parsed;
+	return TRUE;
+}
+
+Bool ControlCommand_getReal( const ControlCommand &command, size_t index, Real *value )
+{
+	if (index >= command.words.size())
+		return FALSE;
+
+	const char *text = command.words[ index ].c_str();
+	char *end = NULL;
+	const double parsed = strtod( text, &end );
+	if (end == text || *end != 0)
+		return FALSE;
+
+	*value = (Real)parsed;
+	return TRUE;
+}
+
+Bool ControlServer_isMatchRunning( void )
+{
+	return TheGameLogic->isInGame() && !TheGameLogic->isInShellGame();
+}
+
+// ------------------------------------------------------------------------------------------------
 // socket state
 // ------------------------------------------------------------------------------------------------
 
@@ -238,8 +422,16 @@ static SOCKET theClientSocket = INVALID_SOCKET;
 static Bool theWinsockStarted = FALSE;
 static Bool theHandshakeDone = FALSE;
 static std::vector<char> theIncoming;
-static std::vector<AsciiString> thePendingCommands;
+static std::vector<char> theOutgoing;
+static std::string theMessage;						///< a text message whose continuation frames are still arriving
+static Bool theMessageInProgress = FALSE;
+static std::deque<std::string> theWaitingCommands;
+
+static ControlCommand theCurrent;
+static Bool theCurrentIsPending = FALSE;
 static Bool theQuitRequested = FALSE;
+static Bool theWorldActionPending = FALSE;
+static ScenarioAction theWorldAction;
 
 static void closeClient( void )
 {
@@ -250,6 +442,10 @@ static void closeClient( void )
 	}
 	theHandshakeDone = FALSE;
 	theIncoming.clear();
+	theOutgoing.clear();
+	theMessage.clear();
+	theMessageInProgress = FALSE;
+	theWaitingCommands.clear();
 }
 
 static Bool setNonBlocking( SOCKET s )
@@ -299,126 +495,132 @@ static Bool openListenSocket( Int port )
 }
 
 // ------------------------------------------------------------------------------------------------
-// websocket framing
+// sending: everything goes through one queue, because a non-blocking send takes what the socket
+// has room for and a reply cut off halfway corrupts every frame after it
 // ------------------------------------------------------------------------------------------------
 
-static void sendFrame( unsigned char opcode, const char *payload, Int length )
+static void flushOutgoing( void )
+{
+	while (theClientSocket != INVALID_SOCKET && !theOutgoing.empty())
+	{
+		const Int sent = send( theClientSocket, &theOutgoing[ 0 ], (Int)theOutgoing.size(), 0 );
+		if (sent > 0)
+		{
+			theOutgoing.erase( theOutgoing.begin(), theOutgoing.begin() + sent );
+			continue;
+		}
+
+		if (sent == SOCKET_ERROR && WSAGetLastError() == WSAEWOULDBLOCK)
+			return;
+
+		DEBUG_LOG(("CONTROL: send failed with %d, closing\n", WSAGetLastError()));
+		closeClient();
+		return;
+	}
+}
+
+static void queueBytes( const char *bytes, Int length )
 {
 	if (theClientSocket == INVALID_SOCKET)
 		return;
+	theOutgoing.insert( theOutgoing.end(), bytes, bytes + length );
+	flushOutgoing();
+}
 
-	std::vector<char> frame;
-	frame.push_back( (char)(0x80 | opcode) );
+static void sendFrame( unsigned char opcode, const char *payload, Int length )
+{
+	char header[ 10 ];
+	Int headerLength = 0;
+	header[ headerLength++ ] = (char)(0x80 | opcode);
 
 	// a server frame is never masked, so the length is the whole second byte
 	if (length < 126)
 	{
-		frame.push_back( (char)length );
+		header[ headerLength++ ] = (char)length;
 	}
 	else if (length < 65536)
 	{
-		frame.push_back( (char)126 );
-		frame.push_back( (char)((length >> 8) & 0xFF) );
-		frame.push_back( (char)(length & 0xFF) );
+		header[ headerLength++ ] = (char)126;
+		header[ headerLength++ ] = (char)((length >> 8) & 0xFF);
+		header[ headerLength++ ] = (char)(length & 0xFF);
 	}
 	else
 	{
-		frame.push_back( (char)127 );
+		header[ headerLength++ ] = (char)127;
 		for( Int i = 0; i < 4; ++i )
-			frame.push_back( (char)0 );
-		frame.push_back( (char)((length >> 24) & 0xFF) );
-		frame.push_back( (char)((length >> 16) & 0xFF) );
-		frame.push_back( (char)((length >> 8) & 0xFF) );
-		frame.push_back( (char)(length & 0xFF) );
+			header[ headerLength++ ] = (char)0;
+		header[ headerLength++ ] = (char)((length >> 24) & 0xFF);
+		header[ headerLength++ ] = (char)((length >> 16) & 0xFF);
+		header[ headerLength++ ] = (char)((length >> 8) & 0xFF);
+		header[ headerLength++ ] = (char)(length & 0xFF);
 	}
 
-	for( Int i = 0; i < length; ++i )
-		frame.push_back( payload[ i ] );
-
-	send( theClientSocket, &frame[ 0 ], (Int)frame.size(), 0 );
+	queueBytes( header, headerLength );
+	queueBytes( payload, length );
 }
 
-static void sendText( const char *text )
-{
-	sendFrame( WS_OPCODE_TEXT, text, (Int)strlen( text ) );
-}
+// ------------------------------------------------------------------------------------------------
+// receiving
+// ------------------------------------------------------------------------------------------------
 
-/** Pull one complete frame off the front of theIncoming.  Returns FALSE when there is not a whole
-	  one there yet, which is the normal case on a non-blocking read. */
-static Bool takeFrame( unsigned char *opcodeOut, AsciiString *payloadOut )
+Int ControlServer_parseFrame( const char *data, Int length, ControlFrame *frame )
 {
-	const Int have = (Int)theIncoming.size();
-	if (have < 2)
-		return FALSE;
+	if (length < 2)
+		return 0;
 
-	const unsigned char byte0 = (unsigned char)theIncoming[ 0 ];
-	const unsigned char byte1 = (unsigned char)theIncoming[ 1 ];
-	const Bool masked = (byte1 & 0x80) != 0;
+	const unsigned char byte0 = (unsigned char)data[ 0 ];
+	const unsigned char byte1 = (unsigned char)data[ 1 ];
+	const Bool isMasked = (byte1 & 0x80) != 0;
 	Int payloadLength = byte1 & 0x7F;
 	Int at = 2;
 
 	if (payloadLength == 126)
 	{
-		if (have < at + 2)
-			return FALSE;
-		payloadLength = ((unsigned char)theIncoming[ at ] << 8) | (unsigned char)theIncoming[ at + 1 ];
+		if (length < at + 2)
+			return 0;
+		payloadLength = ((unsigned char)data[ at ] << 8) | (unsigned char)data[ at + 1 ];
 		at += 2;
 	}
 	else if (payloadLength == 127)
 	{
-		// the four high bytes of a 64-bit length are refused rather than truncated: nothing this
-		// socket accepts is four gigabytes long, so a frame claiming to be is a broken client
-		if (have < at + 8)
-			return FALSE;
+		if (length < at + 8)
+			return 0;
 		for( Int i = 0; i < 4; ++i )
 		{
-			if (theIncoming[ at + i ] != 0)
-			{
-				closeClient();
-				return FALSE;
-			}
+			if (data[ at + i ] != 0)
+				return -1;
 		}
-		payloadLength = ((unsigned char)theIncoming[ at + 4 ] << 24)
-									| ((unsigned char)theIncoming[ at + 5 ] << 16)
-									| ((unsigned char)theIncoming[ at + 6 ] << 8)
-									| ((unsigned char)theIncoming[ at + 7 ]);
+		const UnsignedInt lowHalf = ((UnsignedInt)(unsigned char)data[ at + 4 ] << 24)
+															| ((UnsignedInt)(unsigned char)data[ at + 5 ] << 16)
+															| ((UnsignedInt)(unsigned char)data[ at + 6 ] << 8)
+															| ((UnsignedInt)(unsigned char)data[ at + 7 ]);
+		if (lowHalf > (UnsignedInt)CONTROL_MAX_MESSAGE_BYTES)
+			return -1;
+		payloadLength = (Int)lowHalf;
 		at += 8;
 	}
 
 	unsigned char mask[ 4 ] = { 0, 0, 0, 0 };
-	if (masked)
+	if (isMasked)
 	{
-		if (have < at + 4)
-			return FALSE;
+		if (length < at + 4)
+			return 0;
 		for( Int i = 0; i < 4; ++i )
-			mask[ i ] = (unsigned char)theIncoming[ at + i ];
+			mask[ i ] = (unsigned char)data[ at + i ];
 		at += 4;
 	}
 
-	if (payloadLength < 0 || have < at + payloadLength)
-		return FALSE;
+	if (length < at + payloadLength)
+		return 0;
 
-	AsciiString payload;
-	if (payloadLength > 0)
-	{
-		std::vector<char> text;
-		text.resize( payloadLength + 1 );
-		for( Int i = 0; i < payloadLength; ++i )
-			text[ i ] = (char)((unsigned char)theIncoming[ at + i ] ^ (masked ? mask[ i % 4 ] : 0));
-		text[ payloadLength ] = 0;
-		payload.set( &text[ 0 ] );
-	}
+	frame->opcode = byte0 & 0x0F;
+	frame->isFinal = (byte0 & 0x80) != 0;
+	frame->payload.resize( payloadLength );
+	for( Int i = 0; i < payloadLength; ++i )
+		frame->payload[ i ] = (char)((unsigned char)data[ at + i ] ^ mask[ i % 4 ]);
 
-	theIncoming.erase( theIncoming.begin(), theIncoming.begin() + at + payloadLength );
-
-	*opcodeOut = byte0 & 0x0F;
-	*payloadOut = payload;
-	return TRUE;
+	return at + payloadLength;
 }
-
-// ------------------------------------------------------------------------------------------------
-// the http upgrade
-// ------------------------------------------------------------------------------------------------
 
 /** Read the client key out of the request headers.  Case-insensitive on the header name, because
 	  RFC 7230 says header names are, and browsers and Python libraries disagree about the casing. */
@@ -470,6 +672,9 @@ static Bool tryHandshake( void )
 		return FALSE;
 	}
 
+	const Int consumed = (Int)(end - request) + 4;
+	theIncoming.erase( theIncoming.begin(), theIncoming.begin() + consumed );
+
 	char reply[ 512 ];
 	sprintf( reply,
 					 "HTTP/1.1 101 Switching Protocols\r\n"
@@ -477,239 +682,291 @@ static Bool tryHandshake( void )
 					 "Connection: Upgrade\r\n"
 					 "Sec-WebSocket-Accept: %s\r\n\r\n",
 					 acceptKey );
-	send( theClientSocket, reply, (Int)strlen( reply ), 0 );
+	queueBytes( reply, (Int)strlen( reply ) );
 
-	const Int consumed = (Int)(end - request) + 4;
-	theIncoming.erase( theIncoming.begin(), theIncoming.begin() + consumed );
 	theHandshakeDone = TRUE;
 	DEBUG_LOG(("CONTROL: client connected\n"));
 	return TRUE;
 }
 
 // ------------------------------------------------------------------------------------------------
-// commands
+// replies
 // ------------------------------------------------------------------------------------------------
 
-static void replyOk( const char *extra )
+static void sendReply( ControlOutcome outcome )
 {
-	char reply[ 1024 ];
-	if (extra && *extra)
-		sprintf( reply, "{\"ok\":true,%s}", extra );
+	std::string text;
+	if (outcome == CONTROL_FAILED)
+	{
+		text = "{\"ok\":false,\"error\":";
+		ControlServer_appendJsonString( theCurrent.error.c_str(), &text );
+		text.push_back( '}' );
+	}
 	else
-		sprintf( reply, "{\"ok\":true}" );
-	sendText( reply );
+	{
+		theCurrent.reply.endObject();
+		text = theCurrent.reply.getText();
+	}
+	sendFrame( WS_OPCODE_TEXT, text.data(), (Int)text.size() );
 }
 
-static void replyError( const char *why )
+ControlCommand &ControlServer_current( void )
 {
-	char reply[ 512 ];
-	sprintf( reply, "{\"ok\":false,\"error\":\"%s\"}", why );
-	sendText( reply );
+	return theCurrent;
 }
+
+void ControlServer_finish( ControlOutcome outcome )
+{
+	DEBUG_ASSERTCRASH( theCurrentIsPending, ("CONTROL: a command finished that nobody was waiting on\n") );
+	theCurrentIsPending = FALSE;
+	sendReply( outcome );
+}
+
+// ------------------------------------------------------------------------------------------------
+// the commands about the connection and the run
+// ------------------------------------------------------------------------------------------------
 
 /** frame number, whether a match is running, and what each player owns. */
-static void replyStatus( void )
+static ControlOutcome replyStatus( ControlCommand &command )
 {
-	const Bool inGame = TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame();
+	const Bool inMatch = ControlServer_isMatchRunning();
+	ControlJson &reply = command.reply;
 
-	std::vector<char> reply;
-	char piece[ 256 ];
-
-	sprintf( piece, "{\"ok\":true,\"frame\":%d,\"inGame\":%s,\"players\":[",
-					 TheGameLogic ? (Int)TheGameLogic->getFrame() : 0,
-					 inGame ? "true" : "false" );
-	for( const char *at = piece; *at; ++at )
-		reply.push_back( *at );
-
-	if (inGame && ThePlayerList)
+	reply.addInt( "frame", (Int)TheGameLogic->getFrame() );
+	reply.addBool( "inGame", inMatch );
+	reply.beginArray( "players" );
+	for( Int i = 0; inMatch && i < ThePlayerList->getPlayerCount(); ++i )
 	{
-		Bool first = TRUE;
-		for( Int i = 0; i < ThePlayerList->getPlayerCount(); ++i )
+		Player *player = ThePlayerList->getNthPlayer( i );
+
+		Int units = 0;
+		for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 		{
-			Player *player = ThePlayerList->getNthPlayer( i );
-			if (player == NULL)
-				continue;
-
-			Int units = 0;
-			for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
-			{
-				if (obj->getControllingPlayer() == player && !obj->isEffectivelyDead())
-					++units;
-			}
-
-			sprintf( piece, "%s{\"index\":%d,\"slot\":%d,\"money\":%u,\"units\":%d}",
-							 first ? "" : ",", i, ThePlayerList->getSlotIndex( i ),
-							 player->getMoney()->countMoney(), units );
-			for( const char *at = piece; *at; ++at )
-				reply.push_back( *at );
-			first = FALSE;
+			if (obj->getControllingPlayer() == player && !obj->isEffectivelyDead())
+				++units;
 		}
-	}
 
-	reply.push_back( ']' );
-	reply.push_back( '}' );
-	reply.push_back( 0 );
-	sendText( &reply[ 0 ] );
+		reply.beginObject();
+		reply.addInt( "index", i );
+		reply.addInt( "slot", ThePlayerList->getSlotIndex( i ) );
+		reply.addInt( "money", (Int)player->getMoney()->countMoney() );
+		reply.addInt( "units", units );
+		reply.endObject();
+	}
+	reply.endArray();
+	return CONTROL_DONE;
 }
 
-/** Everything that changes the world is queued; see the header for why. */
-static void handleCommand( const AsciiString &command )
+/* skirmish <players> <seed> <map>
+	 The map is whatever is left on the line, spaces and all, because every shipped map has a space in
+	 its name and quoting rules would be one more thing to get wrong at the far end. */
+static ControlOutcome startSkirmish( ControlCommand &command, const std::string &line )
 {
-	if (command.isEmpty())
-		return;
+	if (ControlServer_isMatchRunning())
+		return ControlCommand_fail( command, "a match is already running; quit it first" );
 
-	if (command == "ping")
+	Int players = 0;
+	Int seed = 0;
+	char mapName[ 512 ];
+	if (sscanf( line.c_str(), " skirmish %d %d %511[^\n]", &players, &seed, mapName ) != 3)
+		return ControlCommand_fail( command, "skirmish wants <players> <seed> <map>" );
+	if (players < 2 || players > MAX_SLOTS)
+		return ControlCommand_fail( command, "a skirmish holds between two and eight players" );
+
+	/* m_autoSkirmishPlayers is deliberately left alone: it is also what marks a run unattended, and a
+		 match somebody is driving from here has to stay up when it ends rather than write its numbers
+		 out and quit. */
+	TheWritableGlobalData->m_mapName.set( mapName );
+	TheWritableGlobalData->m_fixedSeed = seed;
+
+	GameEngine_startSkirmish( players );
+	command.reply.addBool( "starting", TRUE );
+	return CONTROL_DONE;
+}
+
+/* A world command is the scenario grammar with the frame number left off - so put one back on and
+	 hand it to the same parser the files go through.  It runs inside the next logic frame and replies
+	 from there, with whether it found anything to do. */
+static ControlOutcome queueWorldCommand( ControlCommand &command, const std::string &line )
+{
+	std::string asScenarioLine = "0 ";
+	asScenarioLine.append( line );
+
+	const ScenarioParseResult result = ScenarioDrill_parseLine( asScenarioLine.c_str(), &theWorldAction );
+	if (result != SCENARIO_PARSE_OK)
+		return ControlCommand_fail( command, ScenarioDrill_parseResultName( result ) );
+	if (!ControlServer_isMatchRunning())
+		return ControlCommand_fail( command, "no match is running" );
+	if (TheGameLogic->isGamePaused())
+		return ControlCommand_fail( command, "the game is paused, and a world command only runs inside a logic frame" );
+
+	theWorldActionPending = TRUE;
+	return CONTROL_LATER;
+}
+
+static ControlOutcome handleRunCommand( ControlCommand &command, const std::string &line )
+{
+	const std::string &verb = command.words[ 0 ];
+
+	if (verb == "ping")
 	{
-		replyOk( "\"pong\":true" );
-		return;
+		command.reply.addBool( "pong", TRUE );
+		return CONTROL_DONE;
 	}
-
-	if (command == "status")
-	{
-		replyStatus();
-		return;
-	}
-
-	if (command == "screenshot")
-	{
-		if (TheDisplay == NULL)
-		{
-			replyError( "no display" );
-			return;
-		}
-		TheDisplay->takeScreenShot();
-		replyOk( "\"screenshot\":\"requested\"" );
-		return;
-	}
-
-	if (command == "quit")
+	if (verb == "status")
+		return replyStatus( command );
+	if (verb == "quit")
 	{
 		theQuitRequested = TRUE;
-		replyOk( "\"quitting\":true" );
-		return;
+		command.reply.addBool( "quitting", TRUE );
+		return CONTROL_DONE;
 	}
+	if (verb == "skirmish")
+		return startSkirmish( command, line );
+	if (verb == "spawn" || verb == "move" || verb == "attackmove" || verb == "attack" || verb == "stop")
+		return queueWorldCommand( command, line );
 
-	/* key <KEY_name> [ALT] [CTRL] [SHIFT]
-		 One press and release, carried the way Keyboard.cpp carries a real one, so the command map, the
-		 translators and whatever network message sits behind them all see a key.  The keyboard itself
-		 is DirectInput and reads only the foreground window, which a script cannot count on holding.
-		 The mouse stays where it is: post the window a WM_MOUSEMOVE first when the key reads it. */
-	if (strncmp( command.str(), "key ", 4 ) == 0)
+	return CONTROL_NOT_MINE;
+}
+
+static void runCommand( const std::string &line )
+{
+	theCurrent.words.clear();
+	theCurrent.error.clear();
+	theCurrent.reply.clear();
+	theCurrent.reply.beginObject();
+	theCurrent.reply.addBool( "ok", TRUE );
+
+	ControlServer_splitWords( line.c_str(), &theCurrent.words );
+	if (theCurrent.words.empty())
 	{
-		char words[ 256 ];
-		strncpy( words, command.str() + 4, sizeof( words ) - 1 );
-		words[ sizeof( words ) - 1 ] = 0;
-
-		Int key = KEY_NONE;
-		const char *keyName = strtok( words, " " );
-		for( const LookupListRec *name = KeyNames; keyName && name->name; ++name )
-		{
-			if (strcmp( name->name, keyName ) == 0)
-				key = name->value;
-		}
-		if (key == KEY_NONE)
-		{
-			replyError( "key wants a KEY_ name from CommandMap.ini, e.g. key KEY_Z ALT" );
-			return;
-		}
-
-		Int modifiers = KEY_STATE_NONE;
-		for( const char *word = strtok( NULL, " " ); word; word = strtok( NULL, " " ) )
-		{
-			if (strcmp( word, "ALT" ) == 0)
-				modifiers |= KEY_STATE_LALT;
-			else if (strcmp( word, "CTRL" ) == 0)
-				modifiers |= KEY_STATE_LCONTROL;
-			else if (strcmp( word, "SHIFT" ) == 0)
-				modifiers |= KEY_STATE_LSHIFT;
-			else
-			{
-				replyError( "a modifier is ALT, CTRL or SHIFT" );
-				return;
-			}
-		}
-
-		GameMessage *press = TheMessageStream->appendMessage( GameMessage::MSG_RAW_KEY_DOWN );
-		press->appendIntegerArgument( key );
-		press->appendIntegerArgument( KEY_STATE_DOWN | modifiers );
-		GameMessage *release = TheMessageStream->appendMessage( GameMessage::MSG_RAW_KEY_UP );
-		release->appendIntegerArgument( key );
-		release->appendIntegerArgument( KEY_STATE_UP | modifiers );
-		replyOk( "\"pressed\":true" );
+		theCurrent.error = "an empty command";
+		sendReply( CONTROL_FAILED );
 		return;
 	}
 
-	/* skirmish <players> <seed> <map>
-		 The map is whatever is left on the line, spaces and all, because every shipped map has a
-		 space in its name and quoting rules would be one more thing to get wrong at the far end. */
-	if (strncmp( command.str(), "skirmish ", 9 ) == 0)
+	ControlOutcome outcome = handleRunCommand( theCurrent, line );
+	if (outcome == CONTROL_NOT_MINE)
+		outcome = ControlQuery_handle( theCurrent );
+	if (outcome == CONTROL_NOT_MINE)
+		outcome = ControlInput_handle( theCurrent );
+	if (outcome == CONTROL_NOT_MINE)
+		outcome = ControlActions_handle( theCurrent );
+	if (outcome == CONTROL_NOT_MINE)
+		outcome = ControlCommand_fail( theCurrent, "unknown command '" + theCurrent.words[ 0 ] + "'" );
+
+	if (outcome == CONTROL_LATER)
 	{
-		if (TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame())
-		{
-			replyError( "a match is already running; quit it first" );
-			return;
-		}
-
-		Int players = 0;
-		Int seed = 0;
-		char mapName[ 512 ];
-		if (sscanf( command.str(), "skirmish %d %d %511[^\n]", &players, &seed, mapName ) != 3)
-		{
-			replyError( "skirmish wants <players> <seed> <map>" );
-			return;
-		}
-		if (players < 2 || players > MAX_SLOTS)
-		{
-			replyError( "a skirmish holds between two and eight players" );
-			return;
-		}
-
-		/* m_autoSkirmishPlayers is deliberately left alone: it is also what marks a run unattended,
-			 and a match somebody is driving from here has to stay up when it ends rather than write
-			 its numbers out and quit. */
-		TheWritableGlobalData->m_mapName.set( mapName );
-		TheWritableGlobalData->m_fixedSeed = seed;
-
-		extern void GameEngine_startSkirmish( Int numPlayers );
-		GameEngine_startSkirmish( players );
-		replyOk( "\"starting\":true" );
+		theCurrentIsPending = TRUE;
 		return;
 	}
+	sendReply( outcome );
+}
 
-	/* Anything else is a world command, and world commands are the scenario grammar with the frame
-		 number left off - so put one back on and hand it to the same parser the files go through. One
-		 grammar, two front ends, and a line that works in a file works down the socket. */
-	AsciiString asScenarioLine;
-	asScenarioLine.set( "0 " );
-	asScenarioLine.concat( command );
-
-	ScenarioAction action;
-	const ScenarioParseResult result = ScenarioDrill_parseLine( asScenarioLine.str(), &action );
-	if (result != SCENARIO_PARSE_OK)
+/** One whole text message: a command, queued behind whatever is still running. */
+static Bool acceptMessage( const std::string &message )
+{
+	if ((Int)theWaitingCommands.size() >= CONTROL_MAX_WAITING_COMMANDS)
 	{
-		replyError( ScenarioDrill_parseResultName( result ) );
-		return;
+		DEBUG_LOG(("CONTROL: %d commands waiting and the client sent another, closing\n",
+							 CONTROL_MAX_WAITING_COMMANDS));
+		closeClient();
+		return FALSE;
 	}
-
-	if (!TheGameLogic || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame())
-	{
-		replyError( "no match is running" );
-		return;
-	}
-
-	if ((Int)thePendingCommands.size() >= CONTROL_MAX_COMMANDS_PER_FRAME)
-	{
-		replyError( "too many commands queued for one frame" );
-		return;
-	}
-
-	thePendingCommands.push_back( command );
-	replyOk( "\"queued\":true" );
+	theWaitingCommands.push_back( message );
+	return TRUE;
 }
 
 // ------------------------------------------------------------------------------------------------
 // the two ticks
 // ------------------------------------------------------------------------------------------------
+
+static void readIncoming( void )
+{
+	char chunk[ CONTROL_READ_CHUNK ];
+	for( ;; )
+	{
+		const Int received = recv( theClientSocket, chunk, sizeof( chunk ), 0 );
+		if (received > 0)
+		{
+			theIncoming.insert( theIncoming.end(), chunk, chunk + received );
+			if ((Int)theIncoming.size() > CONTROL_MAX_MESSAGE_BYTES + CONTROL_FRAME_HEADER_BYTES)
+			{
+				DEBUG_LOG(("CONTROL: client sent more than %d bytes without a frame, closing\n",
+									 CONTROL_MAX_MESSAGE_BYTES));
+				closeClient();
+				return;
+			}
+			continue;
+		}
+
+		if (received == 0)
+		{
+			DEBUG_LOG(("CONTROL: client went away\n"));
+			closeClient();
+			return;
+		}
+
+		if (WSAGetLastError() != WSAEWOULDBLOCK)
+			closeClient();
+		return;
+	}
+}
+
+static void takeFrames( void )
+{
+	ControlFrame frame;
+	while (theClientSocket != INVALID_SOCKET && !theIncoming.empty())
+	{
+		const Int used = ControlServer_parseFrame( &theIncoming[ 0 ], (Int)theIncoming.size(), &frame );
+		if (used == 0)
+			return;
+		if (used < 0)
+		{
+			DEBUG_LOG(("CONTROL: a frame longer than %d bytes, closing\n", CONTROL_MAX_MESSAGE_BYTES));
+			closeClient();
+			return;
+		}
+		theIncoming.erase( theIncoming.begin(), theIncoming.begin() + used );
+
+		if (frame.opcode == WS_OPCODE_CLOSE)
+		{
+			closeClient();
+			return;
+		}
+		if (frame.opcode == WS_OPCODE_PING)
+		{
+			sendFrame( WS_OPCODE_PONG, frame.payload.data(), (Int)frame.payload.size() );
+			continue;
+		}
+		if (frame.opcode == WS_OPCODE_TEXT)
+		{
+			theMessage = frame.payload;
+			theMessageInProgress = TRUE;
+		}
+		else if (frame.opcode == WS_OPCODE_CONTINUATION && theMessageInProgress)
+		{
+			theMessage.append( frame.payload );
+		}
+		else
+		{
+			continue;		// binary frames and stray continuations carry no command
+		}
+
+		if ((Int)theMessage.size() > CONTROL_MAX_MESSAGE_BYTES)
+		{
+			DEBUG_LOG(("CONTROL: a message longer than %d bytes, closing\n", CONTROL_MAX_MESSAGE_BYTES));
+			closeClient();
+			return;
+		}
+		if (frame.isFinal)
+		{
+			theMessageInProgress = FALSE;
+			if (!acceptMessage( theMessage ))
+				return;
+		}
+	}
+}
 
 void ControlServer_poll( void )
 {
@@ -729,97 +986,58 @@ void ControlServer_poll( void )
 	if (theClientSocket == INVALID_SOCKET)
 	{
 		const SOCKET accepted = accept( theListenSocket, NULL, NULL );
-		if (accepted == INVALID_SOCKET)
-			return;
-		theClientSocket = accepted;
-		setNonBlocking( theClientSocket );
-		theHandshakeDone = FALSE;
-		theIncoming.clear();
+		if (accepted != INVALID_SOCKET)
+		{
+			theClientSocket = accepted;
+			setNonBlocking( theClientSocket );
+			theHandshakeDone = FALSE;
+			theIncoming.clear();
+		}
 	}
 
-	char chunk[ CONTROL_READ_CHUNK ];
-	for( ;; )
+	if (theClientSocket != INVALID_SOCKET)
 	{
-		const Int received = recv( theClientSocket, chunk, sizeof( chunk ), 0 );
-		if (received > 0)
-		{
-			for( Int i = 0; i < received; ++i )
-				theIncoming.push_back( chunk[ i ] );
-			if ((Int)theIncoming.size() > CONTROL_MAX_REQUEST)
-			{
-				DEBUG_LOG(("CONTROL: client sent more than %d bytes without a frame, closing\n",
-									 CONTROL_MAX_REQUEST));
-				closeClient();
-				return;
-			}
-			continue;
-		}
-
-		if (received == 0)
-		{
-			DEBUG_LOG(("CONTROL: client went away\n"));
-			closeClient();
-			return;
-		}
-
-		if (WSAGetLastError() != WSAEWOULDBLOCK)
-		{
-			closeClient();
-			return;
-		}
-		break;
+		flushOutgoing();
+		readIncoming();
+		if (theClientSocket != INVALID_SOCKET && (theHandshakeDone || (!theIncoming.empty() && tryHandshake())))
+			takeFrames();
 	}
 
-	if (!theHandshakeDone)
+	// what is already under way first, so its reply goes out ahead of the next command's
+	ControlInput_tick();
+	ControlQuery_tick();
+
+	while (!theCurrentIsPending && !theWaitingCommands.empty())
 	{
-		if (theIncoming.empty() || !tryHandshake())
-			return;
+		const std::string line = theWaitingCommands.front();
+		theWaitingCommands.pop_front();
+		runCommand( line );
 	}
 
-	unsigned char opcode = 0;
-	AsciiString payload;
-	while (theClientSocket != INVALID_SOCKET && takeFrame( &opcode, &payload ))
-	{
-		if (opcode == WS_OPCODE_CLOSE)
-		{
-			closeClient();
-			return;
-		}
-		if (opcode == WS_OPCODE_PING)
-		{
-			sendFrame( WS_OPCODE_PONG, payload.str(), (Int)strlen( payload.str() ) );
-			continue;
-		}
-		if (opcode != WS_OPCODE_TEXT)
-			continue;
+	flushOutgoing();
 
-		handleCommand( payload );
+	if (theQuitRequested)
+	{
+		theQuitRequested = FALSE;
+		GameEngine_endMatchAndQuit();
 	}
 }
 
 void ControlServer_runCommands( void )
 {
-	if (thePendingCommands.empty())
+	ControlInput_logicFrame();
+
+	if (!theWorldActionPending)
 		return;
+	theWorldActionPending = FALSE;
 
-	for( std::vector<AsciiString>::iterator it = thePendingCommands.begin();
-			 it != thePendingCommands.end(); ++it )
+	if (ScenarioDrill_execute( theWorldAction ))
 	{
-		AsciiString asScenarioLine;
-		asScenarioLine.set( "0 " );
-		asScenarioLine.concat( *it );
-
-		ScenarioAction action;
-		if (ScenarioDrill_parseLine( asScenarioLine.str(), &action ) != SCENARIO_PARSE_OK)
-			continue;
-
-		ScenarioDrill_execute( action );
+		ControlServer_finish( CONTROL_DONE );
+		return;
 	}
-
-	thePendingCommands.clear();
-
-	if (theQuitRequested && TheGameEngine)
-		TheGameEngine->setQuitting( TRUE );
+	theCurrent.error = "the command ran and did nothing - no such player, template or units; the log says which";
+	ControlServer_finish( CONTROL_FAILED );
 }
 
 void ControlServer_shutdown( void )

@@ -127,6 +127,7 @@ public:
 	virtual VideoBuffer*	createVideoBuffer( void ) ;							///< Create a video buffer that can be used for this display
 
 	virtual void takeScreenShot(void);						//save screenshot to file
+	virtual AsciiString getLastScreenShotPath(void) const;
 	virtual void toggleMovieCapture(void);			//enable AVI or frame capture mode.
 	virtual const wchar_t *getRendererName(void) const;
 

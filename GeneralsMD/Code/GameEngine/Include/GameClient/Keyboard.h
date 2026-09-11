@@ -119,6 +119,12 @@ public:
 	WideChar translateKey( WideChar keyCode );		///< translte key code to printable UNICODE char
 	WideChar getPrintableKey( UnsignedByte key, Int state );
 	enum { MAX_KEY_STATES = 3};
+
+	/** A key event that did not come from the device.  -control presses keys through this, and they
+		join the next update behind the device's own, so a held modifier is held for everything that
+		asks the keyboard, the mouse's modifier argument included. */
+	void injectKey( UnsignedByte key, UnsignedShort state );
+
 protected:
 
 	/** get the key data for a single key, KEY_NONE should be returned when
@@ -146,6 +152,10 @@ protected:
 	//Bool m_lAltState;			// 1 if left alt is down
 	//Bool m_rAltState;			// 1 if right alt is down
 	UnsignedByte m_shift2Key;  // what key is the secondary shift key
+
+	enum { MAX_INJECTED_KEYS = 32 };
+	KeyboardIO m_injectedKeys[ MAX_INJECTED_KEYS ];  ///< injectKey's events, waiting for the next update
+	Int m_injectedKeyCount;
 
 	enum { NUM_KEYS  = 256 };
 	KeyboardIO m_keys[ NUM_KEYS ];  ///< the keys

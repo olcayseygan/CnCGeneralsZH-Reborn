@@ -21,36 +21,25 @@
 // -control [port]: a WebSocket on 127.0.0.1 that drives the game from outside it.
 //
 // The scenario file answers "play this match the same way twice".  This answers the other half:
-// poke the running game and ask it what happened.  Start a skirmish, spawn a worker, send a
-// selection somewhere, take a picture, read the frame number and everybody's money back - from
-// Python, from a browser console, from anything that speaks WebSocket.
+// sit in the player's chair from another program.  Read the world and the menus, move the mouse,
+// press keys, select units and give them orders, take a picture - from Python, from the MCP server
+// in Tools/game_mcp, from anything that speaks WebSocket.
 //
 // It listens on the loopback address only.  There is no authentication and none is wanted: the
 // socket can start a match and create units, so it has to be unreachable from anywhere but this
 // machine, and binding to 127.0.0.1 is what makes that true rather than a promise.
 //
-// Commands are one line of text per frame, and world commands are the same grammar the scenario
-// files use, minus the leading frame number:
+// One text message is one command, and every command gets exactly one reply, in order: a JSON
+// object carrying "ok", and "error" when ok is false.  A command that takes time - a click is
+// several engine passes, a picture waits for a draw, a world command waits for a logic frame -
+// holds its reply until it has finished, and the commands behind it wait their turn.
 //
-//   spawn <slot> <template> <count> <x> <y> [spacing]
-//   move|attackmove <slot> <selector> <x> <y>
-//   attack <slot> <selector> <targetSlot> <targetSelector>
-//   stop <slot> <selector>
-//
-// plus a handful the files have no use for: ping, status, screenshot, skirmish, quit, and
-//
-//   key <KEY_name> [ALT] [CTRL] [SHIFT]
-//
-// which presses and releases one key through the message stream, the way the keyboard does.  It
-// runs where it arrives, on the render pass, because that is where a real key arrives too.
-//
-// Replies are one JSON object per frame.  Every reply carries "ok", and a failed one carries
-// "error" saying what was wrong with the command rather than dropping it.
-//
-// World commands do not take effect where they arrive.  Reading a socket happens on a render pass
-// and creating an object has to happen inside a logic frame, so a command is queued by
-// ControlServer_poll and carried out by ControlServer_runCommands on the next logic frame.  That is
-// also what keeps the game deterministic while something is driving it.
+// The grammar lives in .claude/rules/commandline.md under -control.  The files:
+//   ControlServer.cpp   the socket, framing, ping status quit skirmish, and the scenario commands
+//                       (spawn move attackmove attack stop), which run inside a logic frame
+//   ControlQuery.cpp    state players objects windows buttons messages screenshot
+//   ControlInput.cpp    mouse key worldclick worlddrag window camera toscreen toworld wait
+//   ControlActions.cpp  select order button - player messages, the way the translators send them
 //
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -61,19 +50,45 @@
 
 #include "Lib/BaseType.h"
 
+#include <string>
+#include <vector>
+
+/// the largest command a client may send; a picture comes back as a path, so nothing needs more
+enum { CONTROL_MAX_MESSAGE_BYTES = 1048576 };
+
 /** Accept connections, read commands, send replies.  Called once per engine pass. */
 extern void ControlServer_poll( void );
 
-/** Carry out the world commands that arrived since the last logic frame.  Called from
-	  GameLogic::update, which is the only place it is safe to make an object. */
+/** Carry out what has to happen inside a logic frame.  Called from GameLogic::update, which is the
+	  only place it is safe to make an object. */
 extern void ControlServer_runCommands( void );
 
 /** Close the socket.  Called when the engine shuts down. */
 extern void ControlServer_shutdown( void );
 
 /** The WebSocket handshake reply for a client key: SHA-1 of the key and the protocol's own GUID,
-	  base64'd.  Public because it is the one piece of this file that can be tested without a socket,
-	  and RFC 6455 ships a worked example to test it against. */
+	  base64'd.  Public because it can be tested without a socket, and RFC 6455 ships a worked
+	  example to test it against. */
 extern Bool ControlServer_computeAcceptKey( const char *clientKey, char *out, Int outSize );
+
+/** One WebSocket frame as it came off the wire, with the client's mask already taken off. */
+struct ControlFrame
+{
+	unsigned char opcode;
+	Bool isFinal;
+	std::string payload;
+};
+
+/** Read one frame off the front of a buffer.  Returns the bytes it used, 0 while the buffer does not
+	  hold a whole frame yet, and -1 when it never will: a length past CONTROL_MAX_MESSAGE_BYTES is a
+	  broken client, not a command still arriving. */
+extern Int ControlServer_parseFrame( const char *data, Int length, ControlFrame *frame );
+
+/** Split a command line on spaces and tabs. */
+extern void ControlServer_splitWords( const char *line, std::vector<std::string> *words );
+
+/** Append text to a JSON document as a quoted string.  Anything from 0x80 up is escaped too: the
+	  game's 8-bit text is not UTF-8, and a text frame that is not UTF-8 is refused by the client. */
+extern void ControlServer_appendJsonString( const char *text, std::string *json );
 
 #endif // __CONTROLSERVER_H_

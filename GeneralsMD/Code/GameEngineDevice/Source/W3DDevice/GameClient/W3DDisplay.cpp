@@ -2034,6 +2034,7 @@ DECLARE_PERF_TIMER(BigAssRenderLoop)
 //=============================================================================
 DECLARE_PERF_TIMER(W3DDisplay_draw)
 static Bool s_screenShotPending = FALSE;	// F12 pressed: save the frame at the end of the next draw()
+static AsciiString s_lastScreenShotPath;	// the file the last one went to, for -control's screenshot reply
 static void saveScreenShot(void);
 static void captureVideoFrame(void);
 
@@ -3841,10 +3842,16 @@ static void saveScreenShot(void)
 
 	if (!writeFrameBMP(pathname))
 		return;
+	s_lastScreenShotPath.set(pathname);
 
 	UnicodeString ufileName;
 	ufileName.translate(leafname);
 	TheInGameUI->message(TheGameText->fetch("GUI:ScreenCapture"), ufileName.str());
+}
+
+AsciiString W3DDisplay::getLastScreenShotPath(void) const
+{
+	return s_lastScreenShotPath;
 }
 
 //=============================================================================

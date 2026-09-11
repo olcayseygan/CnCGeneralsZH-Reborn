@@ -96,6 +96,22 @@ void Keyboard::createStreamMessages( void )
 }  // end createStreamMessages
 
 //-------------------------------------------------------------------------------------------------
+/** Queue a key event that did not come from the device; see the header */
+//-------------------------------------------------------------------------------------------------
+void Keyboard::injectKey( UnsignedByte key, UnsignedShort state )
+{
+	DEBUG_ASSERTCRASH( m_injectedKeyCount < MAX_INJECTED_KEYS, ("Keyboard::injectKey - more than %d keys in one frame\n", MAX_INJECTED_KEYS) );
+	if( m_injectedKeyCount >= MAX_INJECTED_KEYS )
+		return;
+
+	KeyboardIO &event = m_injectedKeys[ m_injectedKeyCount++ ];
+	event.key = key;
+	event.status = KeyboardIO::STATUS_UNUSED;
+	event.state = state;
+	event.sequence = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** update all our key state data */
 //-------------------------------------------------------------------------------------------------
 void Keyboard::updateKeys( void )
@@ -139,6 +155,15 @@ void Keyboard::updateKeys( void )
 		}
 	} 
 	while( m_keys[ index++ ].key != KEY_NONE );
+
+	// injectKey's events join behind the device's, as if they were the last to arrive this frame
+	Int end = 0;
+	while( m_keys[ end ].key != KEY_NONE )
+		end++;
+	for( Int injected = 0; injected < m_injectedKeyCount && end < NUM_KEYS - 1; injected++ )
+		m_keys[ end++ ] = m_injectedKeys[ injected ];
+	m_keys[ end ].key = KEY_NONE;
+	m_injectedKeyCount = 0;
 
 	// update keyboard status array
 	index = 0;
@@ -708,6 +733,7 @@ Keyboard::Keyboard( void )
 
 	memset( m_keyNames, 0, sizeof( m_keyNames ) );
 	m_inputFrame = 0;
+	m_injectedKeyCount = 0;
 
 }  // end Keyboard
 

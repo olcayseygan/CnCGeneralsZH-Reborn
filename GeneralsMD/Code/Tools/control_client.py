@@ -10,7 +10,9 @@ Start the game with -control (default port 8787) and then, from here:
         game.send("screenshot")
 
 World commands are the scenario-file grammar with the leading frame number left off, so a line
-that works in Run/Scenarios/*.txt works here. The rest are ping, status, screenshot and quit.
+that works in Run/Scenarios/*.txt works here. The full grammar, reading the game and playing it as
+the local player, is in .claude/rules/commandline.md under -control. Claude Code reaches the same
+socket through game_mcp/game_mcp.py, which is registered in the wrapper's .mcp.json.
 
 No dependencies on purpose: this speaks enough of RFC 6455 to talk to one server on loopback, and
 anybody who wants to poke the game should not first have to install anything.

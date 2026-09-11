@@ -679,6 +679,8 @@ public:  // ********************************************************************
 	virtual Int getMaxSelectCount( void ) { return m_maxSelectCount; }	///< Get the max number of selected drawables
 	virtual UnsignedInt getFrameSelectionChanged( void ) { return m_frameSelectionChanged; }	///< Get the max number of selected drawables
 	virtual const DrawableList *getAllSelectedDrawables( void ) const;	///< Return the list of all the currently selected Drawable IDs.
+	Int getUIMessageCount( void ) const { return MAX_UI_MESSAGES; }													///< -control reads the on-screen message log through these two
+	const UnicodeString &getUIMessageText( Int index ) const { return m_uiMessages[ index ].fullText; }
 	virtual const DrawableList *getAllSelectedLocalDrawables( void );		///< Return the list of all the currently selected Drawable IDs owned by the current player.
 	virtual Drawable *getFirstSelectedDrawable( void );							///< get the first selected drawable (if any)
 	virtual DrawableID getSoloNexusSelectedDrawableID( void ) { return m_soloNexusSelectedDrawableID; }  ///< Return the one drawable of the nexus if only 1 angry mob is selected 

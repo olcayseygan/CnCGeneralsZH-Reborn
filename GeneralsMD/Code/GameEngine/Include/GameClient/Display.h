@@ -187,6 +187,7 @@ public:
 	virtual void preloadTextureAssets( AsciiString texture ) = 0;	///< preload texture asset
 
 	virtual void takeScreenShot(void) = 0;										///< saves screenshot to a file
+	virtual AsciiString getLastScreenShotPath(void) const { return AsciiString::TheEmptyString; }	///< where the last screenshot was written, empty before the first
 	virtual void toggleMovieCapture(void) = 0;							///< starts saving frames to an avi or frame sequence
 	virtual void toggleLetterBox(void) = 0;										///< enabled letter-boxed display
 	virtual void enableLetterBox(Bool enable) = 0;						///< forces letter-boxed display on/off

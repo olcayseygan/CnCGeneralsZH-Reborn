@@ -1819,6 +1819,22 @@ static void updateShellScreenShot( void )
 	}
 }
 
+/** End the match that is running, if one is, and stop the engine.  The replay is closed and written
+		rather than left half-flushed by the process going away.  And there is no score screen: nobody is
+		in front of the run to read one, and building it crashes the teardown - clearGameData pushes
+		Menus/ScoreScreen.wnd, whose init walks the players and calls TheGameInfo->isSandbox(), and
+		TheGameInfo is gone by then.  An unattended run ends here, and so does -control's quit. */
+void GameEngine_endMatchAndQuit( void )
+{
+	if (TheGameLogic->isInGame() && !TheGameLogic->isInShellGame())
+	{
+		if (TheRecorder->getMode() == RECORDERMODETYPE_RECORD)
+			TheRecorder->stopRecording();
+		TheGameLogic->clearGameData( FALSE );
+	}
+	TheGameEngine->setQuitting( TRUE );
+}
+
 static void updateHeadlessRun( void )
 {
 	/* -autoskirmish counts as unattended even when it draws.  THREADING-ROADMAP.md section 0 step 4
@@ -2016,17 +2032,10 @@ static void updateHeadlessRun( void )
 							 slot, team));
 	}
 
-	/* Tear the match down the way the benchmark timer does, so the replay of the run is closed and
-		 written rather than left half-flushed by the process going away. */
-	if (TheRecorder->getMode() == RECORDERMODETYPE_RECORD)
-		TheRecorder->stopRecording();
-	/* And without the score screen.  Nobody is sitting in front of an unattended run to read one,
-		 and building it crashes the teardown: clearGameData pushes Menus/ScoreScreen.wnd, whose init
-		 walks the players and calls TheGameInfo->isSandbox(), and TheGameInfo is gone by then. The
-		 crash lands after every HEADLESS line is written, so the numbers of a run were never wrong -
-		 the process just died on its way out and handed a script exit code 1 either way. */
-	TheGameLogic->clearGameData( FALSE );
-	TheGameEngine->setQuitting( TRUE );
+	/* The score screen crash GameEngine_endMatchAndQuit steps around landed after every HEADLESS line
+		 was written, so the numbers of a run were never wrong - the process just died on its way out
+		 and handed a script exit code 1 either way. */
+	GameEngine_endMatchAndQuit();
 }
 
 void GameEngine::update( void )
