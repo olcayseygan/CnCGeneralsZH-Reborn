@@ -1634,7 +1634,7 @@ CommandAvailability ControlBar::getCommandAvailability( const CommandButton *com
 			}
 
 			// Pro Rules: the power is there and the button stays dead
-			if( TheGameLogic->isProRules() && ProRulesBanSpecialPower( command->getSpecialPowerTemplate()->getSpecialPowerType() ) )
+			if( ProRulesRefuseSpecialPower( obj->getControllingPlayer(), command->getSpecialPowerTemplate()->getSpecialPowerType() ) )
 				return COMMAND_RESTRICTED;
 
 			if( mod->isReady() == FALSE )

@@ -249,6 +249,12 @@ Int parseNoMilCap(char *args[], int)
 	return 1;
 }
 
+#endif // _DEBUG || _INTERNAL
+
+/* The CRC switches are out of the debug block on purpose (ROADMAP M1.2).  A Release build with the
+   startup log has DEBUG_CRC compiled in already, so every one of these works there; they were only
+   unreachable from the command line, which left a desync report from a tester's Release exe with
+   nothing in it to act on. */
 //=============================================================================
 //=============================================================================
 Int parseDebugCRCFromFrame(char *args[], int argc)
@@ -361,6 +367,7 @@ Int parseReplayCRCInterval(char *args[], int argc)
 	return 2;
 }
 
+#if defined(_DEBUG) || defined(_INTERNAL)
 //=============================================================================
 //=============================================================================
 Int parseNoDraw(char *args[], int argc)
@@ -1581,72 +1588,6 @@ Int parseTraceMove(char *args[], int num)
 	return 1;
 }
 
-/* -aislice <n> lets a unit's AI decide once every n logic frames instead of every one.
-
-	 This is the only lever left that reduces what the AI does rather than how fast it does it, and
-	 it is off by default because what it spends is reaction time, not milliseconds: a unit acquires
-	 a target and obeys an order up to n-1 frames late. Movement is not sliced - the locomotor still
-	 runs every frame, so units keep driving smoothly along the route they already have; it is the
-	 deciding that waits. The offset is the object id, so the units do not all think on the same
-	 frame, and an id is assigned in creation order and identical on every machine, which keeps this
-	 inside the CRC. */
-Int parseAISlice(char *args[], int num)
-{
-	if (TheWritableGlobalData && num > 1 && args[1])
-	{
-		Int slice = atoi(args[1]);
-		if (slice < 1)
-			slice = 1;
-		if (slice > 8)
-			slice = 8;			// past this a unit is visibly asleep, and it is a measuring tool anyway
-		TheWritableGlobalData->m_aiSliceFrames = slice;
-		return 2;
-	}
-	return 1;
-}
-
-/* -noflowpath takes the flow model back out and prices terrain only, the way retail does.
-
-	 It exists to be measured against. A change to how a route is costed is argued with a batch of
-	 matches, and a batch is only an argument if both halves of it are the same binary: two builds
-	 differ in the compiler's mood as well as in the change. So the clearance charge, the traffic
-	 charge and the crossing charge all hang off this one switch, and ai-batch.ps1 runs the same
-	 exe twice. The maps are still built and still maintained under it - they cost almost nothing
-	 to keep and turning them off as well would measure two changes at once. */
-Int parseNoFlowPath(char *args[], int num)
-{
-	if (TheWritableGlobalData)
-		TheWritableGlobalData->m_noFlowPath = TRUE;
-	return 1;
-}
-
-/* -nolanes puts every unit back on the centre line of its route.
-
-	 The flow model decides where a route goes; lanes decide where across it a unit drives, which
-	 is a separate question and needs its own baseline. With this on, computePointOnPath steers at
-	 the centre the way retail always did, nothing measures the width of the ground beside the
-	 route, and a unit stuck behind a slower one waits instead of sliding past. Same reasoning as
-	 -noflowpath: one binary, run twice. */
-Int parseNoLanePath(char *args[], int num)
-{
-	if (TheWritableGlobalData)
-		TheWritableGlobalData->m_noLanePath = TRUE;
-	return 1;
-}
-
-/* -nomomentum prices a turn the way retail does: 4, 8 or 16 whatever is turning.
-
-	 The search charges what the swing actually costs this hull instead - its own speed over its own
-	 turn rate - and charges the first step against the direction the unit is already pointing, which
-	 retail charged not at all. That is the difference between a route and a route a tank can drive.
-	 Same reasoning as the two switches above: the baseline has to be the same binary. */
-Int parseNoMomentumPath(char *args[], int num)
-{
-	if (TheWritableGlobalData)
-		TheWritableGlobalData->m_noMomentumPath = TRUE;
-	return 1;
-}
-
 /* -showlanes draws the band model on top of the world.
 
 	 A movement change that measures well in a batch and cannot be seen in a game is a change nobody
@@ -1658,50 +1599,6 @@ Int parseShowLanes(char *args[], int num)
 {
 	if (TheWritableGlobalData)
 		TheWritableGlobalData->m_showLanes = TRUE;
-	return 1;
-}
-
-/* -crowd turns on the crowd model, in one switch, so that it can be argued with.
-
-	 It is not one rule but a stack of them - the corridor with its measured width, the lane handed
-	 out as a distance rather than a share, right of way by body size, giving way to something bigger
-	 closing on you, passing a unit that is actually slower rather than one whose engine is, fanning
-	 out only while held up, and easing off through a bend. Every one of those changes what a group
-	 looks like crossing a map, and shipping them one at a time means eight batches and eight
-	 opinions about which of them did the damage. So they land together behind one flag, off by
-	 default: the same exe run twice is the before and the after, and the argument is about the whole
-	 model rather than about any single constant inside it. */
-Int parseCrowdModel(char *args[], int num)
-{
-	if (TheWritableGlobalData)
-		TheWritableGlobalData->m_crowdModel = TRUE;
-	return 1;
-}
-
-/* -groupdrill <n> gives every player's army a group order every n frames.
-
-	 A skirmish AI moves its teams one unit at a time, so a self-play batch contains no group orders
-	 at all and measures nothing the crowd model does. This puts them in: the same call a right-click
-	 makes, over the whole army, corner to corner. The match becomes meaningless - the win rate under
-	 this switch says nothing about anything - and the blocked unit-frames become the first honest
-	 measurement of group movement this fork has. 600 frames, twenty seconds, is long enough for an
-	 army to cross a generated map. */
-Int parseGroupDrill(char *args[], int num)
-{
-	if (TheWritableGlobalData)
-	{
-		Int frames = 600;
-		Int eaten = 1;
-		if (num > 1 && args[1] && args[1][0] != '-')
-		{
-			frames = atoi(args[1]);
-			eaten = 2;
-		}
-		if (frames < LOGICFRAMES_PER_SECOND)
-			frames = LOGICFRAMES_PER_SECOND;		// an order a frame is not a drill, it is a stutter
-		TheWritableGlobalData->m_groupDrill = frames;
-		return eaten;
-	}
 	return 1;
 }
 
@@ -1836,7 +1733,7 @@ Int parseNoDevice(char *args[], int num)
 	 something it asks for - and two runs that drew different factions were never comparable. The
 	 file names the unit, the place, the count and the frame, so two builds play the same match.
 
-	 Like -groupdrill, the orders it gives exist nowhere in the command stream, so a run driven this
+	 The orders it gives exist nowhere in the command stream, so a run driven this
 	 way cannot be replayed. Repeatability comes from the file plus -seed instead, which is what an
 	 A/B wanted anyway. */
 Int parseScenario(char *args[], int num)
@@ -2216,6 +2113,16 @@ static CommandLineParam params[] =
 	{ "-latAmp", parseLatencyAmplitude },
 	{ "-latPeriod", parseLatencyPeriod },
 	{ "-latNoise", parseLatencyNoise },
+	{ "-DebugCRCFromFrame", parseDebugCRCFromFrame },
+	{ "-DebugCRCUntilFrame", parseDebugCRCUntilFrame },
+	{ "-KeepCRCSaves", parseKeepCRCSave },
+	{ "-CRCLogicModuleData", parseCRCLogicModuleData },
+	{ "-CRCClientModuleData", parseCRCClientModuleData },
+	{ "-ClientDeepCRC", parseClientDeepCRC },
+	{ "-VerifyClientCRC", parseVerifyClientCRC },
+	{ "-LogObjectCRCs", parseLogObjectCRCs },
+	{ "-NetCRCInterval", parseNetCRCInterval },
+	{ "-ReplayCRCInterval", parseReplayCRCInterval },
 
 #if (defined(_DEBUG) || defined(_INTERNAL))
 	{ "-noaudio", parseNoAudio },
@@ -2231,17 +2138,7 @@ static CommandLineParam params[] =
 	{ "-localMOTD", parseLocalMOTD },
 	{ "-UseCSF", parseUseCSF },
 	{ "-NoInputDisable", parseNoInputDisable },
-	{ "-DebugCRCFromFrame", parseDebugCRCFromFrame },
-	{ "-DebugCRCUntilFrame", parseDebugCRCUntilFrame },
-	{ "-KeepCRCSaves", parseKeepCRCSave },
-	{ "-CRCLogicModuleData", parseCRCLogicModuleData },
-	{ "-CRCClientModuleData", parseCRCClientModuleData },
-	{ "-ClientDeepCRC", parseClientDeepCRC },
-	{ "-VerifyClientCRC", parseVerifyClientCRC },
-	{ "-LogObjectCRCs", parseLogObjectCRCs },
 	{ "-saveAllStats", parseSaveAllStats },
-	{ "-NetCRCInterval", parseNetCRCInterval },
-	{ "-ReplayCRCInterval", parseReplayCRCInterval },
 	{ "-noDraw", parseNoDraw },
 	{ "-nomilcap", parseNoMilCap },
 	{ "-nofade", parseNoFade },
@@ -2322,13 +2219,7 @@ static CommandLineParam params[] =
 	{ "-teams", parseTeams },
 	{ "-peacetime", parsePeaceTime },
 	{ "-unitlimit", parseUnitLimit },
-	{ "-aislice", parseAISlice },
-	{ "-noflowpath", parseNoFlowPath },
-	{ "-nolanes", parseNoLanePath },
-	{ "-nomomentum", parseNoMomentumPath },
 	{ "-showlanes", parseShowLanes },
-	{ "-crowd", parseCrowdModel },
-	{ "-groupdrill", parseGroupDrill },
 	{ "-uidrill", parseUIDrill },
 	{ "-resdrill", parseResDrill },
 	{ "-resdrillkeep", parseResDrillKeep },

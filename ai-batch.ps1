@@ -61,7 +61,7 @@ param(
 	# between batches - and the only way to run a batch at all while a copy of the game is open.
 	[string] $Exe = "generals.exe",
 	# extra arguments handed to every run, for sweeping a knob the game reads from the command line
-	# (e.g. -ExtraArgs "-aislice",'4') without a rebuild between batches
+	# (e.g. -ExtraArgs "-unitlimit") without a rebuild between batches
 	[string[]] $ExtraArgs = @(),
 	# minutes before a wedged run is killed rather than waited on forever
 	[int] $TimeoutMinutes = 20
@@ -179,12 +179,6 @@ for ($i = 0; $i -lt $Runs; $i++) {
 			$why = $Matches[1]
 			$frames = [int]$Matches[2]
 		}
-		elseif ($line -match "HEADLESS DRILL: orders (\d+) arrived (\d+) stalled (\d+)") {
-			# -groupdrill only: did the units that were marched across the map get there
-			$pf.Orders = [int]$Matches[1]
-			$pf.Arrived = [int]$Matches[2]
-			$pf.Stalled = [int]$Matches[3]
-		}
 		elseif ($line -match "HEADLESS PATHFIND: (.*)") {
 			$report = $Matches[1]
 			# "queue 6000x/47 find 2313x/0 ... expand 11414x | nopath 0 outofcells 0 blocked 17 stuck 0"
@@ -202,7 +196,7 @@ for ($i = 0; $i -lt $Runs; $i++) {
 			if ($report -match "outofcells (\d+)")        { $pf.OutOfCells = [int]$Matches[1] }
 			if ($report -match "blocked (\d+)")           { $pf.Blocked = [int]$Matches[1] }
 			if ($report -match "stuck (\d+)")             { $pf.Stuck = [int]$Matches[1] }
-			# the crowd model's own three: a unit stopped with nothing to blame it on, the backing-out
+			# the rescue ladder's own counts: a unit stopped with nothing to blame it on, the backing-out
 			# manoeuvres that answers, and the routes given up on entirely
 			if ($report -match "wedge (\d+)")             { $pf.Wedge = [int]$Matches[1] }
 			if ($report -match "worst (\d+)")             { $pf.WedgeWorst = [int]$Matches[1] }
@@ -306,7 +300,7 @@ if ($pfRows.Count -gt 0) {
 	Write-Host ("blocked unit-frames per 1000 logic frames: {0:n1}" -f (1000.0 * $totBlocked / $totFrames))
 
 	# and the half of it a collision never sees: stopped with nothing to blame, and what was done
-	# about it. Only the crowd model counts these, so a run without -crowd reports zeroes.
+	# about it.
 	$totWedge = ($pfRows | ForEach-Object { $_.Pf.Wedge } | Measure-Object -Sum).Sum
 	# the worst is the one that matters: the rescue ladder promises nothing is left wanting to move
 	# and not moving for longer than its own cycle, and this is the number that holds it to it
@@ -317,16 +311,6 @@ if ($pfRows.Count -gt 0) {
 		(& $avg { param($p) $p.Escapes }),
 		(& $avg { param($p) $p.Repaths }),
 		(& $avg { param($p) $p.Dithers }))
-
-	# -groupdrill only: the plainest question there is. Of every unit sent across the map, how many
-	# were still going when the next order came, and how many had stopped and stayed stopped.
-	$totOrders = ($pfRows | ForEach-Object { $_.Pf.Orders } | Measure-Object -Sum).Sum
-	if ($totOrders -gt 0) {
-		$totArrived = ($pfRows | ForEach-Object { $_.Pf.Arrived } | Measure-Object -Sum).Sum
-		$totStalled = ($pfRows | ForEach-Object { $_.Pf.Stalled } | Measure-Object -Sum).Sum
-		Write-Host ("group orders: {0:n0} scored, {1:n1}% reached the destination, {2:n1}% never got going" -f
-			$totOrders, (100.0 * $totArrived / $totOrders), (100.0 * $totStalled / $totOrders))
-	}
 }
 
 # Stability. A mean frame time is the statistic that hides a stutter, so this reports the tail:

@@ -60,12 +60,24 @@ static const Real SCENARIO_DEFAULT_SPACING = 30.0f;
 /// "keep shooting until told otherwise" - the same count the mob's own self-tasking passes
 static const Int SCENARIO_ATTACK_SHOTS = 999;
 
-// token counts, including the frame and the action name
+/// how close to its target a unit has to get before arrive counts it, when the line does not say
+static const Real SCENARIO_DEFAULT_ARRIVE_RADIUS = 200.0f;
+
+/// the one-token position, and what separates its offset
+static const char *SCENARIO_START_PREFIX = "start";
+static const char SCENARIO_START_OFFSET_SEPARATOR = ':';
+
+// the fewest tokens each action can be written in, including the frame and the action name, with a
+// position written as its one-token start<N> form
 static const Int SCENARIO_TOKENS_STOP = 4;
-static const Int SCENARIO_TOKENS_MOVE = 6;
+static const Int SCENARIO_TOKENS_MOVE = 5;
 static const Int SCENARIO_TOKENS_ATTACK = 6;
-static const Int SCENARIO_TOKENS_SPAWN = 7;
-static const Int SCENARIO_TOKENS_SPAWN_WITH_SPACING = 8;
+static const Int SCENARIO_TOKENS_SPAWN = 6;
+static const Int SCENARIO_TOKENS_ARRIVE = 5;
+
+// where the position starts in each line that has one
+static const Int SCENARIO_SPAWN_POSITION_TOKEN = 5;
+static const Int SCENARIO_ORDER_POSITION_TOKEN = 4;
 
 static const char *SCENARIO_DIRECTORY = "Scenarios\\";
 static const char *SCENARIO_EXTENSION = ".txt";
@@ -148,10 +160,73 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 		*action = SCENARIO_ACTION_ATTACK;
 	else if (token == "stop")
 		*action = SCENARIO_ACTION_STOP;
+	else if (token == "arrive")
+		*action = SCENARIO_ACTION_ARRIVE;
 	else
 		return FALSE;
 
 	return TRUE;
+}
+
+/** A position at tokens[*index]: two numbers, or start<N>, or start<N>:<dx>:<dy>.  Moves *index past
+	  whatever it used.  The start number is spelt out digit by digit for parseWholeNumber's reason, and
+	  an offset that is not two numbers is refused rather than read as zero. */
+static ScenarioParseResult parseScenarioPosition( const AsciiString *tokens, Int count, Int *index,
+																									ScenarioAction *action )
+{
+	if (*index >= count)
+		return SCENARIO_PARSE_MISSING_ARGS;
+
+	const char *word = tokens[ *index ].str();
+	const Int prefixLength = (Int)strlen( SCENARIO_START_PREFIX );
+	if (strncmp( word, SCENARIO_START_PREFIX, prefixLength ) != 0)
+	{
+		if (*index + 1 >= count)
+			return SCENARIO_PARSE_MISSING_ARGS;
+
+		action->atStart = SCENARIO_NO_START;
+		action->at.x = (Real)atof( word );
+		action->at.y = (Real)atof( tokens[ *index + 1 ].str() );
+		*index += 2;
+		return SCENARIO_PARSE_OK;
+	}
+
+	const char *at = word + prefixLength;
+	Int start = 0;
+	Int digits = 0;
+	while (*at >= '0' && *at <= '9')
+	{
+		start = start * 10 + (*at - '0');
+		++at;
+		++digits;
+	}
+	if (digits == 0)
+		return SCENARIO_PARSE_BAD_POSITION;
+
+	action->atStart = start;
+	action->at.x = 0.0f;
+	action->at.y = 0.0f;
+
+	if (*at == SCENARIO_START_OFFSET_SEPARATOR)
+	{
+		const char *xText = at + 1;
+		char *end = NULL;
+		action->at.x = (Real)strtod( xText, &end );
+		if (end == xText || *end != SCENARIO_START_OFFSET_SEPARATOR)
+			return SCENARIO_PARSE_BAD_POSITION;
+
+		const char *yText = end + 1;
+		action->at.y = (Real)strtod( yText, &end );
+		if (end == yText || *end != 0)
+			return SCENARIO_PARSE_BAD_POSITION;
+	}
+	else if (*at != 0)
+	{
+		return SCENARIO_PARSE_BAD_POSITION;
+	}
+
+	*index += 1;
+	return SCENARIO_PARSE_OK;
 }
 
 static Int tokensNeededFor( ScenarioActionType action )
@@ -163,6 +238,7 @@ static Int tokensNeededFor( ScenarioActionType action )
 		case SCENARIO_ACTION_ATTACKMOVE:	return SCENARIO_TOKENS_MOVE;
 		case SCENARIO_ACTION_ATTACK:			return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_STOP:				return SCENARIO_TOKENS_STOP;
+		case SCENARIO_ACTION_ARRIVE:			return SCENARIO_TOKENS_ARRIVE;
 	}
 	return SCENARIO_TOKENS_STOP;
 }
@@ -199,8 +275,10 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 	action->selector = tokens[ 3 ];
 	action->at.x = 0.0f;
 	action->at.y = 0.0f;
+	action->atStart = SCENARIO_NO_START;
 	action->count = 1;
 	action->spacing = SCENARIO_DEFAULT_SPACING;
+	action->radius = SCENARIO_DEFAULT_ARRIVE_RADIUS;
 	action->targetSlot = 0;
 	action->targetSelector.clear();
 
@@ -210,18 +288,25 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 		{
 			if (!parseWholeNumber( tokens[ 4 ], &action->count ) || action->count < 1)
 				return SCENARIO_PARSE_BAD_COUNT;
-			action->at.x = (Real)atof( tokens[ 5 ].str() );
-			action->at.y = (Real)atof( tokens[ 6 ].str() );
-			if (count >= SCENARIO_TOKENS_SPAWN_WITH_SPACING)
-				action->spacing = (Real)atof( tokens[ 7 ].str() );
+			Int next = SCENARIO_SPAWN_POSITION_TOKEN;
+			const ScenarioParseResult position = parseScenarioPosition( tokens, count, &next, action );
+			if (position != SCENARIO_PARSE_OK)
+				return position;
+			if (count > next)
+				action->spacing = (Real)atof( tokens[ next ].str() );
 			break;
 		}
 
 		case SCENARIO_ACTION_MOVE:
 		case SCENARIO_ACTION_ATTACKMOVE:
+		case SCENARIO_ACTION_ARRIVE:
 		{
-			action->at.x = (Real)atof( tokens[ 4 ].str() );
-			action->at.y = (Real)atof( tokens[ 5 ].str() );
+			Int next = SCENARIO_ORDER_POSITION_TOKEN;
+			const ScenarioParseResult position = parseScenarioPosition( tokens, count, &next, action );
+			if (position != SCENARIO_PARSE_OK)
+				return position;
+			if (actionType == SCENARIO_ACTION_ARRIVE && count > next)
+				action->radius = (Real)atof( tokens[ next ].str() );
 			break;
 		}
 
@@ -251,6 +336,7 @@ const char *ScenarioDrill_parseResultName( ScenarioParseResult result )
 		case SCENARIO_PARSE_BAD_SLOT:		return "slot is not a whole number";
 		case SCENARIO_PARSE_BAD_COUNT:		return "count is not a whole number above zero";
 		case SCENARIO_PARSE_MISSING_ARGS:	return "not enough arguments for this action";
+		case SCENARIO_PARSE_BAD_POSITION:	return "position is not x y, start<N> or start<N>:<dx>:<dy>";
 	}
 	return "unknown";
 }
@@ -268,8 +354,27 @@ static Int theScenarioUnitsSpawned = 0;
 static UnsignedInt theScenarioLastFrame = 0;
 static char theScenarioReport[ SCENARIO_REPORT_LENGTH ];
 
+static const UnsignedInt SCENARIO_NOT_ARRIVED = 0xffffffff;
+
+/** One arrive line: the units that matched when it fired, and the frame each first stood within the
+	  radius of the target.  The units are fixed when the line fires, so one that is built afterwards
+	  cannot finish the run for a unit still stuck in the choke. */
+struct ScenarioArrival
+{
+	Int slot;
+	AsciiString selector;
+	Coord3D goal;
+	Real radius;
+	UnsignedInt fromFrame;
+	std::vector<ObjectID> ids;
+	std::vector<UnsignedInt> arrivedOn;
+};
+
+static std::vector<ScenarioArrival> theScenarioArrivals;
+
 static void resetScenario( void )
 {
+	theScenarioArrivals.clear();
 	theScenarioActions.clear();
 	theScenarioCursor = 0;
 	theScenarioLoaded = FALSE;
@@ -383,23 +488,51 @@ static Bool selectorMatches( const AsciiString &selector, const Object *obj )
 	return tmpl->getName() == selector;
 }
 
+/** Whether this player owns the object, it matches the selector and it can be given an order at all. */
+static Bool isOrderableMatch( const Player *player, const AsciiString &selector, Object *obj )
+{
+	return obj->getControllingPlayer() == player && !obj->isEffectivelyDead()
+			&& obj->getAIUpdateInterface() != NULL && selectorMatches( selector, obj );
+}
+
 /** Everything this player owns that matches the selector and can be given an order at all. */
 static Int gatherIntoGroup( Player *player, const AsciiString &selector, AIGroup *group )
 {
 	Int taken = 0;
 	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 	{
-		if (obj->getControllingPlayer() != player || obj->isEffectivelyDead())
-			continue;
-		if (obj->getAIUpdateInterface() == NULL)
-			continue;
-		if (!selectorMatches( selector, obj ))
+		if (!isOrderableMatch( player, selector, obj ))
 			continue;
 
 		group->add( obj );
 		++taken;
 	}
 	return taken;
+}
+
+/** Where the action's position is on this map: its own numbers, or a start position plus the offset
+	  it gave.  -scenario pins seat i to start i, and start waypoints are numbered from 1. */
+static Bool resolveScenarioPosition( const ScenarioAction &action, Coord3D *pos )
+{
+	pos->x = action.at.x;
+	pos->y = action.at.y;
+
+	if (action.atStart != SCENARIO_NO_START)
+	{
+		AsciiString waypointName;
+		waypointName.format( "Player_%d_Start", action.atStart + 1 );
+		const Waypoint *start = TheTerrainLogic->getWaypointByName( waypointName );
+		if (start == NULL)
+		{
+			DEBUG_LOG(("SCENARIO: frame %d: this map has no %s\n", action.frame, waypointName.str()));
+			return FALSE;
+		}
+		pos->x += start->getLocation()->x;
+		pos->y += start->getLocation()->y;
+	}
+
+	pos->z = TheTerrainLogic->getGroundHeight( pos->x, pos->y );
+	return TRUE;
 }
 
 static Object *findFirstMatching( Player *player, const AsciiString &selector )
@@ -439,7 +572,7 @@ static Bool spawnOne( const ThingTemplate *tmpl, Team *team, const Coord3D *pos 
 	return TRUE;
 }
 
-static Bool executeSpawn( const ScenarioAction &action, Player *player )
+static Bool executeSpawn( const ScenarioAction &action, Player *player, const Coord3D &centre )
 {
 	const ThingTemplate *tmpl = TheThingFactory->findTemplate( action.selector, FALSE );
 	if (tmpl == NULL)
@@ -464,8 +597,8 @@ static Bool executeSpawn( const ScenarioAction &action, Player *player )
 	for( Int i = 0; i < action.count; ++i )
 	{
 		Coord3D pos;
-		pos.x = action.at.x + (i % columns) * action.spacing - halfWidth;
-		pos.y = action.at.y + (i / columns) * action.spacing - halfHeight;
+		pos.x = centre.x + (i % columns) * action.spacing - halfWidth;
+		pos.y = centre.y + (i / columns) * action.spacing - halfHeight;
 		pos.z = TheTerrainLogic->getGroundHeight( pos.x, pos.y );
 
 		if (spawnOne( tmpl, team, &pos ))
@@ -475,12 +608,109 @@ static Bool executeSpawn( const ScenarioAction &action, Player *player )
 	theScenarioUnitsSpawned += made;
 	DEBUG_LOG(("SCENARIO: frame %d spawn slot %d '%s' %d of %d at (%.0f,%.0f)\n",
 						 action.frame, action.slot, action.selector.str(),
-						 made, action.count, action.at.x, action.at.y));
+						 made, action.count, centre.x, centre.y));
 
 	return made > 0;
 }
 
-static Bool executeOrder( const ScenarioAction &action, Player *player )
+/** Watch every unit of this seat that matches the selector as they stand now, and note the frame
+	  each one first comes within the radius of the target.  The watch starts on the line's own frame,
+	  so a file puts it on the frame of the order it is timing. */
+static Bool executeArrive( const ScenarioAction &action, Player *player, const Coord3D &goal )
+{
+	ScenarioArrival arrival;
+	arrival.slot = action.slot;
+	arrival.selector = action.selector;
+	arrival.goal = goal;
+	arrival.radius = action.radius;
+	arrival.fromFrame = TheGameLogic->getFrame();
+
+	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+	{
+		if (!isOrderableMatch( player, action.selector, obj ))
+			continue;
+
+		arrival.ids.push_back( obj->getID() );
+		arrival.arrivedOn.push_back( SCENARIO_NOT_ARRIVED );
+	}
+
+	DEBUG_LOG(("SCENARIO: frame %d arrive slot %d '%s' x%d within %.0f of (%.0f,%.0f)\n",
+						 action.frame, action.slot, action.selector.str(), (Int)arrival.ids.size(),
+						 action.radius, goal.x, goal.y));
+
+	if (arrival.ids.empty())
+		return FALSE;
+
+	theScenarioArrivals.push_back( arrival );
+	return TRUE;
+}
+
+static void updateArrivals( UnsignedInt now )
+{
+	for( std::vector<ScenarioArrival>::iterator it = theScenarioArrivals.begin();
+			 it != theScenarioArrivals.end(); ++it )
+	{
+		const Real radiusSquared = it->radius * it->radius;
+		for( size_t i = 0; i < it->ids.size(); ++i )
+		{
+			if (it->arrivedOn[ i ] != SCENARIO_NOT_ARRIVED)
+				continue;
+
+			Object *obj = TheGameLogic->findObjectByID( it->ids[ i ] );
+			if (obj == NULL || obj->isEffectivelyDead())
+				continue;
+
+			const Real dx = obj->getPosition()->x - it->goal.x;
+			const Real dy = obj->getPosition()->y - it->goal.y;
+			if (dx * dx + dy * dy <= radiusSquared)
+				it->arrivedOn[ i ] = now;
+		}
+	}
+}
+
+void ScenarioDrill_logArrivals( void )
+{
+	for( std::vector<ScenarioArrival>::const_iterator it = theScenarioArrivals.begin();
+			 it != theScenarioArrivals.end(); ++it )
+	{
+		Int arrived = 0;
+		Int lost = 0;
+		UnsignedInt first = SCENARIO_NOT_ARRIVED;
+		UnsignedInt last = 0;
+		for( size_t i = 0; i < it->ids.size(); ++i )
+		{
+			const UnsignedInt on = it->arrivedOn[ i ];
+			if (on != SCENARIO_NOT_ARRIVED)
+			{
+				++arrived;
+				first = (on < first) ? on : first;
+				last = (on > last) ? on : last;
+				continue;
+			}
+
+			Object *obj = TheGameLogic->findObjectByID( it->ids[ i ] );
+			if (obj == NULL || obj->isEffectivelyDead())
+				++lost;
+		}
+
+		const Int total = (Int)it->ids.size();
+		const Int stillOut = total - arrived - lost;
+		if (arrived == 0)
+		{
+			DEBUG_LOG(("HEADLESS ARRIVE: slot %d '%s' from frame %d: none of %d within %.0f of (%.0f,%.0f), %d lost, %d still out\n",
+								 it->slot, it->selector.str(), it->fromFrame, total, it->radius, it->goal.x, it->goal.y,
+								 lost, stillOut));
+			continue;
+		}
+
+		DEBUG_LOG(("HEADLESS ARRIVE: slot %d '%s' from frame %d: %d of %d within %.0f of (%.0f,%.0f), first after %d frames, last after %d frames (%.1f s), %d lost, %d still out\n",
+							 it->slot, it->selector.str(), it->fromFrame, arrived, total, it->radius, it->goal.x, it->goal.y,
+							 first - it->fromFrame, last - it->fromFrame,
+							 (Real)(last - it->fromFrame) / (Real)LOGICFRAMES_PER_SECOND, lost, stillOut));
+	}
+}
+
+static Bool executeOrder( const ScenarioAction &action, Player *player, const Coord3D &dest )
 {
 	AIGroup *group = TheAI->createGroup();
 	const Int taken = gatherIntoGroup( player, action.selector, group );
@@ -498,11 +728,6 @@ static Bool executeOrder( const ScenarioAction &action, Player *player )
 		case SCENARIO_ACTION_MOVE:
 		case SCENARIO_ACTION_ATTACKMOVE:
 		{
-			Coord3D dest;
-			dest.x = action.at.x;
-			dest.y = action.at.y;
-			dest.z = TheTerrainLogic->getGroundHeight( dest.x, dest.y );
-
 			if (action.action == SCENARIO_ACTION_MOVE)
 				group->groupMoveToPosition( &dest, FALSE, CMD_FROM_SCRIPT );
 			else
@@ -545,6 +770,7 @@ static Bool executeOrder( const ScenarioAction &action, Player *player )
 		}
 
 		case SCENARIO_ACTION_SPAWN:
+		case SCENARIO_ACTION_ARRIVE:
 			ordered = FALSE;		// handled before the group is built
 			break;
 	}
@@ -562,10 +788,17 @@ Bool ScenarioDrill_execute( const ScenarioAction &action )
 		return FALSE;
 	}
 
-	if (action.action == SCENARIO_ACTION_SPAWN)
-		return executeSpawn( action, player );
+	Coord3D position;
+	if (!resolveScenarioPosition( action, &position ))
+		return FALSE;
 
-	return executeOrder( action, player );
+	if (action.action == SCENARIO_ACTION_SPAWN)
+		return executeSpawn( action, player, position );
+
+	if (action.action == SCENARIO_ACTION_ARRIVE)
+		return executeArrive( action, player, position );
+
+	return executeOrder( action, player, position );
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -574,9 +807,6 @@ Bool ScenarioDrill_execute( const ScenarioAction &action )
 
 void ScenarioDrill_tick( void )
 {
-	if (TheGlobalData->m_scenarioFile.isEmpty())
-		return;
-
 	// the shell map is a running game too, and an army spawned onto the main menu is not the match
 	// anybody asked to measure
 	if (TheGameLogic->isInShellGame())
@@ -588,6 +818,12 @@ void ScenarioDrill_tick( void )
 	if (now < theScenarioLastFrame)
 		resetScenario();
 	theScenarioLastFrame = now;
+
+	// before the file test, because an arrive typed down the control socket has no file behind it
+	updateArrivals( now );
+
+	if (TheGlobalData->m_scenarioFile.isEmpty())
+		return;
 
 	if (!theScenarioLoaded)
 		loadScenario();

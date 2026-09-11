@@ -502,7 +502,7 @@ public:
 			a rescaling of the one above: this one is a distance in world units, positive to the left of
 			the route, and it means the same thing wherever the unit is standing. A fraction of the
 			local width does not - it drags a unit into every wide bay its route happens to pass and
-			swings it round the outside of corners. Only read under -crowd. */
+			swings it round the outside of corners. */
 	void setPendingCrowdLat( Real lat ) { m_pendingCrowdLat = lat; m_hasPendingCrowdLat = TRUE; }
 
 	/** Where this member sat across the group, as a place in a queue rather than a distance: `idx`
@@ -514,7 +514,7 @@ public:
 			the rest of the trip, because nothing ever asked the question again. The slot is asked every
 			frame against the band at the unit's own sample, so the group is as wide as the ground under
 			it right now: single file in the gate, six abreast on the far side, and back to single file
-			at the next one. Only read under -crowd. */
+			at the next one. */
 	void setPendingCrowdLane( Int idx, Int of, Real spacing )
 		{ m_crowdLaneIdx = idx; m_crowdLaneOf = of; m_crowdLaneSpace = spacing; }
 
@@ -746,12 +746,6 @@ private:
 	/// Pick this unit's lane off its own sideways distance from the route it was just handed.
 	void seedLaneFraction( void );
 
-	/** Slide across the band to get past somebody who is not moving out of the way.
-			Called from the collision path, which already has the blocker in hand: no query is made
-			here on purpose, because the order a query returns objects in is part of the logic CRC
-			and a movement rule that depends on it desyncs every replay and every network game. */
-	void tryLaneChangeAround( Object *other );
-
 	/** The crowd model, one frame, one unit: measure the band if it has not been measured, look at
 			the neighbours once, and come back with where to steer and how fast. Everything the sandbox
 			does per frame - separation, right of way, priority, passing, fanning out, easing through a
@@ -832,29 +826,29 @@ private:
 	UnsignedInt	m_laneHoldFrame;						///< A lane taken to get round somebody is kept until this frame.
 	Real				m_pendingLane;							///< Lane the ordering group picked for us, waiting for the path to arrive.
 	Bool				m_hasPendingLane;						///< False when nobody handed us one and we have to measure our own.
-	CrowdCorridor* m_corridor;						///< -crowd: the current route with the width of the ground beside it. Owned; dies with the path.
-	Real				m_crowdLat;									///< -crowd: how far left of the route we ride, in world units.
-	Real				m_pendingCrowdLat;					///< -crowd: the same, as the ordering group wanted it, waiting for the path.
-	Bool				m_hasPendingCrowdLat;				///< -crowd: FALSE for a unit ordered on its own, which rides where it already is.
-	Int					m_crowdLaneIdx;							///< -crowd: our place across the group, 0 = leftmost.
-	Int					m_crowdLaneOf;							///< -crowd: how many of us there were; 0 = nobody handed us a slot.
-	Real				m_crowdLaneSpace;						///< -crowd: how far apart the group wanted its lanes, one widest body plus air.
-	Int					m_crowdFit;									///< -crowd: how many lanes the band is currently held to carry; 0 = not worked out yet.
-	Bool				m_crowdLatValid;						///< -crowd: FALSE until the lane has been taken up against the current route.
-	UnsignedInt	m_crowdHoldFrame;						///< -crowd: a lane taken to pass somebody is kept until this frame.
-	Int					m_crowdSample;							///< -crowd: which sample of the band we were beside last frame (search hint; -1 = no band).
-	Int					m_crowdQueued;							///< -crowd: consecutive frames spent braking or stuck behind somebody.
-	Int					m_crowdSide;								///< -crowd: which side we prefer to pass on, +1 left, -1 right.
+	CrowdCorridor* m_corridor;						///< thecurrent route with the width of the ground beside it. Owned; dies with the path.
+	Real				m_crowdLat;									///< howfar left of the route we ride, in world units.
+	Real				m_pendingCrowdLat;					///< thesame, as the ordering group wanted it, waiting for the path.
+	Bool				m_hasPendingCrowdLat;				///< FALSEfor a unit ordered on its own, which rides where it already is.
+	Int					m_crowdLaneIdx;							///< ourplace across the group, 0 = leftmost.
+	Int					m_crowdLaneOf;							///< howmany of us there were; 0 = nobody handed us a slot.
+	Real				m_crowdLaneSpace;						///< howfar apart the group wanted its lanes, one widest body plus air.
+	Int					m_crowdFit;									///< howmany lanes the band is currently held to carry; 0 = not worked out yet.
+	Bool				m_crowdLatValid;						///< FALSEuntil the lane has been taken up against the current route.
+	UnsignedInt	m_crowdHoldFrame;						///< a lanetaken to pass somebody is kept until this frame.
+	Int					m_crowdSample;							///< whichsample of the band we were beside last frame (search hint; -1 = no band).
+	Int					m_crowdQueued;							///< consecutiveframes spent braking or stuck behind somebody.
+	Int					m_crowdSide;								///< whichside we prefer to pass on, +1 left, -1 right.
 	/* The rest of the crowd state is transient and deliberately not saved, for the same reason the
 		 band itself is not: a filter, a stuck count and a half-finished backing-out manoeuvre are all
 		 rebuilt within a second of the load, and a saved one restarts a jam that is over. */
-	Real				m_crowdSepSmooth;						///< -crowd: low-passed sideways push from the neighbours.
-	Real				m_crowdAim;									///< -crowd: low-passed direction the steering point is taken in, radians.
-	Bool				m_crowdAimValid;						///< -crowd: FALSE until the filter has something to start from.
-	/* Being stuck, and getting out of it.  None of this is behind -crowd: a unit that has stopped
-			without a collision to show for it is not a crowd problem, it is the problem, and until this
-			was pulled out of the crowd model it was only ever asked about units that happened to have
-			been handed a lane by a group order. */
+	Real				m_crowdSepSmooth;						///< low-passedsideways push from the neighbours.
+	Real				m_crowdAim;									///< low-passeddirection the steering point is taken in, radians.
+	Bool				m_crowdAimValid;						///< FALSEuntil the filter has something to start from.
+	/* Being stuck, and getting out of it.  None of this is part of the crowd model: a unit that has
+			stopped without a collision to show for it is not a crowd problem, it is the problem, and
+			until this was pulled out of the crowd model it was only ever asked about units that happened
+			to have been handed a lane by a group order. */
 	Int					m_noProgress;								///< consecutive frames wanting to move, not moving, not turning either.
 	Coord3D			m_lastProgressPos;					///< where we were last frame, which is how the above is counted.
 	Real				m_lastProgressAngle;				///< and which way we were pointing, because coming about is progress too.

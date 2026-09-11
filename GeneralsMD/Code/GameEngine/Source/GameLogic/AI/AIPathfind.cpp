@@ -1254,7 +1254,7 @@ void Path::computePointOnPath(
 		 at the end, so the band closes onto the centre over the last few cells, and it still has
 		 to be able to drive at whatever it is aimed at, so a lane point with something in the way
 		 is dropped and the centre kept. */
-	if (!TheGlobalData->m_noLanePath && closeNode != NULL && closeNode->getNextOptimized() != NULL)
+	if (closeNode != NULL && closeNode->getNextOptimized() != NULL)
 	{
 		const AIUpdateInterface *ai = obj ? obj->getAIUpdateInterface() : NULL;
 		if (ai && ai->hasLaneFraction())
@@ -4840,7 +4840,6 @@ void Pathfinder::stampClaimAt( const Coord3D *pos, UnsignedInt frame, Int dilati
 void Pathfinder::claimPathTiming( const Object *obj, Path *path )
 {
 	if (m_claims == NULL || obj == NULL || path == NULL) return;
-	if (TheGlobalData->m_noFlowPath) return;
 
 	const AIUpdateInterface *ai = obj->getAIUpdateInterface();
 	if (ai == NULL) return;
@@ -4973,7 +4972,7 @@ void Pathfinder::beginFlowSearch( const Object *obj )
 {
 	m_flowNow = TheGameLogic ? TheGameLogic->getFrame() : 0;
 	m_flowNowBucket = m_flowNow / PF_CLAIM_BUCKET_FRAMES;
-	m_flowCosts = !TheGlobalData->m_noFlowPath && obj != NULL &&
+	m_flowCosts = obj != NULL &&
 								m_clearance != NULL && m_traffic != NULL && m_claims != NULL && m_claimTouch != NULL;
 	m_flowSpeed = m_flowCosts ? flowSpeedOf(obj) : 0;
 	// and the estimate is raised to match what the charge adds, or the search stops steering
@@ -4986,7 +4985,7 @@ void Pathfinder::beginFlowSearch( const Object *obj )
 		 and charges nothing. */
 	thePathTurnChassis = 0;
 	thePathStartDirValid = FALSE;
-	if (obj != NULL && !TheGlobalData->m_noMomentumPath)
+	if (obj != NULL)
 	{
 		const AIUpdateInterface *ai = obj->getAIUpdateInterface();
 		const Locomotor *loco = ai ? ai->getCurLocomotor() : NULL;

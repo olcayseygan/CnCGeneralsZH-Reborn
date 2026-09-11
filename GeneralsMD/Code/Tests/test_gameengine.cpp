@@ -10805,7 +10805,7 @@ TEST(a_turn_costs_what_the_hull_takes_to_swing_it)
 	CHECK_EQ( Pathfinder_turnCost( 3.14159f, 40, 60 ), 60 );
 	CHECK_EQ( Pathfinder_turnCost( 3.14159f, 40, 28 ), 28 );
 
-	// a hull that turns on the spot pays nothing, and so does the switch being off
+	// a hull that turns on the spot pays nothing, and neither does a search with no hull behind it
 	CHECK_EQ( Pathfinder_turnCost( 3.14159f, 0, 60 ), 0 );
 	CHECK_EQ( Pathfinder_turnCost( 0.0f, 40, 60 ), 0 );
 
@@ -11387,12 +11387,12 @@ TEST(pro_rules_ban_the_listed_things_and_nothing_beside_them)
 	CHECK( !ProRulesBanUpgrade( AsciiString( "Nuke_Upgrade_ChinaWGUraniumShells" ) ) );
 
 	// rule 2: the missile, for each general that fires one, and not the other superweapons' powers
-	CHECK( ProRulesBanSpecialPower( SPECIAL_NEUTRON_MISSILE ) );
-	CHECK( ProRulesBanSpecialPower( NUKE_SPECIAL_NEUTRON_MISSILE ) );
-	CHECK( ProRulesBanSpecialPower( SUPW_SPECIAL_NEUTRON_MISSILE ) );
-	CHECK( !ProRulesBanSpecialPower( SPECIAL_SCUD_STORM ) );
-	CHECK( !ProRulesBanSpecialPower( SPECIAL_PARTICLE_UPLINK_CANNON ) );
-	CHECK( !ProRulesBanSpecialPower( SPECIAL_CLUSTER_MINES ) );
+	CHECK( ProRulesBanSpecialPower( SPECIAL_NEUTRON_MISSILE, 5 ) );
+	CHECK( ProRulesBanSpecialPower( NUKE_SPECIAL_NEUTRON_MISSILE, 5 ) );
+	CHECK( ProRulesBanSpecialPower( SUPW_SPECIAL_NEUTRON_MISSILE, 5 ) );
+	CHECK( !ProRulesBanSpecialPower( SPECIAL_SCUD_STORM, 1 ) );
+	CHECK( !ProRulesBanSpecialPower( SPECIAL_PARTICLE_UPLINK_CANNON, 1 ) );
+	CHECK( !ProRulesBanSpecialPower( SPECIAL_CLUSTER_MINES, 1 ) );
 
 	// rule 7: a terrorist on a combat cycle, and every other rider still rides
 	CHECK( ProRulesBanRider( AsciiString( "GLAInfantryTerrorist" ) ) );
@@ -11405,6 +11405,62 @@ TEST(pro_rules_ban_the_listed_things_and_nothing_beside_them)
 	// rule 9: the clearance is past a Patriot's and a Stinger Site's ground reach, 225 in Weapon.ini,
 	// so no foundation goes down inside an enemy's own defensive cover
 	CHECK( (Int)PRO_RULES_ENEMY_STRUCTURE_CLEARANCE > 225 );
+}
+
+/* Rules 12 to 15 ride on the one Pro Rules box like every other rule: three upgrades by name, and
+	 the Carpet Bomb until rank 3. */
+TEST(pro_rules_ban_rules_12_to_15)
+{
+	CHECK( ProRulesBanUpgrade( AsciiString( "Demo_Upgrade_SuicideBomb" ) ) );
+	CHECK( ProRulesBanUpgrade( AsciiString( "Upgrade_ChinaNeutronShells" ) ) );
+	CHECK( ProRulesBanUpgrade( AsciiString( "AirF_Upgrade_StealthComanche" ) ) );
+
+	// the Comanche's rocket pods and the other two shells stay buildable
+	CHECK( !ProRulesBanUpgrade( AsciiString( "Upgrade_ComancheRocketPods" ) ) );
+	CHECK( !ProRulesBanUpgrade( AsciiString( "Upgrade_ChinaUraniumShells" ) ) );
+	CHECK( !ProRulesBanUpgrade( AsciiString( "Upgrade_GLAToxinShells" ) ) );
+
+	// rule 15: rank 3 is where the carpet bomb opens
+	CHECK( ProRulesBanSpecialPower( AIRF_SPECIAL_CARPET_BOMB, 2 ) );
+	CHECK( !ProRulesBanSpecialPower( AIRF_SPECIAL_CARPET_BOMB, PRO_RULES_CARPET_BOMB_RANK ) );
+	CHECK( ProRulesBanSpecialPower( SPECIAL_CARPET_BOMB, 1 ) );
+	CHECK( ProRulesBanSpecialPower( SPECIAL_CHINA_CARPET_BOMB, 2 ) );
+	CHECK( ProRulesBanSpecialPower( EARLY_SPECIAL_CHINA_CARPET_BOMB, 2 ) );
+	CHECK( !ProRulesBanSpecialPower( SPECIAL_CLUSTER_MINES, 1 ) );
+}
+
+/* Rule 16: two of a player's own defences per oil derrick cluster.  A cluster is every derrick
+	 chained to the next within the radius, so a pair 250 apart is one cluster and a derrick 600 away
+	 is another. */
+TEST(pro_rules_count_the_defenses_of_one_derrick_cluster)
+{
+	CHECK( ProRulesIsOilDerrick( AsciiString( "TechOilDerrick" ) ) );
+	CHECK( !ProRulesIsOilDerrick( AsciiString( "TechOilDerrickHulk" ) ) );
+	CHECK( ProRulesIsDerrickDefense( AsciiString( "AmericaPatriotBattery" ) ) );
+	CHECK( ProRulesIsDerrickDefense( AsciiString( "AirF_AmericaPatriotBattery" ) ) );
+	CHECK( ProRulesIsDerrickDefense( AsciiString( "Tank_ChinaGattlingCannon" ) ) );
+	CHECK( ProRulesIsDerrickDefense( AsciiString( "Demo_GLAStingerSite" ) ) );
+	CHECK( !ProRulesIsDerrickDefense( AsciiString( "ChinaHelixGattlingCannon" ) ) );
+	CHECK( !ProRulesIsDerrickDefense( AsciiString( "AmericaFireBase" ) ) );
+	CHECK( !ProRulesIsDerrickDefense( AsciiString( "GLATunnelNetwork" ) ) );
+
+	const Coord2D derricks[] = { { 0.0f, 0.0f }, { 250.0f, 0.0f }, { 850.0f, 0.0f } };
+	const Coord2D defenses[] = { { -100.0f, 50.0f }, { 400.0f, 0.0f }, { 850.0f, 200.0f } };
+	const Int derrickCount = ARRAY_SIZE( derricks );
+	const Int defenseCount = ARRAY_SIZE( defenses );
+
+	const Coord2D besideTheFirst = { 0.0f, 150.0f };
+	CHECK_EQ( ProRulesCountDerrickClusterDefenses( besideTheFirst, derricks, derrickCount, defenses, defenseCount ), 2 );
+
+	// the far end of the pair reaches the same two
+	const Coord2D besideTheSecond = { 300.0f, -100.0f };
+	CHECK_EQ( ProRulesCountDerrickClusterDefenses( besideTheSecond, derricks, derrickCount, defenses, defenseCount ), 2 );
+
+	const Coord2D besideTheLoneDerrick = { 850.0f, -100.0f };
+	CHECK_EQ( ProRulesCountDerrickClusterDefenses( besideTheLoneDerrick, derricks, derrickCount, defenses, defenseCount ), 1 );
+
+	const Coord2D inTheOpen = { 0.0f, 2000.0f };
+	CHECK_EQ( ProRulesCountDerrickClusterDefenses( inTheOpen, derricks, derrickCount, defenses, defenseCount ), 0 );
 }
 
 /* -scenario's line parser.
@@ -11506,6 +11562,54 @@ TEST(scenario_refuses_a_line_it_cannot_read)
 
 	// and every refusal has something to say for itself in the log
 	CHECK_STR( ScenarioDrill_parseResultName( SCENARIO_PARSE_BAD_FRAME ), "frame is not a whole number" );
+}
+
+/* A position can name a start instead of two numbers, which is what lets one file play on a
+	 generated map whose starts move with the seed.  The number is spelt out for the atoi reason, and
+	 an offset that is not two numbers is refused rather than read as zero. */
+TEST(scenario_positions_can_name_a_start)
+{
+	ScenarioAction action;
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 spawn 0 AmericaTankCrusader 20 start0", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( action.atStart, 0 );
+	CHECK_NEAR( action.at.x, 0.0f, 0.01f );
+	CHECK_NEAR( action.at.y, 0.0f, 0.01f );
+	CHECK_NEAR( action.spacing, 30.0f, 0.01f );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 spawn 0 AmericaTankCrusader 20 start1:-250.5:80 40", &action ),
+						(Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( action.atStart, 1 );
+	CHECK_NEAR( action.at.x, -250.5f, 0.01f );
+	CHECK_NEAR( action.at.y, 80.0f, 0.01f );
+	CHECK_NEAR( action.spacing, 40.0f, 0.01f );
+
+	// plain numbers still mean a position, and say so
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 move 0 * 800 600", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( action.atStart, (Int)SCENARIO_NO_START );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 move 0 * start", &action ), (Int)SCENARIO_PARSE_BAD_POSITION );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 move 0 * start1x", &action ), (Int)SCENARIO_PARSE_BAD_POSITION );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 move 0 * start1:100", &action ), (Int)SCENARIO_PARSE_BAD_POSITION );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 move 0 * start1:100:y", &action ), (Int)SCENARIO_PARSE_BAD_POSITION );
+}
+
+/* arrive is the choke probe's clock: it takes a position like move and an optional radius. */
+TEST(scenario_parses_an_arrive_line)
+{
+	ScenarioAction action;
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 arrive 0 AmericaTankCrusader start1", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_ARRIVE );
+	CHECK_EQ( action.atStart, 1 );
+	CHECK( action.radius > 0.0f );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 arrive 0 * 1200 900 150", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_NEAR( action.at.x, 1200.0f, 0.01f );
+	CHECK_NEAR( action.radius, 150.0f, 0.01f );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 arrive 0 *", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 arrive 0 * 1200", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
 }
 
 /* -control's WebSocket handshake.

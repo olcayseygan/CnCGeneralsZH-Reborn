@@ -3006,6 +3006,17 @@ static const char theProRulesAuroraSuffix[] = "JetAurora";
 static const char theProRulesNukeSiloSuffix[] = "NuclearMissileLauncher";
 static const char theProRulesTacticalNukeMigUpgrade[] = "Upgrade_ChinaTacticalNukeMig";
 static const char theProRulesTerroristSuffix[] = "InfantryTerrorist";
+static const char theProRulesDemoSuicideUpgrade[] = "Demo_Upgrade_SuicideBomb";
+static const char theProRulesNeutronShellsUpgrade[] = "Upgrade_ChinaNeutronShells";
+static const char theProRulesStealthComancheUpgrade[] = "AirF_Upgrade_StealthComanche";
+static const char theProRulesOilDerrick[] = "TechOilDerrick";
+// the three defences rule 16 counts, by the ending every general's copy shares
+static const char *const theProRulesDerrickDefenseSuffixes[] =
+{
+  "AmericaPatriotBattery",
+  "ChinaGattlingCannon",
+  "GLAStingerSite"
+};
 
 // rules 4 and 5
 Bool ProRulesBanThing( const AsciiString &templateName )
@@ -3020,18 +3031,103 @@ Bool ProRulesExemptSuperweapon( const AsciiString &templateName )
   return templateName.endsWithNoCase( theProRulesNukeSiloSuffix );
 }
 
-// rule 6
+// rules 6 and 12 to 14
 Bool ProRulesBanUpgrade( const AsciiString &upgradeName )
 {
-  return upgradeName.compareNoCase( theProRulesTacticalNukeMigUpgrade ) == 0;
+  return upgradeName.compareNoCase( theProRulesTacticalNukeMigUpgrade ) == 0
+      || upgradeName.compareNoCase( theProRulesDemoSuicideUpgrade ) == 0
+      || upgradeName.compareNoCase( theProRulesNeutronShellsUpgrade ) == 0
+      || upgradeName.compareNoCase( theProRulesStealthComancheUpgrade ) == 0;
 }
 
-// rule 2, the silo's missile, which each China general and the Superweapon General fire as a type of their own
-Bool ProRulesBanSpecialPower( SpecialPowerType specialPowerType )
+// Rule 2, the silo's missile, which each China general and the Superweapon General fire as a type of
+// their own, and rule 15, the Carpet Bomb below rank 3.  The Air Force General buys his at rank 1 and
+// the early China copies come at rank 3, so in practice rule 15 is his.
+Bool ProRulesBanSpecialPower( SpecialPowerType specialPowerType, Int rankLevel )
 {
-  return specialPowerType == SPECIAL_NEUTRON_MISSILE
-      || specialPowerType == NUKE_SPECIAL_NEUTRON_MISSILE
-      || specialPowerType == SUPW_SPECIAL_NEUTRON_MISSILE;
+  if ( specialPowerType == SPECIAL_NEUTRON_MISSILE
+       || specialPowerType == NUKE_SPECIAL_NEUTRON_MISSILE
+       || specialPowerType == SUPW_SPECIAL_NEUTRON_MISSILE )
+    return TRUE;
+
+  const Bool carpetBomb = specialPowerType == SPECIAL_CARPET_BOMB
+                          || specialPowerType == SPECIAL_CHINA_CARPET_BOMB
+                          || specialPowerType == EARLY_SPECIAL_CHINA_CARPET_BOMB
+                          || specialPowerType == AIRF_SPECIAL_CARPET_BOMB;
+  return carpetBomb && rankLevel < PRO_RULES_CARPET_BOMB_RANK;
+}
+
+Bool ProRulesRefuseSpecialPower( const Player *player, SpecialPowerType specialPowerType )
+{
+  return TheGameLogic->isProRules() && ProRulesBanSpecialPower( specialPowerType, player->getRankLevel() );
+}
+
+// rule 16
+Bool ProRulesIsOilDerrick( const AsciiString &templateName )
+{
+  return templateName.compareNoCase( theProRulesOilDerrick ) == 0;
+}
+
+Bool ProRulesIsDerrickDefense( const AsciiString &templateName )
+{
+  for ( Int i = 0; i < ARRAY_SIZE( theProRulesDerrickDefenseSuffixes ); ++i )
+  {
+    if ( templateName.endsWithNoCase( theProRulesDerrickDefenseSuffixes[ i ] ) )
+      return TRUE;
+  }
+  return FALSE;
+}
+
+static Bool isWithinDerrickClusterRadius( const Coord2D &a, const Coord2D &b )
+{
+  const Real dx = a.x - b.x;
+  const Real dy = a.y - b.y;
+  const Real radius = (Real)PRO_RULES_DERRICK_CLUSTER_RADIUS;
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+Int ProRulesCountDerrickClusterDefenses( const Coord2D &spot, const Coord2D *derricks, Int derrickCount,
+                                         const Coord2D *defenses, Int defenseCount )
+{
+  // the derricks the spot stands beside, then every derrick one step from one already found
+  std::vector<Bool> inCluster( derrickCount, FALSE );
+  std::vector<Int> frontier;
+  for ( Int i = 0; i < derrickCount; ++i )
+  {
+    if ( isWithinDerrickClusterRadius( spot, derricks[ i ] ) )
+    {
+      inCluster[ i ] = TRUE;
+      frontier.push_back( i );
+    }
+  }
+
+  while ( !frontier.empty() )
+  {
+    const Int from = frontier.back();
+    frontier.pop_back();
+    for ( Int i = 0; i < derrickCount; ++i )
+    {
+      if ( !inCluster[ i ] && isWithinDerrickClusterRadius( derricks[ from ], derricks[ i ] ) )
+      {
+        inCluster[ i ] = TRUE;
+        frontier.push_back( i );
+      }
+    }
+  }
+
+  Int count = 0;
+  for ( Int defense = 0; defense < defenseCount; ++defense )
+  {
+    for ( Int i = 0; i < derrickCount; ++i )
+    {
+      if ( inCluster[ i ] && isWithinDerrickClusterRadius( defenses[ defense ], derricks[ i ] ) )
+      {
+        ++count;
+        break;
+      }
+    }
+  }
+  return count;
 }
 
 // rule 7, the demo bike: a combat cycle with a terrorist in the saddle

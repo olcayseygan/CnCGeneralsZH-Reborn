@@ -18,7 +18,7 @@
 
 // FILE: CrowdModel.h //////////////////////////////////////////////////////////////////////////
 // The route as a band of measured width, and the rules a unit uses to decide where across it to
-// drive.  Everything here is behind -crowd; without it none of it is built or consulted.
+// drive.
 //
 // The band is the part retail has no equivalent of.  A route is a line, every unit handed one
 // steers at the same metre of it, and a group of twenty crossing open ground therefore drives in

@@ -923,8 +923,53 @@ Bool BuildAssistant_shroudBlocksBuilding( CellShroudStatus status )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** Rule 16 of Pro Rules for one spot: are the owner's defences round the derrick cluster this spot
+	* belongs to already at the cap?  The largest cluster measured on the game's maps is four derricks,
+	* three steps of the radius from end to end, so everything within four steps of the spot is enough
+	* to flood it, and one step more catches every defence standing round it. */
+//-------------------------------------------------------------------------------------------------
+static const Int PRO_RULES_DERRICK_SEARCH_STEPS = 5;
+
+static Bool isDerrickClusterDefenseFull( const Coord3D *worldPos, const Player *owner )
+{
+	PartitionFilterAcceptByKindOf structures( MAKE_KINDOF_MASK( KINDOF_STRUCTURE ), KINDOFMASK_NONE );
+	PartitionFilter *filters[] = { &structures, NULL };
+
+	std::vector<Coord2D> derricks;
+	std::vector<Coord2D> defenses;
+	const Real range = (Real)( PRO_RULES_DERRICK_CLUSTER_RADIUS * PRO_RULES_DERRICK_SEARCH_STEPS );
+	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( worldPos, range, FROM_CENTER_2D, filters );
+	MemoryPoolObjectHolder hold( iter );
+	for( Object *them = iter->first(); them; them = iter->next() )
+	{
+		if( them->isEffectivelyDead() )
+			continue;
+
+		Coord2D at;
+		at.x = them->getPosition()->x;
+		at.y = them->getPosition()->y;
+
+		const AsciiString &name = them->getTemplate()->getName();
+		if( ProRulesIsOilDerrick( name ) )
+			derricks.push_back( at );
+		else if( them->getControllingPlayer() == owner && ProRulesIsDerrickDefense( name ) )
+			defenses.push_back( at );
+	}
+
+	if( derricks.empty() || defenses.empty() )
+		return FALSE;
+
+	Coord2D spot;
+	spot.x = worldPos->x;
+	spot.y = worldPos->y;
+	const Int standing = ProRulesCountDerrickClusterDefenses( spot, &derricks[ 0 ], (Int)derricks.size(),
+																													 &defenses[ 0 ], (Int)defenses.size() );
+	return standing >= PRO_RULES_DEFENSES_PER_DERRICK_CLUSTER;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Query if we can build at this location.  Note that 'build' may be null and is NOT required
-	* to be valid to know if a location is legal to build at.  'builderObject' is used 
+	* to be valid to know if a location is legal to build at.  'builderObject' is used
 	* for queries that require a pathfind check and should be NULL if not required */
 //-------------------------------------------------------------------------------------------------
 LegalBuildCode BuildAssistant::isLocationLegalToBuild( const Coord3D *worldPos, 
@@ -1107,6 +1152,14 @@ LegalBuildCode BuildAssistant::isLocationLegalToBuild( const Coord3D *worldPos,
 				return LBC_TOO_CLOSE_TO_ENEMY;
 		}
 	}
+
+	//
+	// Rule 16: no more than two of the player's own Patriots, Gatling Cannons and Stinger Sites round
+	// one cluster of oil derricks.  Only those three templates pay for the range query.
+	//
+	if( TheGameLogic->isProRules() && owner && ProRulesIsDerrickDefense( build->getName() )
+			&& isDerrickClusterDefenseFull( worldPos, owner ) )
+		return LBC_TOO_MANY_DERRICK_DEFENSES;
 
 	// we passed all the checks
 	return LBC_OK;

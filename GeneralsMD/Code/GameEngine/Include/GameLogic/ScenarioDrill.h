@@ -26,7 +26,7 @@
 // ask for.  A scenario file names the unit, the place, the count and the frame, so the same
 // command line puts the same army on the same ground in two different builds.
 //
-// Orders go out the way -groupdrill's do - an AIGroup built inside the logic frame, ordered with
+// Orders go out as an AIGroup built inside the logic frame, ordered with
 // CMD_FROM_SCRIPT - and not through TheMessageStream.  Two reasons.  A GameMessage is stamped with
 // the local player and the fake index a harness would write does not survive a network game
 // (NetCommandMsg re-stamps it with the sender's).  Worse for a measurement, messages propagate on
@@ -34,7 +34,7 @@
 // and two builds that draw at different speeds would then be playing different scenarios.  A tick
 // keyed to the logic frame has neither problem.
 //
-// The bill for that is the same one -groupdrill pays: these orders exist nowhere in the command
+// The bill for that: these orders exist nowhere in the command
 // stream, so a run driven by a scenario cannot be replayed.  Repeatability comes from the file
 // plus -seed instead, which is what an A/B needs anyway.
 //
@@ -51,14 +51,23 @@
 // ------------------------------------------------------------------------------------------------
 /** What one scenario line asks for. */
 // ------------------------------------------------------------------------------------------------
+//
+// A <position> is two numbers, x and y, or one token naming a start position: start<N> is where
+// seat N began (-scenario pins seat i to start i), and start<N>:<dx>:<dy> stands that far off it.
+// The token form is what lets one file play on a generated map, whose starts move with the seed.
+//
 enum ScenarioActionType
 {
-	SCENARIO_ACTION_SPAWN = 0,		///< spawn <slot> <template> <count> <x> <y> [spacing]
-	SCENARIO_ACTION_MOVE,					///< move <slot> <selector> <x> <y>
-	SCENARIO_ACTION_ATTACKMOVE,		///< attackmove <slot> <selector> <x> <y>
+	SCENARIO_ACTION_SPAWN = 0,		///< spawn <slot> <template> <count> <position> [spacing]
+	SCENARIO_ACTION_MOVE,					///< move <slot> <selector> <position>
+	SCENARIO_ACTION_ATTACKMOVE,		///< attackmove <slot> <selector> <position>
 	SCENARIO_ACTION_ATTACK,				///< attack <slot> <selector> <targetSlot> <targetSelector>
-	SCENARIO_ACTION_STOP					///< stop <slot> <selector>
+	SCENARIO_ACTION_STOP,					///< stop <slot> <selector>
+	SCENARIO_ACTION_ARRIVE				///< arrive <slot> <selector> <position> [radius]
 };
+
+/// ScenarioAction::atStart when the position is plain numbers
+enum { SCENARIO_NO_START = -1 };
 
 // ------------------------------------------------------------------------------------------------
 /** Why a line was not turned into an action.  A scenario that silently drops half its orders is
@@ -72,7 +81,8 @@ enum ScenarioParseResult
 	SCENARIO_PARSE_BAD_ACTION,
 	SCENARIO_PARSE_BAD_SLOT,
 	SCENARIO_PARSE_BAD_COUNT,
-	SCENARIO_PARSE_MISSING_ARGS
+	SCENARIO_PARSE_MISSING_ARGS,
+	SCENARIO_PARSE_BAD_POSITION
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -84,9 +94,11 @@ struct ScenarioAction
 	ScenarioActionType action;
 	Int slot;											///< the seat, the same number -side takes; not an index into ThePlayerList
 	AsciiString selector;					///< a template name, or "*" for everything that seat owns
-	Coord2D at;										///< spawn, move and attackmove target
+	Coord2D at;										///< spawn, move, attackmove and arrive target, or the offset from atStart
+	Int atStart;									///< the start position at is measured from, SCENARIO_NO_START for none
 	Int count;										///< how many to spawn
 	Real spacing;									///< how far apart to spawn them, in world units
+	Real radius;									///< how close to the target counts as arrived
 	Int targetSlot;								///< whose units to attack
 	AsciiString targetSelector;		///< which of them
 };
@@ -108,5 +120,10 @@ extern Bool ScenarioDrill_execute( const ScenarioAction &action );
 
 /** One line for the end-of-run summary: how much of the file actually happened. */
 extern const char *ScenarioDrill_report( void );
+
+/** One HEADLESS ARRIVE line per arrive action: how many of the units it watched got within its
+	  radius, and how many frames after the line fired the first and the last of them did.  The last
+	  one's time is the choke probe's number (ROADMAP M0.3). */
+extern void ScenarioDrill_logArrivals( void );
 
 #endif // __SCENARIODRILL_H_

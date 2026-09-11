@@ -132,16 +132,36 @@ Bool UnitCapRefuses( Int unitsTowardCap, Int unitsItAdds, UnsignedInt unitCap );
 // GameLogic::isProRules() says whether a match is under them; these say what they cover, by name
 // or by type, so a test can ask them without a match.
 enum SpecialPowerType;
+class Player;
 Bool ProRulesBanThing( const AsciiString &templateName );
 Bool ProRulesExemptSuperweapon( const AsciiString &templateName );
-Bool ProRulesBanUpgrade( const AsciiString &upgradeName );
-Bool ProRulesBanSpecialPower( SpecialPowerType specialPowerType );
 Bool ProRulesBanRider( const AsciiString &riderTemplateName );
+
+// Rule 15: nobody fires a Carpet Bomb below this rank.
+enum { PRO_RULES_CARPET_BOMB_RANK = 3 };
+
+// rules 6 and 12 to 14
+Bool ProRulesBanUpgrade( const AsciiString &upgradeName );
+// rules 2 and 15, for a player of this rank
+Bool ProRulesBanSpecialPower( SpecialPowerType specialPowerType, Int rankLevel );
+// the one above asked about the match being played, and about the player's own rank
+Bool ProRulesRefuseSpecialPower( const Player *player, SpecialPowerType specialPowerType );
 
 // Rule 9: no foundation this close to an enemy building, edge to edge.  The same 300 world units
 // the derrick cluster rules measure with, which is also more than a Patriot or a Stinger Site
 // reaches on the ground, so a scaffold wall cannot be laid under an enemy's own defences.
 enum { PRO_RULES_ENEMY_STRUCTURE_CLEARANCE = 300 };
+
+// Rule 16: a player may have this many Patriots, Gatling Cannons and Stinger Sites around one cluster
+// of oil derricks.  A cluster is every derrick reachable from another in steps no longer than the
+// radius, and a structure whose centre is within the radius of any derrick in it belongs to it.
+// Rule 17 allows tunnels without a cap, so it needs no check at all.
+enum { PRO_RULES_DERRICK_CLUSTER_RADIUS = 300, PRO_RULES_DEFENSES_PER_DERRICK_CLUSTER = 2 };
+Bool ProRulesIsOilDerrick( const AsciiString &templateName );
+Bool ProRulesIsDerrickDefense( const AsciiString &templateName );
+// How many of the defenses belong to the cluster the spot belongs to, 0 when no derrick is in reach
+Int ProRulesCountDerrickClusterDefenses( const Coord2D &spot, const Coord2D *derricks, Int derrickCount,
+																				 const Coord2D *defenses, Int defenseCount );
 
 static const Int NUM_HOTKEY_SQUADS = 10;
 

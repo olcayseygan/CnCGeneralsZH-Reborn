@@ -1,0 +1,26 @@
+# Choke probe (ROADMAP M0.3).
+#
+# Twenty tanks, one order, one clock: how long the last of them takes to reach the other start. Win
+# rate cannot judge a pathfinding change, because a symmetric batch only says the match plays
+# differently. This says whether a column got through faster or slower.
+#
+#   generals.exe -headless -quickstart -noshellmap -observer -multiInstance -noFPSLimit
+#     -randommap 3 2 small -autoskirmish 2 -takeover -seed 3 -maxframes 4000
+#     -scenario chokeprobe -logPrefix choke_
+#
+# then grep the log for HEADLESS ARRIVE. An A/B is two builds run with the same line; the map, the
+# seats and the army do not change between the two. Add -showlanes for the crowd model's own trail.
+#
+# Positions are start<N>, where seat N began, so the file does not care which seed built the map. A
+# generated map terraces the ground and cuts ramps between the plateaus, so the route from one start
+# to the other goes down at least one ramp and up another: those ramps are the choke.
+#
+#   <frame> spawn  <slot> <template> <count> <position> [spacing]
+#   <frame> move   <slot> <selector> <position>
+#   <frame> arrive <slot> <selector> <position> [radius]
+#
+# start0:dx:dy stands dx, dy off the start, which keeps the block of tanks off the command center.
+
+30    spawn   0  AmericaTankCrusader  20  start0:0:260  40
+60    move    0  AmericaTankCrusader      start1
+60    arrive  0  AmericaTankCrusader      start1  250

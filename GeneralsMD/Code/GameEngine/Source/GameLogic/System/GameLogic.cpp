@@ -1160,21 +1160,16 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 	TheWritableGlobalData->m_loadScreenRender = TRUE;	///< mark it so only a few select things are rendered during load	
 	TheWritableGlobalData->m_TiVOFastMode = FALSE;	//always disable the TIVO fast-forward mode at the start of a new game.
 
-	/* Every switch below changes what a unit or the AI decides, and a decision that differs between
-		 two machines is a desync. None of them is in the INI checksum, so a player who types one joins
-		 a lobby like anyone else and the match comes apart on the first order instead of being refused
-		 at the door. They are measurement tools - the point of each is to run the same exe twice and
-		 compare - so a network game runs the shipped rules whatever the command line said. Replays are
-		 left alone: a replay recorded with a flag needs that flag to play back. Anything new that
-		 reaches GameLogic from the command line belongs in this list on the day it is written. */
+	/* Every switch below puts something into the match that the other machines never hear about, and
+		 none of them is in the INI checksum, so a player who types one joins a lobby like anyone else
+		 and the match comes apart on the first order instead of being refused at the door. They set up
+		 an unattended measurement, so a network game runs the host's options whatever the command line
+		 said.  No switch changes how a unit decides: the movement A/B switches that used to sit in this
+		 list were taken out of the game, and a new rule goes in on for everybody or not at all.
+		 Anything new that reaches GameLogic from the command line belongs in this list on the day it
+		 is written. */
 	if (isInMultiplayerGame())
 	{
-		TheWritableGlobalData->m_crowdModel = FALSE;			// -crowd
-		TheWritableGlobalData->m_noFlowPath = FALSE;			// -noflowpath
-		TheWritableGlobalData->m_noLanePath = FALSE;			// -nolanes
-		TheWritableGlobalData->m_noMomentumPath = FALSE;	// -nomomentum
-		TheWritableGlobalData->m_aiSliceFrames = 1;				// -aislice
-		TheWritableGlobalData->m_groupDrill = 0;					// -groupdrill
 		TheWritableGlobalData->m_scenarioFile.clear();		// -scenario
 		TheWritableGlobalData->m_peaceTime = 0;						// -peacetime, and the host's options string is read below
 		TheWritableGlobalData->m_unitLimit = FALSE;						// -unitlimit, the same
@@ -3948,166 +3943,6 @@ static const char *getModuleProfileReport( void )
 }
 #endif
 
-//-------------------------------------------------------------------------------------------------
-/** -groupdrill: play the part of a player giving group orders.
-
-		The self-play harness never exercised the crowd model, and it took a SHOWLANES log to notice.
-		The computer's armies do not move as groups: a skirmish AI team hands each of its units its own
-		aiMoveToPosition, and a unit that was never handed a lane is one crowdSteer returns out of on
-		its first line.  Every steering rule under -crowd was therefore reachable by a human with a
-		mouse and by nothing else, while ai-batch.ps1 reported on the flag's other half - the collision
-		rules in AIUpdate::blockedBy - and called it the crowd model.
-
-		This selects each player's ground army every n frames and gives it one order, through the same
-		AIGroup::groupMoveToPosition a right-click goes through.  The match it produces is nonsense:
-		two armies marching corner to corner past each other, nobody defending anything, and the win
-		rate means nothing at all.  The blocked unit-frames underneath it are the point, and they are
-		the first numbers this fork has ever had for the steering itself. */
-//-------------------------------------------------------------------------------------------------
-/* What the drill is for, in the end: were the units that were sent somewhere still trying to get
-	 there when the next order arrived, or had they stopped.  Blocked unit-frames say how much time
-	 was spent in traffic; this says whether the traffic was ever cleared.  One entry per unit per
-	 order, scored at the next tick and thrown away.
-
-	 "Stalled" is deliberately not "did not arrive".  Forty units sent to one point cannot all stand
-	 on it, and a unit that spent the whole window fighting has not failed to move for want of a
-	 route.  It is "covered less than a tenth of the distance it was given", which is a unit that
-	 never got going at all. */
-struct DrillOrder
-{
-	ObjectID	id;
-	Coord3D		dest;
-	Real			startDist;
-};
-static std::vector<DrillOrder> theDrillOrders;
-static Int theDrillScored = 0;
-static Int theDrillArrived = 0;
-static Int theDrillStalled = 0;
-
-/* And why the stalled ones stalled.  "1.2% never got going" is a number to be held to; it is not
-	 an answer, and without this the only way to find out was to watch a match.  Every unit that
-	 scores as stalled is asked the six questions that can be asked from outside it, in the order
-	 that makes the answer unambiguous: the first one that fits is the reason. */
-enum
-{
-	DRILL_WHY_DISABLED = 0,		///< held, EMP'd, sold, whatever: not a movement answer
-	DRILL_WHY_NOSTATE,				///< not in a move state any more, so something else took the unit over
-	DRILL_WHY_NOPATH,					///< in a move state, no path and not waiting for one: the search failed
-	DRILL_WHY_WAITING,				///< still waiting for the pathfinder
-	DRILL_WHY_BLOCKED,				///< has a path and is being collided with
-	DRILL_WHY_SILENT,					///< has a path, nothing is touching it, and it is not moving
-	DRILL_WHY_COUNT
-};
-static const char *theDrillWhyName[ DRILL_WHY_COUNT ] =
-	{ "disabled", "nostate", "nopath", "waiting", "blocked", "silent" };
-static Int theDrillWhy[ DRILL_WHY_COUNT ];
-static char theDrillReport[ 256 ];
-
-const char *GroupDrill_report( void )
-{
-	Int len = sprintf( theDrillReport, "orders %d arrived %d stalled %d",
-										 theDrillScored, theDrillArrived, theDrillStalled );
-	for( Int w = 0; w < DRILL_WHY_COUNT; w++ )
-		len += sprintf( theDrillReport + len, " %s %d", theDrillWhyName[ w ], theDrillWhy[ w ] );
-	return theDrillReport;
-}
-
-void GroupDrill_reset( void )
-{
-	theDrillOrders.clear();
-	theDrillScored = 0;
-	theDrillArrived = 0;
-	theDrillStalled = 0;
-	for( Int w = 0; w < DRILL_WHY_COUNT; w++ )
-		theDrillWhy[ w ] = 0;
-}
-
-/** Why is this unit, which was sent somewhere twenty seconds ago and has not moved, not moving. */
-static Int groupDrillWhyStalled( Object *obj )
-{
-	AIUpdateInterface *ai = obj->getAIUpdateInterface();
-	if (ai == NULL || obj->isDisabled())
-		return DRILL_WHY_DISABLED;
-
-	const AIStateType state = ai->getAIStateType();
-	if (state != AI_MOVE_TO && state != AI_ATTACK_MOVE_TO && state != AI_MOVE_AND_TIGHTEN
-			&& state != AI_FOLLOW_PATH && state != AI_MOVE_OUT_OF_THE_WAY)
-		return DRILL_WHY_NOSTATE;
-
-	if (ai->isWaitingForPath())
-		return DRILL_WHY_WAITING;
-	if (ai->getPath() == NULL)
-		return DRILL_WHY_NOPATH;
-	if (ai->getNumFramesBlocked() > 0)
-		return DRILL_WHY_BLOCKED;
-	return DRILL_WHY_SILENT;
-}
-
-static void groupDrillScorePrevious( void )
-{
-	const Real arriveDist = PATHFIND_CELL_SIZE_F * 12.0f;
-
-	for (std::vector<DrillOrder>::iterator it = theDrillOrders.begin(); it != theDrillOrders.end(); ++it)
-	{
-		Object *obj = TheGameLogic->findObjectByID( it->id );
-		if (obj == NULL || obj->isEffectivelyDead())
-			continue;						// died on the way: not a movement answer either way
-
-		/* Only units that were actually given a journey.  Forty units sent to a point they are
-			 already standing on shuffle a body length while the group re-forms, and against a starting
-			 distance of eight world units that shuffle reads as "went nowhere": four of the first
-			 seven stalls this ever reported were that. */
-		if (it->startDist < arriveDist * 2.0f)
-			continue;
-
-		const Coord3D *pos = obj->getPosition();
-		const Real dx = it->dest.x - pos->x;
-		const Real dy = it->dest.y - pos->y;
-		const Real now = (Real)sqrt( dx * dx + dy * dy );
-
-		AIUpdateInterface *ai = obj->getAIUpdateInterface();
-		const Bool doneWithIt = (ai == NULL) || (ai->getPath() == NULL && !ai->isWaitingForPath());
-
-		/* Arrived, and the second half of that is not pedantry either.  Forty units cannot stand on
-			 one point, so the ones that packed in around it are further from the middle than the
-			 radius allows while being exactly where they meant to stop.  A unit that has stopped
-			 trying and is inside a quarter of the distance it was given has arrived. */
-		if (now < arriveDist || (doneWithIt && now < it->startDist * 0.25f))
-		{
-			++theDrillScored;
-			++theDrillArrived;
-			continue;
-		}
-
-		/* Still ours?  The computer player goes on giving its teams orders of its own between drill
-			 ticks, and a unit sent somewhere else is not a unit that failed to get here.  Without this
-			 the stalled figure was two fifths of every order given, and most of that was the AI
-			 changing its mind rather than anything being stuck. */
-		Coord3D goal;
-		if (!TheAI->pathfinder()->goalPosition( obj, &goal ))
-			continue;
-		const Real gdx = goal.x - it->dest.x;
-		const Real gdy = goal.y - it->dest.y;
-		if ((Real)sqrt( gdx * gdx + gdy * gdy ) > PATHFIND_CELL_SIZE_F * 20.0f)
-			continue;
-
-		++theDrillScored;
-		if (now > it->startDist * 0.9f)
-		{
-			++theDrillStalled;
-			const Int why = groupDrillWhyStalled( obj );
-			++theDrillWhy[ why ];
-			DEBUG_LOG(("DRILLSTALL frame %d unit %d %s: %s, %.0f of %.0f left at %.0f,%.0f layer %d, blocked %d noprogress %d state %d\n",
-				TheGameLogic->getFrame(), (Int)it->id, obj->getTemplate()->getName().str(),
-				theDrillWhyName[ why ], now, it->startDist, pos->x, pos->y, (Int)obj->getLayer(),
-				ai ? ai->getNumFramesBlocked() : -1,
-				ai ? ai->getNoProgressFrames() : -1,
-				ai ? (Int)ai->getAIStateType() : -1));
-		}
-	}
-	theDrillOrders.clear();
-}
-
 /* Both peace time gates - the one in Object::getAbleToAttackSpecificObject that stops a weapon
 	 being aimed, and the one in ActiveBody::attemptDamage that stops damage arriving by any other
 	 route - ask this.  The truce is between the players who are in the lobby: civilians, the map's
@@ -4194,80 +4029,6 @@ static void peaceTimeTick( void )
 	}
 }
 
-static void groupDrillTick( void )
-{
-	groupDrillScorePrevious();
-
-	Region3D extent;
-	TheTerrainLogic->getExtent( &extent );
-	const Real inset = PATHFIND_CELL_SIZE_F * 8.0f;
-
-	// which corner this tick sends them to; alternating it marches the army back and forth over the
-	// same ground rather than parking it once and measuring an empty map
-	const Int tick = (Int)(TheGameLogic->getFrame() / (UnsignedInt)TheGlobalData->m_groupDrill);
-
-	for( Int p = 0; p < ThePlayerList->getPlayerCount(); p++ )
-	{
-		Player *player = ThePlayerList->getNthPlayer( p );
-		if (player == NULL)
-			continue;
-
-		AIGroup *group = TheAI->createGroup();
-		Int taken = 0;
-		for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
-		{
-			if (obj->getControllingPlayer() != player || obj->isEffectivelyDead())
-				continue;
-			if (obj->getAIUpdateInterface() == NULL)
-				continue;
-			// the army, and only the army: a base that stops building has no traffic to measure
-			if (obj->isKindOf( KINDOF_STRUCTURE ) || obj->isKindOf( KINDOF_IMMOBILE )
-					|| obj->isKindOf( KINDOF_AIRCRAFT ) || obj->isKindOf( KINDOF_DOZER )
-					|| obj->isKindOf( KINDOF_HARVESTER ))
-				continue;
-
-			group->add( obj );
-			if (++taken >= 40)
-				break;
-		}
-
-		if (taken < 2)
-		{
-			TheAI->destroyGroup( group );
-			continue;
-		}
-
-		Coord3D dest;
-		const Bool farCorner = ((tick + p) & 1) != 0;
-		dest.x = farCorner ? extent.hi.x - inset : extent.lo.x + inset;
-		dest.y = farCorner ? extent.hi.y - inset : extent.lo.y + inset;
-		dest.z = TheTerrainLogic->getGroundHeight( dest.x, dest.y );
-
-		group->groupMoveToPosition( &dest, false, CMD_FROM_AI );
-
-		// and remember who was sent where, so the next tick can ask whether they got there
-		for( Object *member = TheGameLogic->getFirstObject(); member; member = member->getNextObject() )
-		{
-			if (!group->isMember( member ))
-				continue;
-			// the order itself skips these, so counting them as sent somewhere is counting a
-			// passenger in a transport as a unit that failed to drive there
-			if (member->isDisabledByType( DISABLED_HELD ) || member->isKindOf( KINDOF_IMMOBILE ))
-				continue;
-			const Coord3D *pos = member->getPosition();
-			const Real dx = dest.x - pos->x;
-			const Real dy = dest.y - pos->y;
-			DrillOrder order;
-			order.id = member->getID();
-			order.dest = dest;
-			order.startDist = (Real)sqrt( dx * dx + dy * dy );
-			theDrillOrders.push_back( order );
-		}
-
-		TheAI->destroyGroup( group );
-	}
-}
-
 void GameLogic::update( void )
 {
 	USE_PERF_TIMER(GameLogic_update)
@@ -4344,12 +4105,7 @@ void GameLogic::update( void )
 	// the lobby's peace time, if the host set one
 	peaceTimeTick();
 
-	// the measurement harness for group movement; the first tick waits for there to be an army
-	if (TheGlobalData->m_groupDrill > 0 && now > (UnsignedInt)(LOGICFRAMES_PER_SECOND * 60)
-			&& (now % (UnsignedInt)TheGlobalData->m_groupDrill) == 0)
-		groupDrillTick();
-
-	/* And the scripted one.  Keyed to the logic frame rather than to the render pass, so the same
+	/* The scripted measurement harness.  Keyed to the logic frame rather than to the render pass, so the same
 		 scenario file plays out on the same frames however fast the machine draws - which is the whole
 		 point of measuring two builds against it. */
 	ScenarioDrill_tick();
@@ -5557,7 +5313,7 @@ void GameLogic::prepareLogicForObjectLoad( void )
 // ------------------------------------------------------------------------------------------------
 void GameLogic::xfer( Xfer *xfer )
 {
-  
+
 	// version
 	const XferVersion currentVersion = 14;
 	XferVersion version = currentVersion;

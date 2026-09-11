@@ -1644,9 +1644,9 @@ static void crowdClearLanes( std::list<Object *>& members )
 		The same arithmetic groupMoveToPosition does inline, extracted because the computer's armies
 		never go through that function: an AI team moves with groupTightenToPosition
 		(AIPlayer.cpp:3505), which handed nobody a lane, and a unit with no lane is a unit crowdSteer
-		returns out of on its first line.  So every steering rule under -crowd was reachable by the
-		player and by nothing else, and the self-play harness was measuring the flag's other half - the
-		collision rules in AIUpdate::blockedBy - while reporting on the crowd model. */
+		returns out of on its first line.  So every steering rule in the crowd model was reachable by
+		the player and by nothing else, and the self-play harness was measuring the collision rules in
+		AIUpdate::blockedBy while reporting on the crowd model. */
 static void crowdSeedLanes( std::list<Object *>& members, const Coord3D& center, const Coord3D *pos )
 {
 	crowdClearLanes( members );		// whatever this order hands out replaces the last one entirely
@@ -1913,9 +1913,8 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 	groupDir.x = pos->x - center.x;
 	groupDir.y = pos->y - center.y;
 	const Coord3D groupCenter = center;
-	Bool spreadLanes = !TheGlobalData->m_noLanePath && groupDir.length() > 1.0f;
-	if (TheGlobalData->m_crowdModel)
-		crowdClearLanes( m_memberList );	// this order replaces the last one, spread or no spread
+	Bool spreadLanes = groupDir.length() > 1.0f;
+	crowdClearLanes( m_memberList );	// this order replaces the last one, spread or no spread
 	if (spreadLanes)
 	{
 		groupDir.normalize();
@@ -1951,20 +1950,9 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 		{
 			std::sort( across.begin(), across.end(), laneSeedIsLeftOf );
 
-			/* Under -crowd the lane count is the road's, measured here; the old model keeps the fixed
-				 reference it was written against, because its own offsets are scaled again downstream by
-				 the room found at the unit's feet and measuring the same width twice would square it. */
+			// the lane count is the road's, measured here
 			Real bias = 0.0f;
-			Int lanes;
-			if (TheGlobalData->m_crowdModel)
-			{
-				lanes = crowdRoadLanes( widest, groupCenter, groupDir, spacing, &bias );
-			}
-			else
-			{
-				lanes = (Int)(2.0f * Pathfinder_laneReference() / spacing);
-				if (lanes < 1) lanes = 1;
-			}
+			Int lanes = crowdRoadLanes( widest, groupCenter, groupDir, spacing, &bias );
 			if (lanes > count) lanes = count;
 
 			for (Int i = 0; i < count; i++)
@@ -1976,18 +1964,15 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 				Real u = Pathfinder_groupLane( offset );
 				across[i].obj->getAIUpdateInterface()->setPendingLane( u );
 
-				/* -crowd takes the offset as it stands.  The old model had to turn it into a share of
-					 a width guessed here and re-measured somewhere else, and the two never agreed: the
-					 conversion is where the spacing this loop just worked out was thrown away. */
-				if (TheGlobalData->m_crowdModel)
-				{
-					across[i].obj->getAIUpdateInterface()->setPendingCrowdLat( offset );
-					/* And the slot the offset came from, which is the part that survives.  The offset is
-						 measured here, once, on the ground the group happens to be standing on; the slot is
-						 re-fitted to the band every frame, so the group is as many abreast as the road under
-						 it carries rather than as many as its car park did. */
-					across[i].obj->getAIUpdateInterface()->setPendingCrowdLane( i, count, spacing );
-				}
+				/* The crowd model takes the offset as it stands.  The old model had to turn it into a
+					 share of a width guessed here and re-measured somewhere else, and the two never agreed:
+					 the conversion is where the spacing this loop just worked out was thrown away. */
+				across[i].obj->getAIUpdateInterface()->setPendingCrowdLat( offset );
+				/* And the slot the offset came from, which is the part that survives.  The offset is
+					 measured here, once, on the ground the group happens to be standing on; the slot is
+					 re-fitted to the band every frame, so the group is as many abreast as the road under
+					 it carries rather than as many as its car park did. */
+				across[i].obj->getAIUpdateInterface()->setPendingCrowdLane( i, count, spacing );
 
 				if (TheGlobalData->m_showLanes)
 				{
@@ -2226,9 +2211,8 @@ void AIGroup::groupTightenToPosition( const Coord3D *pos, Bool addWaypoint, Comm
 		//}
 	}
 	/* The computer's armies come through here rather than groupMoveToPosition, so this is where they
-		 are handed their lanes.  Under -crowd only: without the flag a tighten is retail's, and the
-		 lane is read by nothing. */
-	if (TheGlobalData->m_crowdModel && !addWaypoint)
+		 are handed their lanes. */
+	if (!addWaypoint)
 	{
 		Coord2D tMin, tMax;
 		Coord3D tCenter;
@@ -2675,8 +2659,7 @@ void AIGroup::groupAttackMoveToPosition( const Coord3D *pos, Int maxShotsToFire,
 		 wants the crowd model and was not getting it: nothing here handed out a lane, and a unit with
 		 no lane is one crowdSteer returns out of on its first line.  So a group told to fight its way
 		 across a map drove there in single file while the same group told to walk there spread out. */
-	if (TheGlobalData->m_crowdModel)
-		crowdSeedLanes( m_memberList, center, pos );
+	crowdSeedLanes( m_memberList, center, pos );
 
 	// path the members closest to the goal first; it leaves fewer of them to collide on arrival.
 	MemoryPoolObjectHolder iterHolder;

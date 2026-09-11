@@ -397,13 +397,7 @@ public:
 	Coord2D m_cameraLook;						///< where -camera pointed it
 	Int m_traceMoveID;							///< -tracemove [id]: log one movement line a frame for this object (0 = off, -1 = the first unit that gets blocked)
 	Real m_slowFrameMS;							///< -slowframe <ms>: a logic frame over this long logs its own breakdown (default 20)
-	Int m_aiSliceFrames;						///< -aislice <n>: a unit's AI decides once every n logic frames, staggered by id (1 = every frame, the default)
-	Bool m_noFlowPath;							///< -noflowpath: price terrain only, the way retail does - no clearance, traffic or crossing cost
-	Bool m_noLanePath;							///< -nolanes: follow the centre of the route, the way retail does - no band, no lane, no passing
-	Bool m_noMomentumPath;					///< -nomomentum: charge a turn retail's flat 4/8/16 instead of what this hull's own turn rate costs
 	Bool m_showLanes;							///< -showlanes: draw every moving unit's route, the lane it was handed and the offset it kept
-	Bool m_crowdModel;						///< -crowd: the sandbox crowd model - corridor, absolute lanes, right of way, give way, fan out
-	Int m_groupDrill;							///< -groupdrill <n>: every n frames, order each player's army corner to corner as one group (0 = off)
 	Int m_uiDrill;								///< -uidrill <n>: every n frames, minimise the command bar and re-apply its scheme, logging where it landed (0 = off)
 	Int m_resDrillFrame;					///< -resdrill <frame> [w] [h]: change the resolution at that logic frame, from inside a running match (0 = off)
 	Int m_resDrillX;							///< the width -resdrill asks for (0 = the next mode the device offers)

@@ -1520,7 +1520,7 @@ static void updateFixedCamera( void )
  *
  * The bar drifted up the screen a few pixels at a time and only under a sequence no unattended run
  * performs: a panel that is away when its layout is rebuilt.  Nothing the AI does touches the bar,
- * -groupdrill gives orders and never opens a menu, and the drift is small enough per rebuild that
+ * -scenario gives orders and never opens a menu, and the drift is small enough per rebuild that
  * one cycle by hand looks like nothing.  So the drill does the two halves on alternate ticks - a
  * toggle, then a rebuild once the slide has arrived - and writes where the bar landed each time.
  * A run that holds one pair of numbers for its whole life is a bar that stays put; a run whose
@@ -1855,8 +1855,6 @@ static void updateHeadlessRun( void )
 		Pathfinder::resetMatchProfile();
 		// and -tracemove with no id picks its unit out of the match, not out of the shell map
 		AIUpdate_resetMoveTrace();
-		extern void GroupDrill_reset( void );
-		GroupDrill_reset();
 		if (TheGlobalData->m_headless && TheGlobalData->m_videoEndFrame > 0)
 			DEBUG_LOG(("-video: -headless draws nothing, so there is no video to record\n"));
 	}
@@ -1957,22 +1955,13 @@ static void updateHeadlessRun( void )
 	// reduced the traffic jams it was supposed to reduce.
 	DEBUG_LOG(("HEADLESS PATHFIND: %s\n", Pathfinder::getMatchProfileReport()));
 
-	/* And under -groupdrill, the question the blocked counters cannot answer: of the units that were
-		 marched across the map, how many were still going when the next order came, and how many had
-		 stopped and stayed stopped.  Time spent in traffic is one thing; never getting there at all
-		 is the thing anybody actually complains about. */
-	if (TheGlobalData->m_groupDrill > 0)
-	{
-		extern const char *GroupDrill_report( void );
-		DEBUG_LOG(("HEADLESS DRILL: %s\n", GroupDrill_report()));
-	}
-
 	/* And under -scenario, how much of the file actually happened.  A scenario whose spawns all
 		 failed still plays a match and still writes every number below it, so the run has to say out
 		 loud how many orders it managed rather than leaving that to be inferred from the frame time. */
 	if (!TheGlobalData->m_scenarioFile.isEmpty())
 	{
 		DEBUG_LOG(("HEADLESS SCENARIO: %s\n", ScenarioDrill_report()));
+		ScenarioDrill_logArrivals();
 	}
 
 	/* Stability, which is a different question from speed and is answered by the tail rather than

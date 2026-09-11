@@ -1135,19 +1135,7 @@ UpdateSleepTime AIUpdateInterface::update( void )
 	// assume we can sleep forever, unless the state machine (or turret, etc) demand otherwise
 	UpdateSleepTime subMachineSleep = UPDATE_SLEEP_FOREVER;
 
-	/* -aislice: think every n-th frame, drive every frame.
-
-		 The state machine below is where a unit decides - what to attack, where the next waypoint is,
-		 whether to give up and repath - and it is the expensive half of the object walk. The
-		 locomotor at the bottom of this function is what actually moves it, and that is not skipped,
-		 so a sliced-out frame is a frame the unit keeps driving along the route it already has
-		 without asking any new questions. The stagger is the object id: creation order, identical on
-		 every machine, so this stays inside the CRC. Off by default (n = 1). */
-	const Int aiSlice = TheGlobalData ? TheGlobalData->m_aiSliceFrames : 1;
-	const Bool thinkThisFrame = (aiSlice <= 1) ||
-		(((TheGameLogic->getFrame() + (UnsignedInt)getObject()->getID()) % (UnsignedInt)aiSlice) == 0);
-
-	StateReturnType stRet = thinkThisFrame ? getStateMachine()->updateStateMachine() : STATE_CONTINUE;
+	StateReturnType stRet = getStateMachine()->updateStateMachine();
 
 	// A unit that was just built walks a short exit path out of its producer and then, if the player
 	// set a rally point, attack moves to it - so it stops and fights whatever it runs into on the way
@@ -1247,8 +1235,7 @@ UpdateSleepTime AIUpdateInterface::update( void )
 			! obj->isDisabledByType( DISABLED_HACKED ) )
 	{
 		// If we are dead, don't let the turrets do anything anymore, or else they will keep attacking
-		// (a turret is deciding too, so it waits with the rest of the unit's thinking under -aislice)
-		for (int i = 0; thinkThisFrame && i < MAX_TURRETS; ++i)
+		for (int i = 0; i < MAX_TURRETS; ++i)
 		{
 			if (m_turretAI[i])
 			{
@@ -1583,7 +1570,7 @@ Bool AIUpdateInterface::needToRotate(void)
 
 
 //-------------------------------------------------------------------------------------------------
-// -crowd: the constants the steering stack is made of, all in world units (a pathfind cell is 10).
+// the crowd model: the constants the steering stack is made of, all in world units (a pathfind cell is 10).
 //-------------------------------------------------------------------------------------------------
 static const Real CROWD_AIR					= 4.0f;		///< air a body wants round it, on top of both radii
 static const Real CROWD_SEP_STEP		= 1.5f;		///< most one frame of separation may move a lane
@@ -1600,7 +1587,7 @@ static const Real CROWD_AIM_URGENT	= 0.67f;	///< and while manoeuvring (~20/sec)
 static const Real CROWD_AIM_DEAD		= 0.035f;	///< two degrees: hold the wheel still rather than chase the noise
 //-------------------------------------------------------------------------------------------------
 /* Being stuck.  These are not crowd constants: every unit trying to drive somewhere is measured
-	 against them, with or without -crowd.  The rungs of the ladder are spaced by continued lack of
+	 against them, whether or not the crowd model steers it.  The rungs of the ladder are spaced by continued lack of
 	 progress rather than by wall clock, so a unit that starts moving again drops off it at once. */
 //-------------------------------------------------------------------------------------------------
 static const Real STUCK_TURN_EPSILON	= 0.004f;	///< a quarter of a degree a frame: below this the hull is not turning
@@ -1664,11 +1651,8 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 				m_curMaxBlockedSpeed = maxSpeed;
 			}
 
-			// before settling in behind him, see whether the route is wide enough to go round.
-			// under -crowd the same decision is made every frame in crowdSteer, off the band and the
-			// whole neighbourhood rather than off this one collision, so the old rule stands down
-			if (!TheGlobalData->m_crowdModel)
-				tryLaneChangeAround(other);
+			// whether the route is wide enough to go round is decided every frame in crowdSteer, off the
+			// band and the whole neighbourhood rather than off this one collision
 
 			if (!aiOther->isMovingAwayFrom(getObject())) {
 
@@ -1710,14 +1694,13 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 					// at a group's destination every arriving unit shoved the parked ones, which
 					// shoved others - the group milled about and repathed without end)
 					//
-					/* -crowd asks again, under the three conditions that revert was missing.  We have
+					/* The crowd model asks again, under the three conditions that revert was missing.  We have
 						 to have been held up for a while, so an arrival that clears on its own is left
 						 alone; we have to still have somewhere to be, which is what stops the whole thing
 						 at a destination where nobody does; and the parked unit has to be the smaller of
 						 the two, so a mob of infantry cannot pass a tank around by taking turns to shove
 						 it. */
-					if (TheGlobalData->m_crowdModel
-								&& m_crowdQueued > CROWD_FAN_FRAMES * 2
+					if (m_crowdQueued > CROWD_FAN_FRAMES * 2
 								&& Crowd_remaining(getObject()) > PATHFIND_CELL_SIZE_F * 3.0f
 								&& !crowdOutranksMe(other)
 								&& !aiOther->isMovingAwayFrom(getObject())
@@ -1739,13 +1722,9 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 				{
 					if (!aiOther->needToRotate()) 
 					{
-						// Deadlocked.  -crowd settles it by size and by who is nearer the end of his
-						// route, which is the same order the steering used all the way here; retail
-						// settles it by who is carrying the more urgent kind of order
-						const Bool yield = TheGlobalData->m_crowdModel
-																	? crowdOutranksMe(other)
-																	: !hasHigherPathPriority(aiOther);
-						if (yield)
+						// Deadlocked: settled by size and by who is nearer the end of his route, which is
+						// the same order the steering used all the way here
+						if (crowdOutranksMe(other))
 						{
 							// get out of his way.
 							aiMoveAwayFromUnit(aiOther->getObject(), CMD_FROM_AI);
@@ -2329,9 +2308,6 @@ void AIUpdateInterface::seedLaneFraction( void )
 	m_laneHoldFrame = 0;
 	m_hasPendingLane = FALSE;
 
-	if (TheGlobalData->m_noLanePath)
-		m_laneFraction = 0.5f;
-
 	// the other end of the SHOWLANES trail: a lane handed out at order time is worth nothing if the
 	// path arrives after something else has already seeded this unit at the centre.
 	if (TheGlobalData->m_showLanes)
@@ -2339,86 +2315,6 @@ void AIUpdateInterface::seedLaneFraction( void )
 		DEBUG_LOG(("SHOWLANES seed: unit %d pending=%d lane=%.2f\n", getObject()->getID(),
 			hadPending ? 1 : 0, m_laneFraction));
 	}
-}
-
-//-------------------------------------------------------------------------------------------------
-/**
- * Take a different lane to get past a unit that is in the way and not going anywhere.
- *
- * The alternative retail offers is to wait, count blocked frames, and eventually spend a search on
- * a route that starts from the middle of the queue - which is how a column of tanks turns into a
- * column of stopped tanks.  Sliding across the band costs no search at all: the route is unchanged,
- * only the point on it the unit steers at moves.  The lane is held for a while so it does not flap
- * between the two sides of a blocker who is himself drifting, and it is paid for in a little speed.
- */
-//-------------------------------------------------------------------------------------------------
-void AIUpdateInterface::tryLaneChangeAround( Object *other )
-{
-	if (TheGlobalData->m_noLanePath)
-		return;
-	if (!m_laneFractionValid || getPath() == NULL)
-		return;
-	if (TheGameLogic->getFrame() < m_laneHoldFrame)
-		return;
-	if (m_curLocomotor == NULL)
-		return;
-
-	// only worth going round somebody slower than us; anybody keeping up will clear on his own
-	Real mySpeed = m_curLocomotor->getMaxSpeedForCondition(getObject()->getBodyModule()->getDamageState());
-	if (mySpeed < 0.05f)
-		return;
-	/* How fast the blocker is actually going, not how fast his engine could.  Comparing top speeds
-		 means a column of identical tanks never passes anything: every one of them reports full
-		 speed while crawling nose to tail behind the same jam, so the one mechanism that could
-		 break the queue up refused to fire in exactly the case it was written for. */
-	AIUpdateInterface *aiOther = other->getAI();
-	Real hisSpeed = 0.0f;
-	if (aiOther != NULL && aiOther->isMoving() && other->getPhysics() != NULL)
-		hisSpeed = other->getPhysics()->getVelocityMagnitude();
-	if (hisSpeed > mySpeed * 0.8f)
-		return;
-
-	Coord3D onPath;
-	Coord2D dir;
-	if (!getPath()->closestPointAndDir(*getObject()->getPosition(), &onPath, &dir))
-		return;
-
-	Coord2D left, right;
-	left.x = -dir.y;	left.y = dir.x;
-	right.x = dir.y;	right.y = -dir.x;
-
-	Pathfinder *pf = TheAI->pathfinder();
-	PathfindLayerEnum layer = getObject()->getLayer();
-	Real leftRoom = pf->laneExtent(getObject(), m_locomotorSet, layer, &onPath, &left);
-	Real rightRoom = pf->laneExtent(getObject(), m_locomotorSet, layer, &onPath, &right);
-	Real width = leftRoom + rightRoom;
-	if (width < 1.0f)
-		return;		// a doorway has no room to pass in, and pretending otherwise just wedges both units
-
-	// where the blocker sits across the same band, and how far past him we have to be to clear
-	Real hisLateral = (other->getPosition()->x - onPath.x) * left.x
-									+ (other->getPosition()->y - onPath.y) * left.y;
-	Real hisFraction = Pathfinder_laneFraction(hisLateral, leftRoom, rightRoom);
-	Real gap = (getObject()->getGeometryInfo().getBoundingCircleRadius()
-						+ other->getGeometryInfo().getBoundingCircleRadius()) / width;
-
-	// prefer the side we are already on, and take the other one if that side has no room
-	Real want = (m_laneFraction >= hisFraction) ? (hisFraction + gap) : (hisFraction - gap);
-	if (want > 0.95f || want < 0.05f)
-		want = (m_laneFraction >= hisFraction) ? (hisFraction - gap) : (hisFraction + gap);
-	if (want > 0.95f || want < 0.05f)
-		return;
-	if (fabs(want - m_laneFraction) < 0.02f)
-		return;
-
-	m_laneFraction = want;
-	m_laneHoldFrame = TheGameLogic->getFrame() + PF_LANE_HOLD_FRAMES;
-	getPath()->invalidateCachedPointOnPath();		// or we steer at the old lane for another twenty frames
-
-	// a unit crabbing sideways is not driving forwards at full speed
-	Real cap = mySpeed * 0.85f;
-	if (cap < m_curMaxBlockedSpeed)
-		m_curMaxBlockedSpeed = cap;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2460,7 +2356,7 @@ Bool AIUpdateInterface::crowdOutranksMe( Object *other ) const
 /**
  * Where across the route to drive this frame, and how fast.
  *
- * This is the whole -crowd model, and it is one function on purpose: every rule in it reads the
+ * This is the whole crowd model, and it is one function on purpose: every rule in it reads the
  * same neighbour scan and writes the same two numbers, and the only two numbers the engine's
  * steering will accept are the point to aim at and the speed to aim at it with.  Retail has one
  * reactive rule (a collision, once it has already happened, caps the speed) and consequently a
@@ -3500,14 +3396,12 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 			cap = ease;
 	}
 
-	// ease off through a bend, or the outside of the group is asked for a speed it cannot turn at
-	const Real bend = (Real)fabs( m_corridor->curvature( i ) );
-	if (bend > 0.15f)
-	{
-		Real f = 1.0f - bend * 0.5f;
-		if (f < 0.55f) f = 0.55f;
-		cap *= f;
-	}
+	/* No easing off for a bend.  There was a rule here that cut the speed to as little as 55% wherever
+		 the route turned within four samples, and the corners of a pathfinder route are everywhere: a
+		 quarter of all crowd frames on the choke probe were under it, at an average of two thirds of
+		 full speed, and a unit with the road to itself ran at 0.92.  The locomotor already slows for a
+		 turn it cannot make.  Taking the rule out brought the last of 20 Crusaders in after 2136 frames
+		 instead of 2581, with blocked unit-frames 3965 against 5815 and wedged 2439 against 3890. */
 
 	//--- and finally, the two numbers the locomotor takes ------------------------------------------
 	/* How far ahead to steer.  The distance is the old one, two cells and a body; what changed is
@@ -3607,9 +3501,10 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 	{
 		const char *mode = pressing ? "press" : (giveWay ? "yield" : (merged ? "merge"
 											 : (queued ? "brake" : (blocker != NULL ? "pass" : "free"))));
-		DEBUG_LOG(("SHOWLANES crowd: unit %d %s sample %d lat %.1f band %.1f/%.1f lane %d/%d of %d queued %d stuck %d rank %d speed %.2f\n",
+		DEBUG_LOG(("SHOWLANES crowd: unit %d %s sample %d lat %.1f band %.1f/%.1f lane %d/%d of %d queued %d stuck %d rank %d speed %.2f cross %d vel %.2f\n",
 			self->getID(), mode, i, m_crowdLat, here.left, here.right, laneMine, laneFit, m_crowdLaneOf,
-			m_crowdQueued, m_noProgress, rank, speed));
+			m_crowdQueued, m_noProgress, rank, speed, crossing ? 1 : 0,
+			myPhys != NULL ? myPhys->getVelocityMagnitude() : 0.0f));
 	}
 }
 
@@ -3727,13 +3622,10 @@ UpdateSleepTime AIUpdateInterface::doLocomotor( void )
 			 arrived.  The cell it is standing in gets more expensive for about a second, which is
 			 long enough for whoever repaths next to be handed a way round the line instead of a
 			 place in it. */
-		if (!TheGlobalData->m_noFlowPath)
-		{
-			Int trafficRadius = 0;
-			Bool trafficCenter = true;
-			TheAI->pathfinder()->getRadiusAndCenter(getObject(), trafficRadius, trafficCenter);
-			TheAI->pathfinder()->noteTraffic(getObject()->getPosition(), trafficRadius);
-		}
+		Int trafficRadius = 0;
+		Bool trafficCenter = true;
+		TheAI->pathfinder()->getRadiusAndCenter(getObject(), trafficRadius, trafficCenter);
+		TheAI->pathfinder()->noteTraffic(getObject()->getPosition(), trafficRadius);
 	}
 	else
 	{
@@ -3744,7 +3636,7 @@ UpdateSleepTime AIUpdateInterface::doLocomotor( void )
 		 its own id so the whole army does not do it on one frame.  Always from where the unit
 		 actually is - a claim made a second ago against a plan that has since been held up is
 		 exactly the claim that would send somebody else round a crossing that is no longer there. */
-	if (!TheGlobalData->m_noFlowPath && getPath() != NULL)
+	if (getPath() != NULL)
 	{
 		UnsignedInt stagger = TheGameLogic->getFrame() + (UnsignedInt)getObject()->getID();
 		if ((stagger % PF_CLAIM_REFRESH_FRAMES) == 0)
@@ -3871,11 +3763,11 @@ UpdateSleepTime AIUpdateInterface::doLocomotor( void )
 							 inside the crowd model because being wedged is not a crowd problem. */
 						if (!rescueSteer(goalPos))
 						{
-							/* -crowd hangs here, on the two numbers about to be handed to the locomotor.  The
-								 point on the route has already been worked out; the crowd model moves it sideways
-								 across the width of the road and takes speed off for whatever is in the way.
-								 Ground movement only - an aircraft has no road and no traffic. */
-							if (TheGlobalData->m_crowdModel && isDoingGroundMovement())
+							/* The crowd model hangs here, on the two numbers about to be handed to the
+								 locomotor.  The point on the route has already been worked out; the crowd model
+								 moves it sideways across the width of the road and takes speed off for whatever is
+								 in the way.  Ground movement only - an aircraft has no road and no traffic. */
+							if (isDoingGroundMovement())
 								crowdSteer(goalPos, speed);
 						}
 
@@ -7142,7 +7034,7 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 
 	if (version >= 9)
 	{
-		/* -crowd's lane, which is a distance and not a share, plus how long the unit has been held
+		/* The crowd model's lane, which is a distance and not a share, plus how long the unit has been held
 			 up - a save made in the middle of a jam that came back with everybody patient again would
 			 restart the jam from the beginning.  The band itself is not saved: it is derived from the
 			 route and is rebuilt the first frame after the load. */

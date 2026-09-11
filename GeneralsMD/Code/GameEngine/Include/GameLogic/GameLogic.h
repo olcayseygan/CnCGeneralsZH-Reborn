@@ -385,7 +385,6 @@ private:
 	UnsignedInt m_peaceTimeEndFrame;	///< logic frame the lobby's peace time runs out on, 0 = no peace time
 	UnsignedInt m_unitCap;						///< units each player may have standing and queued, 0 = no limit
 	Bool m_proRules;									///< this match refuses what PRO-RULES.md bans
-
 	LoadScreen *getLoadScreen( Bool loadSaveGame );
 	LoadScreen *m_loadScreen;
 	Bool m_gamePaused;

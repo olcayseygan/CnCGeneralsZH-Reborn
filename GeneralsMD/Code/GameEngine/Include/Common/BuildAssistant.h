@@ -97,6 +97,7 @@ enum LegalBuildCode
 	LBC_TOO_CLOSE_TO_SUPPLIES,
 	LBC_GENERIC_FAILURE,
 	LBC_TOO_CLOSE_TO_ENEMY,			///< Pro Rules: within PRO_RULES_ENEMY_STRUCTURE_CLEARANCE of an enemy building
+	LBC_TOO_MANY_DERRICK_DEFENSES,	///< Pro Rules: the player's own defences round this oil derrick cluster are full
 };
 
 //-------------------------------------------------------------------------------------------------

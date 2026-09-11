@@ -704,13 +704,7 @@ GlobalData::GlobalData()
 	m_cameraLook.x = m_cameraLook.y = 0.0f;
 	m_traceMoveID = 0; // no movement trace
 	m_slowFrameMS = 20.0f; // a frame worth a line in the log; -slowframe lowers it for a hunt
-	m_aiSliceFrames = 1; // every unit thinks every frame, which is what the game has always done
-	m_noFlowPath = FALSE; // the flow model is on; -noflowpath is the retail baseline to measure against
-	m_noLanePath = FALSE; // lanes are on; -nolanes is the retail baseline to measure against
-	m_noMomentumPath = FALSE; // a turn costs what the hull's own turn rate says; -nomomentum is retail's flat price
 	m_showLanes = FALSE; // the lane overlay is a diagnostic, off unless -showlanes asks for it
-	m_crowdModel = FALSE; // the crowd model is the change under test; without -crowd this is the old build
-	m_groupDrill = 0; // no group orders are faked; -groupdrill is a measuring tool and ruins the match it runs in
 	m_uiDrill = 0; // nobody presses the minimise button; -uidrill is how a script presses it
 	m_resDrillFrame = 0; // the resolution stays where it started unless -resdrill changes it mid-match
 	m_resDrillX = 0;
@@ -718,7 +712,7 @@ GlobalData::GlobalData()
 	m_resDrillKeep = FALSE;
 	m_noRenderDevice = FALSE; // -headless still takes a 100x100 device unless -nodevice says not to
 	m_controlPort = 0; // nothing listens; -control opens the socket
-	m_scenarioFile.clear(); // nothing is scripted; -scenario is a measuring tool and, like -groupdrill, ruins the match it runs in
+	m_scenarioFile.clear(); // nothing is scripted; -scenario is a measuring tool and ruins the match it runs in
 	m_autoSkirmishTakeover = FALSE; // the AI plays the opponents unless -takeover empties their seats
 	for( Int slot = 0; slot < MAX_PLAYER_COUNT; slot++ )
 		m_autoSkirmishSide[ slot ].clear(); // every faction still comes out of the seed unless -side names one

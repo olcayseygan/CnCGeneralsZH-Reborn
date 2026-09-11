@@ -17,7 +17,7 @@
 
   A mismatch names the frame it was taken at, not the frame it started at, so it says a divergence
   happened rather than where. That is still the whole difference between shipping a desync and
-  not: -DebugCRCFromFrame in an _INTERNAL build is what narrows it down afterwards.
+  not: -DebugCRCFromFrame, which Release parses too, is what narrows it down afterwards.
 
 .EXAMPLE
   .\replay-check.ps1
@@ -39,9 +39,9 @@ param(
 	# where the game is
 	[string] $RunDir = "$PSScriptRoot\GeneralsMD\Run",
 	[string] $Exe = "generals.exe",
-	# switches to add to both halves of every seed. A movement flag has to be on for the recording
-	# and the playback alike: turning it on for one of them is a divergence the script would report
-	# as a broken build. -ExtraArgs -crowd is the crowd model's determinism check
+	# switches to add to both halves of every seed. A switch that reaches the match has to be on for
+	# the recording and the playback alike: turning it on for one of them is a divergence the script
+	# would report as a broken build. -ExtraArgs -unitlimit is the unit limit's determinism check
 	[string[]] $ExtraArgs = @()
 )
 
