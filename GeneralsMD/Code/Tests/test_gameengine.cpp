@@ -11447,6 +11447,60 @@ TEST(control_server_answers_the_rfc_handshake_example)
 	CHECK( !ControlServer_computeAcceptKey( "dGhlIHNhbXBsZSBub25jZQ==", tooSmall, sizeof( tooSmall ) ) );
 }
 
+/* -control's influence reply.
+ *
+ * The viewer slices values by width, so a missing comma or a row written out of order draws a
+ * picture that looks like a map and is not the one the game holds.
+ */
+TEST(control_server_formats_the_influence_grid_row_by_row)
+{
+	const UnsignedInt values[ 6 ] = { 0, 1, 2, 300, 4, 5 };
+	std::vector<char> reply;
+
+	ControlServer_formatInfluence( 7, 1, "cash", 3, 2, 40.0f, values, &reply );
+
+	CHECK_STR( &reply[ 0 ],
+		"{\"ok\":true,\"frame\":7,\"player\":1,\"kind\":\"cash\",\"width\":3,\"height\":2,"
+		"\"cellSize\":40,\"values\":[0,1,2,300,4,5]}" );
+}
+
+/* -control's units reply: the side number is what the viewer colours by, so it is checked by value. */
+TEST(control_server_formats_units_with_their_side_and_kind)
+{
+	std::vector<ControlUnit> units;
+	ControlUnit tank = { 41, 812.4f, 900.6f, CONTROL_UNIT_ENEMY, FALSE, "GLATankScorpion", 800 };
+	ControlUnit barracks = { 7, 100.0f, 2000.0f, CONTROL_UNIT_OWN, TRUE, "AmericaBarracks", 500 };
+	units.push_back( tank );
+	units.push_back( barracks );
+	std::vector<Bool> seen;
+	seen.push_back( TRUE );
+	seen.push_back( FALSE );
+	seen.push_back( TRUE );
+	std::vector<char> reply;
+
+	ControlServer_formatUnits( 9, 2, 3, 1, 40.0f, units, seen, &reply );
+
+	CHECK_STR( &reply[ 0 ],
+		"{\"ok\":true,\"frame\":9,\"player\":2,\"width\":3,\"height\":1,\"cellSize\":40,"
+		"\"units\":[[41,812,901,2,0,\"GLATankScorpion\",800],[7,100,2000,0,1,\"AmericaBarracks\",500]],"
+		"\"seen\":\"101\"}" );
+}
+
+/* -control's terrain reply: one character per sample, row by row, so the viewer can slice it by width. */
+TEST(control_server_formats_terrain_row_by_row)
+{
+	std::vector<char> cells;
+	cells.push_back( (char)CONTROL_TERRAIN_PASSABLE );
+	cells.push_back( (char)CONTROL_TERRAIN_CLIFF );
+	cells.push_back( (char)CONTROL_TERRAIN_WATER );
+	cells.push_back( (char)CONTROL_TERRAIN_PASSABLE );
+	std::vector<char> reply;
+
+	ControlServer_formatTerrain( 2, 2, 10.0f, cells, &reply );
+
+	CHECK_STR( &reply[ 0 ], "{\"ok\":true,\"width\":2,\"height\":2,\"cellSize\":10,\"cells\":\"0120\"}" );
+}
+
 /* Telling a click from a drag.
  *
  * Three terms, and each of them has been wrong at some point. The screen distance was compared one

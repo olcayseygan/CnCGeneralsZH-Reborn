@@ -37,7 +37,21 @@
 //   attack <slot> <selector> <targetSlot> <targetSelector>
 //   stop <slot> <selector>
 //
-// plus a handful the files have no use for: ping, status, screenshot, skirmish, quit, and
+// plus a handful the files have no use for: ping, status, screenshot, skirmish, quit,
+//
+//   influence <player index> threat|cash
+//
+// which reads one player's per-cell threat or cash map out of the partition manager where it
+// arrives, since it writes nothing,
+//
+//   units <player index>
+//
+// which lists where that player's own and allied objects are, every enemy it can see right now and
+// which cells it sees, read where it arrives for the same reason,
+//
+//   terrain
+//
+// which samples the ground once per pathfinder cell as passable, cliff or water, and
 //
 //   key <KEY_name> [ALT] [CTRL] [SHIFT]
 //
@@ -61,6 +75,8 @@
 
 #include "Lib/BaseType.h"
 
+#include <vector>
+
 /** Accept connections, read commands, send replies.  Called once per engine pass. */
 extern void ControlServer_poll( void );
 
@@ -75,5 +91,54 @@ extern void ControlServer_shutdown( void );
 	  base64'd.  Public because it is the one piece of this file that can be tested without a socket,
 	  and RFC 6455 ships a worked example to test it against. */
 extern Bool ControlServer_computeAcceptKey( const char *clientKey, char *out, Int outSize );
+
+/** The influence reply: one player's value for every partition cell, row by row from cell 0,0,
+	  with the grid's size and the frame it was read on.  Public for the accept key's reason: the
+	  formatting can be tested without a socket or a map.  out ends in a terminating 0. */
+extern void ControlServer_formatInfluence( UnsignedInt frame, Int playerIndex, const char *kind,
+																					 Int width, Int height, Real cellSize,
+																					 const UnsignedInt *values, std::vector<char> *out );
+
+/** How an object in the units reply stands to the player it was asked for.  The numbers go down the
+	  socket as they are, and influence_viewer.py reads them by value. */
+enum ControlUnitSide
+{
+	CONTROL_UNIT_OWN = 0,
+	CONTROL_UNIT_ALLY = 1,
+	CONTROL_UNIT_ENEMY = 2
+};
+
+struct ControlUnit
+{
+	UnsignedInt id;
+	Real x;
+	Real y;
+	ControlUnitSide side;
+	Bool isStructure;
+	const char *templateName;
+	Int cost;
+};
+
+/** What one sample of the ground is in the terrain reply, sent as the character itself. */
+enum ControlTerrainKind
+{
+	CONTROL_TERRAIN_PASSABLE = '0',
+	CONTROL_TERRAIN_CLIFF = '1',
+	CONTROL_TERRAIN_WATER = '2'
+};
+
+/** The terrain reply: the sample grid's size and spacing, and "cells", one ControlTerrainKind
+	  character per sample, row by row from 0,0.  out ends in a 0. */
+extern void ControlServer_formatTerrain( Int width, Int height, Real cellSize, const std::vector<char> &cells,
+																				 std::vector<char> *out );
+
+/** The units reply: the partition grid's size, so a viewer can bin positions into the same cells the
+	  influence reply uses, one [id, x, y, side, structure, template, cost] array per object, and "seen", one '1' or '0'
+	  per cell row by row for whether the player sees that cell clear right now.  The id and the seen
+	  cells are what let a viewer remember an enemy it lost sight of and forget it once the spot is
+	  scouted again.  out ends in a 0. */
+extern void ControlServer_formatUnits( UnsignedInt frame, Int playerIndex, Int width, Int height,
+																			 Real cellSize, const std::vector<ControlUnit> &units,
+																			 const std::vector<Bool> &seen, std::vector<char> *out );
 
 #endif // __CONTROLSERVER_H_

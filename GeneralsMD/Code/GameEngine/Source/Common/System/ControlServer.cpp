@@ -37,8 +37,12 @@
 #include "GameClient/KeyDefs.h"
 #include "GameClient/MetaEvent.h"
 #include "GameLogic/GameLogic.h"
+#include "Common/ThingTemplate.h"
+#include "GameLogic/AIPathfind.h"		// PATHFIND_CELL_SIZE_F, the terrain reply's sample spacing
 #include "GameLogic/Object.h"
+#include "GameLogic/PartitionManager.h"
 #include "GameLogic/ScenarioDrill.h"
+#include "GameLogic/TerrainLogic.h"
 #include "GameNetwork/GameInfo.h"		// MAX_SLOTS, for the skirmish command's player count
 
 #include <vector>
@@ -56,6 +60,10 @@ static const Int CONTROL_BACKLOG = 1;
 static const Int CONTROL_READ_CHUNK = 4096;
 static const Int CONTROL_MAX_REQUEST = 16384;
 static const Int CONTROL_MAX_COMMANDS_PER_FRAME = 64;
+static const Int CONTROL_SEND_WAIT_SECONDS = 2;
+
+static const char *INFLUENCE_KIND_THREAT = "threat";
+static const char *INFLUENCE_KIND_CASH = "cash";
 
 /// RFC 6455's magic string, appended to the client key before hashing
 static const char *CONTROL_WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -335,7 +343,38 @@ static void sendFrame( unsigned char opcode, const char *payload, Int length )
 	for( Int i = 0; i < length; ++i )
 		frame.push_back( payload[ i ] );
 
-	send( theClientSocket, &frame[ 0 ], (Int)frame.size(), 0 );
+	/* A non-blocking send takes what fits in the socket buffer and says how much that was.  An influence
+		 map is tens of kilobytes, more than one send takes, and a frame cut short is a stream the client
+		 can never read again, so the rest waits for the socket to drain. */
+	const Int total = (Int)frame.size();
+	Int sent = 0;
+	while (sent < total)
+	{
+		const Int result = send( theClientSocket, &frame[ sent ], total - sent, 0 );
+		if (result > 0)
+		{
+			sent += result;
+			continue;
+		}
+
+		if (WSAGetLastError() != WSAEWOULDBLOCK)
+		{
+			closeClient();
+			return;
+		}
+
+		fd_set writable;
+		FD_ZERO( &writable );
+		FD_SET( theClientSocket, &writable );
+		timeval wait = { CONTROL_SEND_WAIT_SECONDS, 0 };
+		if (select( 0, NULL, &writable, NULL, &wait ) <= 0)
+		{
+			DEBUG_LOG(("CONTROL: client stopped reading with %d of %d bytes unsent, closing\n",
+								 total - sent, total));
+			closeClient();
+			return;
+		}
+	}
 }
 
 static void sendText( const char *text )
@@ -552,6 +591,241 @@ static void replyStatus( void )
 	sendText( &reply[ 0 ] );
 }
 
+static void appendText( std::vector<char> *out, const char *text )
+{
+	for( const char *at = text; *at; ++at )
+		out->push_back( *at );
+}
+
+void ControlServer_formatInfluence( UnsignedInt frame, Int playerIndex, const char *kind,
+																		Int width, Int height, Real cellSize,
+																		const UnsignedInt *values, std::vector<char> *out )
+{
+	char piece[ 256 ];
+	sprintf( piece, "{\"ok\":true,\"frame\":%u,\"player\":%d,\"kind\":\"%s\",\"width\":%d,\"height\":%d,"
+									"\"cellSize\":%g,\"values\":[",
+					 frame, playerIndex, kind, width, height, cellSize );
+	appendText( out, piece );
+
+	const Int cellCount = width * height;
+	for( Int i = 0; i < cellCount; ++i )
+	{
+		sprintf( piece, i == 0 ? "%u" : ",%u", values[ i ] );
+		appendText( out, piece );
+	}
+
+	appendText( out, "]}" );
+	out->push_back( 0 );
+}
+
+/** Answers and returns FALSE when there is no match to read. */
+static Bool canReadMatch( void )
+{
+	if (!TheGameLogic || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame())
+	{
+		replyError( "no match is running" );
+		return FALSE;
+	}
+	return TRUE;
+}
+
+/** Answers and returns FALSE when there is no match to read or no player at that index. */
+static Bool canReadPlayer( Int playerIndex )
+{
+	if (!canReadMatch())
+		return FALSE;
+
+	if (playerIndex < 0 || playerIndex >= ThePlayerList->getPlayerCount())
+	{
+		replyError( "no player has that index; status lists them" );
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+/** influence <player index> threat|cash, read out of the partition manager on the render pass. */
+static void replyInfluence( const AsciiString &command )
+{
+	Int playerIndex = -1;
+	char kind[ 16 ];
+	if (sscanf( command.str(), "influence %d %15s", &playerIndex, kind ) != 2
+			|| (strcmp( kind, INFLUENCE_KIND_THREAT ) != 0 && strcmp( kind, INFLUENCE_KIND_CASH ) != 0))
+	{
+		replyError( "influence wants <player index> threat|cash" );
+		return;
+	}
+
+	if (!canReadPlayer( playerIndex ))
+		return;
+
+	const Bool readsThreat = strcmp( kind, INFLUENCE_KIND_THREAT ) == 0;
+	const Int width = ThePartitionManager->getCellCountX();
+	const Int height = ThePartitionManager->getCellCountY();
+
+	std::vector<UnsignedInt> values;
+	values.reserve( width * height );
+	for( Int y = 0; y < height; ++y )
+	{
+		for( Int x = 0; x < width; ++x )
+		{
+			PartitionCell *cell = ThePartitionManager->getCellAt( x, y );
+			values.push_back( readsThreat ? cell->getThreatValue( playerIndex ) : cell->getCashValue( playerIndex ) );
+		}
+	}
+
+	std::vector<char> reply;
+	ControlServer_formatInfluence( TheGameLogic->getFrame(), playerIndex, kind, width, height,
+																 ThePartitionManager->getCellSize(), &values[ 0 ], &reply );
+	sendText( &reply[ 0 ] );
+}
+
+void ControlServer_formatUnits( UnsignedInt frame, Int playerIndex, Int width, Int height,
+																Real cellSize, const std::vector<ControlUnit> &units,
+																const std::vector<Bool> &seen, std::vector<char> *out )
+{
+	char piece[ 256 ];
+	sprintf( piece, "{\"ok\":true,\"frame\":%u,\"player\":%d,\"width\":%d,\"height\":%d,\"cellSize\":%g,"
+									"\"units\":[",
+					 frame, playerIndex, width, height, cellSize );
+	appendText( out, piece );
+
+	for( size_t i = 0; i < units.size(); ++i )
+	{
+		sprintf( piece, "%s[%u,%.0f,%.0f,%d,%d,\"%s\",%d]", i == 0 ? "" : ",", units[ i ].id, units[ i ].x,
+						 units[ i ].y, (Int)units[ i ].side, units[ i ].isStructure ? 1 : 0, units[ i ].templateName,
+						 units[ i ].cost );
+		appendText( out, piece );
+	}
+
+	appendText( out, "],\"seen\":\"" );
+	for( size_t i = 0; i < seen.size(); ++i )
+		out->push_back( seen[ i ] ? '1' : '0' );
+
+	appendText( out, "\"}" );
+	out->push_back( 0 );
+}
+
+/** In sight right now: not fogged or shrouded for this player, and not stealthed out of its view. */
+static Bool isSeenNow( Object *obj, Int playerIndex )
+{
+	const ObjectShroudStatus shroud = obj->getShroudedStatus( playerIndex );
+	if (shroud != OBJECTSHROUD_CLEAR && shroud != OBJECTSHROUD_PARTIAL_CLEAR)
+		return FALSE;
+
+	const Bool hiddenByStealth = obj->testStatus( OBJECT_STATUS_STEALTHED )
+		&& !obj->testStatus( OBJECT_STATUS_DETECTED ) && !obj->testStatus( OBJECT_STATUS_DISGUISED );
+	return !hiddenByStealth;
+}
+
+/** units <player index>: everything this player and its allies own, and every enemy it sees now.
+	  Neutral objects and projectiles are left out, so civilians and shells do not count as a force. */
+static void replyUnits( const AsciiString &command )
+{
+	Int playerIndex = -1;
+	if (sscanf( command.str(), "units %d", &playerIndex ) != 1)
+	{
+		replyError( "units wants <player index>" );
+		return;
+	}
+
+	if (!canReadPlayer( playerIndex ))
+		return;
+
+	Player *viewer = ThePlayerList->getNthPlayer( playerIndex );
+	std::vector<ControlUnit> units;
+	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+	{
+		if (obj->isEffectivelyDead() || obj->isKindOf( KINDOF_PROJECTILE ) || obj->getControllingPlayer() == NULL)
+			continue;
+
+		ControlUnit unit;
+		if (obj->getControllingPlayer() == viewer)
+		{
+			unit.side = CONTROL_UNIT_OWN;
+		}
+		else
+		{
+			const Relationship relationship = viewer->getRelationship( obj->getTeam() );
+			if (relationship == ALLIES)
+				unit.side = CONTROL_UNIT_ALLY;
+			else if (relationship == ENEMIES && isSeenNow( obj, playerIndex ))
+				unit.side = CONTROL_UNIT_ENEMY;
+			else
+				continue;
+		}
+
+		unit.id = (UnsignedInt)obj->getID();
+		unit.x = obj->getPosition()->x;
+		unit.y = obj->getPosition()->y;
+		unit.isStructure = obj->isKindOf( KINDOF_STRUCTURE );
+		// the template's own price, not what this player would pay: a value to weigh forces by
+		unit.templateName = obj->getTemplate()->getName().str();
+		unit.cost = obj->getTemplate()->friend_getBuildCost();
+		units.push_back( unit );
+	}
+
+	const Int width = ThePartitionManager->getCellCountX();
+	const Int height = ThePartitionManager->getCellCountY();
+	std::vector<Bool> seen;
+	seen.reserve( width * height );
+	for( Int y = 0; y < height; ++y )
+	{
+		for( Int x = 0; x < width; ++x )
+			seen.push_back( ThePartitionManager->getCellAt( x, y )->getShroudStatusForPlayer( playerIndex ) == CELLSHROUD_CLEAR );
+	}
+
+	std::vector<char> reply;
+	ControlServer_formatUnits( TheGameLogic->getFrame(), playerIndex, width, height,
+														 ThePartitionManager->getCellSize(), units, seen, &reply );
+	sendText( &reply[ 0 ] );
+}
+
+void ControlServer_formatTerrain( Int width, Int height, Real cellSize, const std::vector<char> &cells,
+																	std::vector<char> *out )
+{
+	char piece[ 128 ];
+	sprintf( piece, "{\"ok\":true,\"width\":%d,\"height\":%d,\"cellSize\":%g,\"cells\":\"", width, height, cellSize );
+	appendText( out, piece );
+	for( size_t i = 0; i < cells.size(); ++i )
+		out->push_back( cells[ i ] );
+	appendText( out, "\"}" );
+	out->push_back( 0 );
+}
+
+/** terrain: the ground sampled at the centre of every pathfinder cell.  It does not change during a
+	  match, so a viewer asks once per map rather than once per reading. */
+static void replyTerrain( void )
+{
+	if (!canReadMatch())
+		return;
+
+	const Real spacing = PATHFIND_CELL_SIZE_F;
+	const Int width = REAL_TO_INT_CEIL( ThePartitionManager->getCellCountX() * ThePartitionManager->getCellSize() / spacing );
+	const Int height = REAL_TO_INT_CEIL( ThePartitionManager->getCellCountY() * ThePartitionManager->getCellSize() / spacing );
+
+	std::vector<char> cells;
+	cells.reserve( width * height );
+	for( Int y = 0; y < height; ++y )
+	{
+		for( Int x = 0; x < width; ++x )
+		{
+			const Real worldX = (x + 0.5f) * spacing;
+			const Real worldY = (y + 0.5f) * spacing;
+			if (TheTerrainLogic->isUnderwater( worldX, worldY ))
+				cells.push_back( (char)CONTROL_TERRAIN_WATER );
+			else if (TheTerrainLogic->isCliffCell( worldX, worldY ))
+				cells.push_back( (char)CONTROL_TERRAIN_CLIFF );
+			else
+				cells.push_back( (char)CONTROL_TERRAIN_PASSABLE );
+		}
+	}
+
+	std::vector<char> reply;
+	ControlServer_formatTerrain( width, height, spacing, cells, &reply );
+	sendText( &reply[ 0 ] );
+}
+
 /** Everything that changes the world is queued; see the header for why. */
 static void handleCommand( const AsciiString &command )
 {
@@ -567,6 +841,24 @@ static void handleCommand( const AsciiString &command )
 	if (command == "status")
 	{
 		replyStatus();
+		return;
+	}
+
+	if (strncmp( command.str(), "influence ", 10 ) == 0)
+	{
+		replyInfluence( command );
+		return;
+	}
+
+	if (strncmp( command.str(), "units ", 6 ) == 0)
+	{
+		replyUnits( command );
+		return;
+	}
+
+	if (command == "terrain")
+	{
+		replyTerrain();
 		return;
 	}
 
