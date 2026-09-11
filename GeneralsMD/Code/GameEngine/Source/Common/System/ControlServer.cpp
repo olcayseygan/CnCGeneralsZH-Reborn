@@ -29,10 +29,13 @@
 #include "Common/ControlServer.h"
 #include "Common/GameEngine.h"
 #include "Common/GlobalData.h"
+#include "Common/MessageStream.h"
 #include "Common/Money.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
 #include "GameClient/Display.h"
+#include "GameClient/KeyDefs.h"
+#include "GameClient/MetaEvent.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/ScenarioDrill.h"
@@ -583,6 +586,56 @@ static void handleCommand( const AsciiString &command )
 	{
 		theQuitRequested = TRUE;
 		replyOk( "\"quitting\":true" );
+		return;
+	}
+
+	/* key <KEY_name> [ALT] [CTRL] [SHIFT]
+		 One press and release, carried the way Keyboard.cpp carries a real one, so the command map, the
+		 translators and whatever network message sits behind them all see a key.  The keyboard itself
+		 is DirectInput and reads only the foreground window, which a script cannot count on holding.
+		 The mouse stays where it is: post the window a WM_MOUSEMOVE first when the key reads it. */
+	if (strncmp( command.str(), "key ", 4 ) == 0)
+	{
+		char words[ 256 ];
+		strncpy( words, command.str() + 4, sizeof( words ) - 1 );
+		words[ sizeof( words ) - 1 ] = 0;
+
+		Int key = KEY_NONE;
+		const char *keyName = strtok( words, " " );
+		for( const LookupListRec *name = KeyNames; keyName && name->name; ++name )
+		{
+			if (strcmp( name->name, keyName ) == 0)
+				key = name->value;
+		}
+		if (key == KEY_NONE)
+		{
+			replyError( "key wants a KEY_ name from CommandMap.ini, e.g. key KEY_Z ALT" );
+			return;
+		}
+
+		Int modifiers = KEY_STATE_NONE;
+		for( const char *word = strtok( NULL, " " ); word; word = strtok( NULL, " " ) )
+		{
+			if (strcmp( word, "ALT" ) == 0)
+				modifiers |= KEY_STATE_LALT;
+			else if (strcmp( word, "CTRL" ) == 0)
+				modifiers |= KEY_STATE_LCONTROL;
+			else if (strcmp( word, "SHIFT" ) == 0)
+				modifiers |= KEY_STATE_LSHIFT;
+			else
+			{
+				replyError( "a modifier is ALT, CTRL or SHIFT" );
+				return;
+			}
+		}
+
+		GameMessage *press = TheMessageStream->appendMessage( GameMessage::MSG_RAW_KEY_DOWN );
+		press->appendIntegerArgument( key );
+		press->appendIntegerArgument( KEY_STATE_DOWN | modifiers );
+		GameMessage *release = TheMessageStream->appendMessage( GameMessage::MSG_RAW_KEY_UP );
+		release->appendIntegerArgument( key );
+		release->appendIntegerArgument( KEY_STATE_UP | modifiers );
+		replyOk( "\"pressed\":true" );
 		return;
 	}
 

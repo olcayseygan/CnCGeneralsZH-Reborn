@@ -37,7 +37,12 @@
 //   attack <slot> <selector> <targetSlot> <targetSelector>
 //   stop <slot> <selector>
 //
-// plus a handful the files have no use for: ping, status, screenshot, skirmish, quit.
+// plus a handful the files have no use for: ping, status, screenshot, skirmish, quit, and
+//
+//   key <KEY_name> [ALT] [CTRL] [SHIFT]
+//
+// which presses and releases one key through the message stream, the way the keyboard does.  It
+// runs where it arrives, on the render pass, because that is where a real key arrives too.
 //
 // Replies are one JSON object per frame.  Every reply carries "ok", and a failed one carries
 // "error" saying what was wrong with the command rather than dropping it.
