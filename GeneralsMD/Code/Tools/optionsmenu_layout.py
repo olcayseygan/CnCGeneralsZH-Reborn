@@ -9,8 +9,8 @@ them.  Seventeen settings later there is no version of "find room" that works.
 So the screen becomes six pages behind six buttons: Display, Graphics, Audio, Controls, Gameplay and
 Network.  Every graphics setting is on Graphics, including the ones EA hid in a popup that only
 opened when Custom was picked from a combo box on another page.  Every page is laid out on the same
-two columns and the same rows, so a label starts in the same place whichever tab is open, and every
-slider has a readout beside it.  Nothing is redrawn: the controls keep the images and tooltips they
+grid of three titled groups, so a heading, a label and a box start in the same place whichever tab
+is open, and every slider has a readout beside it.  Nothing is redrawn: the controls keep the images and tooltips they
 shipped with, a label or a check box takes the lettering of the one next to it, and what is new is
 cloned from a control that is already there.
 
@@ -42,15 +42,17 @@ from wndlayout import clone
 
 # The panel and everything on it, in the layout's own 800x600 creation resolution.  One inner edge,
 # 16 pixels in from the panel on both sides, is where the title, the tabs, the pages, the buttons
-# and the version line all start and stop.
-PANEL = (100, 16, 600, 568)          # left, top, width, height
-INNER_LEFT, INNER_WIDTH = 116, 568
-TITLE = (INNER_LEFT, 22, 400, 32)
-RULE = (100, 58, 600, 1)
-TAB_TOP, TAB_HEIGHT, TAB_GAP = 66, 28, 3
-PAGE = (INNER_LEFT, 104, INNER_WIDTH, 408)
-BUTTON_TOP, BUTTON_HEIGHT, BUTTON_WIDTH = 528, 32, 180
-VERSION = (INNER_LEFT, 564, INNER_WIDTH, 16)
+# and the version line all start and stop.  The frame is as tall as the tallest group column needs -
+# Graphics' Effects column ends 308 pixels below its heading, its Image column 304 - plus the title,
+# the tabs and the buttons, and it is centred on the 600 line: 58 above it, 58 below.
+PANEL = (20, 58, 760, 484)          # left, top, width, height
+INNER_LEFT, INNER_WIDTH = 36, 728
+TITLE = (INNER_LEFT, 64, 400, 32)
+RULE = (20, 100, 760, 1)
+TAB_TOP, TAB_HEIGHT, TAB_GAP = 108, 28, 4
+PAGE = (INNER_LEFT, 142, INNER_WIDTH, 320)
+BUTTON_TOP, BUTTON_HEIGHT, BUTTON_WIDTH = 478, 32, 180
+VERSION = (INNER_LEFT, 518, INNER_WIDTH, 16)
 
 TABS = [
     ("PageDisplay",  "TabDisplay",  "GUI:OptionsTabDisplay"),
@@ -150,70 +152,89 @@ TEXT_OVERRIDES = [
     ("CheckNoDynamicLOD", "GUI:NeverLowerDetail"),
 ]
 
-# Two columns to a page and one rhythm on all six: a setting is its label with its control under
-# it and takes 56 pixels, a check box is its own label and takes 28.  The columns are 268 wide, 16
-# apart and 8 in from the page edge.
-COLUMNS = (124, 408)
-COLUMN_WIDTH = 268
-ROW_TOP, ROW_PITCH, CHECK_PITCH, ROW_HEIGHT = 112, 56, 28, 24
-# the readout is wide enough for "Medium" in the label's 14 point, which 60 pixels cut off
-SLIDER_WIDTH, READOUT_GAP = 180, 8
+# Three titled groups across every page, one spacing scale: 4 8 16 24 32.  Columns 224 wide, 24
+# apart, 4 in from the page edge; a group heading on 150 and its content from 182.  A setting is its
+# label over its control, pitch 56, and a slider stops at 136 with its readout beside it on the same
+# row; a check box takes 28, a button 32.  Grouping follows what a setting does rather than where EA
+# put it: on Graphics the preset and the two things it sets, then the effects it switches, then the
+# picture settings it leaves alone.
+COLUMNS = (40, 288, 536)
+COLUMN_WIDTH = 224
+HEADING_TOP, CONTENT_TOP = 150, 182
+ROW_HEIGHT, SETTING_PITCH, CHECK_PITCH, BUTTON_PITCH = 24, 56, 28, 32
+READOUT_LEFT, READOUT_WIDTH = 144, 80
+# A static text draws its first glyph 6px inside its rectangle, so labels, headings and readouts start
+# 6px left of the edge the boxes and check glyphs share, and their text lands on it.  A readout still
+# sits a few pixels below its slider's bar - the bar is drawn in the top of the slider's rectangle -
+# and lifting it would push its rectangle into the label above, which the overlap check refuses.
+TEXT_NUDGE = 6
+GROUP_HEADING_COLOR = ("ENABLED:  186 255 12 255, ENABLEDBORDER:  0 2 0 255, "
+                       "DISABLED: 186 255 12 255, DISABLEDBORDER: 0 2 0 255, "
+                       "HILITE:   186 255 12 255, HILITEBORDER:   0 2 0 255")
+# The open tab is the disabled button, and EA drew its caption 62,64,92 on the dark panel - about
+# 2:1, and it read as a tab that could not be pressed.  It takes the heading green; the others stay white.
+TAB_CAPTION_COLOR = ("ENABLED:  255 255 255 255, ENABLEDBORDER:  0 0 0 255, "
+                     "DISABLED: 186 255 12 255, DISABLEDBORDER: 0 2 0 255, "
+                     "HILITE:   186 255 12 255, HILITEBORDER:   0 2 0 255")
 
 
-def row(index):
-    return ROW_TOP + index * ROW_PITCH
+def setting(label, control, readout=None):
+    return ("setting", label, control, readout)
 
 
-def check_row(index):
-    return ROW_TOP + index * CHECK_PITCH
+#   (page, column, heading key, items)
+GROUP_LAYOUT = [
+    ("PageDisplay",  0, "GUI:OptionsGroupScreen", [
+        setting("ResolutionLabel", "ComboBoxResolution"),
+        setting("LabelWindowMode", "ComboBoxWindowMode"),
+        ("check", "CheckVSync")]),
+    ("PageDisplay",  1, "GUI:OptionsGroupPicture", [
+        setting("GammaLabel", "SliderGamma", "ValueGamma")]),
 
+    ("PageGraphics", 0, "GUI:OptionsGroupDetail", [
+        setting("DetailLabel", "ComboBoxDetail"),
+        setting("LabelTextureResolution", "LowResSlider", "ValueTextureResolution"),
+        setting("LabelParticleCap", "ParticleCapSlider", "ValueParticleCap")]),
+    ("PageGraphics", 1, "GUI:OptionsGroupEffects", [("check", name) for name in GRAPHICS_CHECKS]),
+    ("PageGraphics", 2, "GUI:OptionsGroupImage", [
+        setting("LabelMSAA", "ComboBoxMSAA"),
+        setting("LabelBloom", "ComboBoxBloom"),
+        setting("LabelBloomThreshold", "ComboBoxBloomThreshold"),
+        setting("LabelTextureFilter", "ComboBoxTextureFilter"),
+        setting("LabelAnisotropy", "SliderAnisotropy", "ValueAnisotropy")]),
 
-#   (page, column, row, label, control, readout or None)
-SETTINGS = [
-    ("PageDisplay",  0, 0, "ResolutionLabel",        "ComboBoxResolution",     None),
-    ("PageDisplay",  0, 1, "LabelWindowMode",        "ComboBoxWindowMode",     None),
-    ("PageDisplay",  0, 2, "GammaLabel",             "SliderGamma",            "ValueGamma"),
+    ("PageAudio",    0, "GUI:OptionsGroupVolume", [
+        setting("MusicVolumeLabel", "SliderMusicVolume", "ValueMusicVolume"),
+        setting("SFXVolumeLabel", "SliderSFXVolume", "ValueSFXVolume"),
+        setting("VoiceVolumeLabel", "SliderVoiceVolume", "ValueVoiceVolume")]),
 
-    ("PageGraphics", 0, 0, "DetailLabel",            "ComboBoxDetail",         None),
-    ("PageGraphics", 0, 1, "LabelTextureResolution", "LowResSlider",           "ValueTextureResolution"),
-    ("PageGraphics", 0, 2, "LabelParticleCap",       "ParticleCapSlider",      "ValueParticleCap"),
-    ("PageGraphics", 0, 3, "LabelMSAA",              "ComboBoxMSAA",           None),
-    ("PageGraphics", 0, 4, "LabelBloom",             "ComboBoxBloom",          None),
-    ("PageGraphics", 0, 5, "LabelBloomThreshold",    "ComboBoxBloomThreshold", None),
-    ("PageGraphics", 0, 6, "LabelTextureFilter",     "ComboBoxTextureFilter",  None),
-    ("PageGraphics", 1, 6, "LabelAnisotropy",        "SliderAnisotropy",       "ValueAnisotropy"),
+    ("PageControls", 0, "GUI:OptionsGroupScrolling", [
+        setting("ScrollSpeedLabel", "SliderScrollSpeed", "ValueScrollSpeed")]),
+    ("PageControls", 1, "GUI:OptionsGroupOrders", [
+        ("check", "Retaliation"),
+        ("check", "CheckDoubleClickAttackMove")]),
 
-    ("PageAudio",    0, 0, "MusicVolumeLabel",       "SliderMusicVolume",      "ValueMusicVolume"),
-    ("PageAudio",    0, 1, "SFXVolumeLabel",         "SliderSFXVolume",        "ValueSFXVolume"),
-    ("PageAudio",    0, 2, "VoiceVolumeLabel",       "SliderVoiceVolume",      "ValueVoiceVolume"),
+    ("PageGameplay", 0, "GUI:OptionsGroupBattlefield", [
+        setting("LabelHealthBars", "ComboBoxHealthBars"),
+        setting("LabelPlayerColors", "ComboBoxPlayerColors")]),
 
-    ("PageControls", 0, 0, "ScrollSpeedLabel",       "SliderScrollSpeed",      "ValueScrollSpeed"),
-
-    ("PageGameplay", 0, 0, "LabelHealthBars",        "ComboBoxHealthBars",     None),
-    ("PageGameplay", 0, 1, "LabelPlayerColors",      "ComboBoxPlayerColors",   None),
-
-    ("PageNetwork",  0, 0, "StaticTextOnlineIpAddresses",    "ComboBoxOnlineIP",              None),
-    ("PageNetwork",  0, 1, "StaticTextLANIpAddresses",       "ComboBoxIP",                    None),
-    ("PageNetwork",  0, 2, "StaticTextFirewallPortOverride", "TextEntryFirewallPortOverride", None),
-    ("PageNetwork",  0, 3, "StaticTextHTTPProxy",            "TextEntryHTTPProxy",            None),
+    ("PageNetwork",  0, "GUI:OptionsGroupAddresses", [
+        setting("StaticTextOnlineIpAddresses", "ComboBoxOnlineIP"),
+        setting("StaticTextLANIpAddresses", "ComboBoxIP")]),
+    ("PageNetwork",  1, "GUI:OptionsGroupFirewall", [
+        setting("StaticTextFirewallPortOverride", "TextEntryFirewallPortOverride"),
+        ("button", "ButtonFirewallRefresh"),
+        ("check", "CheckSendDelay")]),
+    ("PageNetwork",  2, "GUI:OptionsGroupProxy", [
+        setting("StaticTextHTTPProxy", "TextEntryHTTPProxy")]),
 ]
 
-#   (page, column, top, check box)
-CHECKS = [("PageDisplay", 0, row(3), "CheckVSync")] + \
-    [("PageGraphics", 1, check_row(index), name) for index, name in enumerate(GRAPHICS_CHECKS)] + [
-    ("PageControls", 0, row(1),           "Retaliation"),
-    ("PageControls", 0, row(1) + CHECK_PITCH, "CheckDoubleClickAttackMove"),
-    ("PageNetwork",  1, row(0),           "CheckSendDelay"),
-]
-
-# What fits neither shape.  The antialiasing pair and the frame rate box are EA controls that ship
-# hidden and stay hidden; they get a place on a page only so nothing is left parked off the panel.
-#   (page, name, left, top, width, height)
-OTHERS = [
-    ("PageNetwork",  "ButtonFirewallRefresh", COLUMNS[1], row(2) + ROW_HEIGHT, 160, 25),
-    ("PageDisplay",  "AntiAliasingLabel",     COLUMNS[1], row(0), COLUMN_WIDTH, ROW_HEIGHT),
-    ("PageDisplay",  "ComboBoxAntiAliasing",  COLUMNS[1], row(0) + ROW_HEIGHT, COLUMN_WIDTH, ROW_HEIGHT),
-    ("PageGraphics", "CheckUnlockFPS",        COLUMNS[1], row(5), COLUMN_WIDTH, ROW_HEIGHT),
+# EA controls that ship hidden and stay hidden, parked on a page rather than off the panel
+#   (page, name, column, top)
+HIDDEN_PARKED = [
+    ("PageDisplay",  "AntiAliasingLabel",    2, CONTENT_TOP),
+    ("PageDisplay",  "ComboBoxAntiAliasing", 2, CONTENT_TOP + ROW_HEIGHT),
+    ("PageGraphics", "CheckUnlockFPS",       0, CONTENT_TOP + 3 * SETTING_PITCH),
 ]
 
 
@@ -284,6 +305,7 @@ def make_tab(button_template, name, text, index):
     tab = clone(button_template, _named(name))
     tab.place(left, TAB_TOP, width, TAB_HEIGHT)
     tab.put_prop("TEXT", '"%s"' % text)
+    tab.set_prop("TEXTCOLOR", TAB_CAPTION_COLOR)
     return tab
 
 
@@ -392,30 +414,51 @@ def build(layout):
             control.put_prop("STATICTEXTDATA", "CENTERED: 0")
         pages[page_name].children.append(control)
 
-    for page_name, column, index, label, control, readout in SETTINGS:
-        left, top = COLUMNS[column], row(index)
-        put(page_name, label, left, top, COLUMN_WIDTH, ROW_HEIGHT, LABEL)
-        put(page_name, control, left, top + ROW_HEIGHT,
-            SLIDER_WIDTH if readout else COLUMN_WIDTH, ROW_HEIGHT)
-        if readout:
-            put(page_name, readout, left + SLIDER_WIDTH + READOUT_GAP, top + ROW_HEIGHT,
-                COLUMN_WIDTH - SLIDER_WIDTH - READOUT_GAP, ROW_HEIGHT, LABEL)
-    for page_name, column, top, name in CHECKS:
-        put(page_name, name, COLUMNS[column], top, COLUMN_WIDTH, ROW_HEIGHT, CHECK)
-    for page_name, name, left, top, width, height in OTHERS:
-        put(page_name, name, left, top, width, height)
+    for page_name, column, heading_key, items in GROUP_LAYOUT:
+        left = COLUMNS[column]
+        heading_name = "GroupHeading%s%d" % (page_name[len("Page"):], column)
+        heading = clone(templates[LABEL], _named(heading_name))
+        heading.children = []
+        heading.put_prop("TEXT", '"%s"' % heading_key)
+        drop_prop(heading, "TOOLTIPTEXT")
+        restyle(heading, templates["ButtonDefaults"], keys=("FONT", "HEADERTEMPLATE"))
+        heading.set_prop("TEXTCOLOR", GROUP_HEADING_COLOR)
+        heading.put_prop("STATICTEXTDATA", "CENTERED: 0")
+        waiting[heading_name] = heading
+        put(page_name, heading_name, left - TEXT_NUDGE, HEADING_TOP, COLUMN_WIDTH, ROW_HEIGHT)
+
+        top = CONTENT_TOP
+        for item in items:
+            if item[0] == "setting":
+                _kind, label, control, readout = item
+                put(page_name, label, left - TEXT_NUDGE, top, COLUMN_WIDTH, ROW_HEIGHT, LABEL)
+                if readout:
+                    put(page_name, readout, left + READOUT_LEFT - TEXT_NUDGE, top + ROW_HEIGHT,
+                        READOUT_WIDTH, ROW_HEIGHT, LABEL)
+                put(page_name, control, left, top + ROW_HEIGHT,
+                    READOUT_LEFT - 8 if readout else COLUMN_WIDTH, ROW_HEIGHT)
+                top += SETTING_PITCH
+            elif item[0] == "check":
+                put(page_name, item[1], left, top, COLUMN_WIDTH, ROW_HEIGHT, CHECK)
+                top += CHECK_PITCH
+            else:
+                put(page_name, item[1], left, top, 160, ROW_HEIGHT)
+                top += BUTTON_PITCH
+    for page_name, name, column, top in HIDDEN_PARKED:
+        put(page_name, name, COLUMNS[column], top, COLUMN_WIDTH, ROW_HEIGHT)
     if waiting:
         raise KeyError("given no place on a page: %s" % ", ".join(sorted(waiting)))
 
-    # the frame round the pages, on the same inner edge
+    # the frame round the pages, on the same inner edge; the routine pair on the right, Defaults
+    # alone on the left where a slip of the pointer cannot reach it from Accept
     layout.find("OptionsMenuParent").place(*PANEL)
     old.place(*PANEL)
     layout.find("LabelTitle").place(*TITLE)
     layout.find("Line").place(*RULE)
-    gap = (INNER_WIDTH - 3 * BUTTON_WIDTH) // 2
-    for index, name in enumerate(("ButtonDefaults", "ButtonAccept", "ButtonBack")):
-        layout.find(name).place(INNER_LEFT + index * (BUTTON_WIDTH + gap), BUTTON_TOP,
-                                BUTTON_WIDTH, BUTTON_HEIGHT)
+    right = INNER_LEFT + INNER_WIDTH
+    layout.find("ButtonDefaults").place(INNER_LEFT, BUTTON_TOP, BUTTON_WIDTH, BUTTON_HEIGHT)
+    layout.find("ButtonAccept").place(right - BUTTON_WIDTH, BUTTON_TOP, BUTTON_WIDTH, BUTTON_HEIGHT)
+    layout.find("ButtonBack").place(right - 2 * BUTTON_WIDTH - 16, BUTTON_TOP, BUTTON_WIDTH, BUTTON_HEIGHT)
     layout.find("LabelVersion").place(*VERSION)
 
     # last in the file is topmost: drawWindow walks the child list from the tail back to the head,

@@ -406,6 +406,54 @@ GUI:NeverLowerDetail
 "Never Lower Detail"
 END
 
+GUI:OptionsGroupScreen
+"Screen"
+END
+
+GUI:OptionsGroupPicture
+"Picture"
+END
+
+GUI:OptionsGroupDetail
+"Quality"
+END
+
+GUI:OptionsGroupEffects
+"Effects"
+END
+
+GUI:OptionsGroupImage
+"Image"
+END
+
+GUI:OptionsGroupVolume
+"Volume"
+END
+
+GUI:OptionsGroupScrolling
+"Scrolling"
+END
+
+GUI:OptionsGroupOrders
+"Orders"
+END
+
+GUI:OptionsGroupBattlefield
+"Battlefield"
+END
+
+GUI:OptionsGroupAddresses
+"Addresses"
+END
+
+GUI:OptionsGroupFirewall
+"Firewall"
+END
+
+GUI:OptionsGroupProxy
+"Proxy"
+END
+
 // ---------------------------------------------------------------------------
 // One GUI: label and one TOOLTIP: line per row of TheOptionCatalog.  A label
 // and the combo box under it share the tooltip; an OPTION_ENUM row also needs
