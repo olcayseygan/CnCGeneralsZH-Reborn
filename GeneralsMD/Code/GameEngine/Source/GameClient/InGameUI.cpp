@@ -83,6 +83,7 @@
 #include "GameNetwork/NetworkInterface.h"
 
 #include "GameLogic/AIGuard.h"
+#include "GameLogic/AIPathfind.h"
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/JetAIUpdate.h"
@@ -3224,10 +3225,16 @@ void InGameUI::updateOrderHints( void )
 			}
 
 			// a goal object outranks the goal position: a unit chasing something is headed wherever that
-			// thing is standing now, not where it stood when the order was given
+			// thing is standing now, not where it stood when the order was given.  Without one the end of
+			// the unit's own path is where it is really going: a group sent to one spot is spread over the
+			// free cells round it, and the order's point is the same for every member.  A unit still
+			// waiting for its path has only the order's point to show
 			Object *goalObj = ai->getGoalObject();
+			Path *path = ai->getPath();
 			if( goalObj )
 				hint.to = *goalObj->getPosition();
+			else if( path )
+				hint.to = *path->getLastNode()->getPosition();
 			else
 				hint.to = *ai->getGoalPosition();
 		}

@@ -1738,10 +1738,10 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 	// lands strung out on an arc): two hundred units asked to attack-move drew a line instead of
 	// arriving, and with three hundred most of them never got a workable goal cell at all.
 	//
-	// So the point itself is the goal for every member, and each unit's own move state takes the
-	// nearest free cell to it (Pathfinder::adjustDestination spirals out from there, reserving as
-	// it goes, and the orders are issued nearest-first). They pile onto the spot instead of
-	// holding a shape. Explicit formations - the ones the player asked for by name - still keep
+	// So the point itself is the goal for every member. Pathfinder::floodGroupGoals hands out the
+	// free cells round it, the middle to whoever gets there first and the edge to the slow, and stops
+	// at a cliff; a member it cannot place falls back to its move state's own spiral. They pile onto
+	// the spot instead of holding a shape. Explicit formations - the ones the player asked for by name - still keep
 	// theirs, and the AI still moves its teams the old way.
 	//
 	// A queued waypoint (alt-click) is the exception, and it has to be: the whole thing rests on the
@@ -2011,6 +2011,23 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 		}
 	}
 
+	/* A player's gather takes every ground member's goal from one flood out of the clicked cell, so a
+		 click on the lip of a cliff keeps the group on top of it (Pathfinder::floodGroupGoals). The
+		 members go in iterator order, which is the order the loop below walks, so it reads them back
+		 with a cursor. */
+	std::vector<Object *> floodMembers;
+	std::vector<Coord3D> floodGoals;
+	if (gatherOnPoint)
+	{
+		for (Object *o = iter->first(); o; o = iter->next())
+		{
+			if (o->getAIUpdateInterface()->isDoingGroundMovement())
+				floodMembers.push_back( o );
+		}
+		TheAI->pathfinder()->floodGroupGoals( &goalPos, floodMembers, floodGoals );
+	}
+	Int floodCursor = 0;
+
 	// Works better if you let the near units get the first paths... jba.
 	// Move the ones nearest the goal first.  Reduces collision problems later.
 	Object *theUnit;
@@ -2032,7 +2049,11 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 			firstUnit = false;
 		}
 		if (gatherOnPoint)
-			dest = goalPos;		// the clicked spot; the move state finds the nearest free cell to it
+		{
+			dest = goalPos;		// airborne members keep the clicked spot and adjust it in their move state
+			if (floodCursor < (Int)floodMembers.size() && floodMembers[floodCursor] == theUnit)
+				dest = floodGoals[floodCursor++];
+		}
 		else
 			computeIndividualDestination( &dest, &goalPos, theUnit, &center, isFormation );
 

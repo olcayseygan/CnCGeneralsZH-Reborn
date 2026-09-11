@@ -6844,6 +6844,180 @@ Bool Pathfinder::adjustDestination(Object *obj, const LocomotorSet& locomotorSet
 	return false;
 }
 
+/** A member of a flooded group: how soon it gets somewhere, and which way it is coming from. */
+struct FloodMember
+{
+	Object*	obj;
+	Int			index;				///< its place in the members handed to floodGroupGoals
+	Real		speed;
+	Real		arrival;			///< seconds to the click, or to the cell being handed out
+	Real		approachX;		///< unit vector from the click toward the member
+	Real		approachY;
+	Real		approachLength;
+};
+
+/** Soonest first. The member's place in the group breaks a tie, so every machine in a network game
+		queues two members at the same distance in the same order. */
+static Bool floodMemberArrivesFirst( const FloodMember& a, const FloodMember& b )
+{
+	if (a.arrival != b.arrival)
+		return a.arrival < b.arrival;
+	return a.index < b.index;
+}
+
+/**
+ * Hand a whole group its goals from one flood out of the clicked cell.
+ *
+ * The spiral above runs once per unit and accepts any free cell a path reaches, so a click on the lip
+ * of a cliff put half a group at its foot and sent it round by the ramp. Here the clicked cell opens
+ * its eight neighbours, the cells opened hand themselves out and open theirs, until nobody is left
+ * without a goal. Only ground a unit could stand on opens anything: a cliff, water or a structure ends
+ * the flood where it is, so the group stays on the side that was clicked. The clicked cell always
+ * opens its neighbours, which is why a click on the face of a cliff reaches both sides.
+ *
+ * Members queue by how soon they reach the click, straight distance over speed, and each cell goes to
+ * whichever of the first few in that queue would reach the cell itself soonest. The click and the
+ * cells round it therefore fill with the first to arrive and the slow ones take the edge.
+ *
+ * A member is never handed a cell on the far side of the click from where it is coming. That cell is
+ * ground it would reach only by driving through everybody who got there first, and on a bridge it was
+ * the last tank of a column forcing its way down the whole column to stand at the other end. A group
+ * arriving from one side piles up on that side of the click; one arriving from all round fills all
+ * round it.
+ *
+ * Every goal is reserved as it is handed out, so the move state's own adjustDestination finds the cell
+ * already its own and keeps it. A member still without a goal when the flood runs dry keeps the click
+ * and gets the spiral there, as before.
+ */
+void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *>& members, std::vector<Coord3D>& goals)
+{
+	PathProfile pfProfile( PF_ADJUST );
+	enum { MIN_FLOOD_CELLS = 400, FLOOD_CELLS_PER_MEMBER = 32 };
+	// ponytail: a cell is offered to the few soonest members only, so a mixed group whose soonest
+	// members all fail on one cell leaves it empty; offer it to everyone if that shows up as gaps.
+	enum { MAX_MEMBERS_TRIED_PER_CELL = 8 };
+	const Real PAST_CLICK_ALLOWANCE = PATHFIND_CELL_SIZE_F;		// how far past the click a member may still stop
+	const Real MIN_MEMBER_SPEED = 1.0f;			// a member with no speed yet still queues, behind everybody
+
+	const Int memberCount = (Int)members.size();
+	goals.assign( memberCount, *dest );
+	if (memberCount == 0)
+		return;		// a selection with nothing on the ground, all aircraft
+
+	const PathfindLayerEnum layer = TheTerrainLogic->getLayerForDestination( dest );
+	ICoord2D start;
+	worldToCell( dest, &start );
+	if (getCell( layer, start.x, start.y ) == NULL)
+		return;
+
+	const Player *owner = members[0]->getControllingPlayer();
+	const Bool isHuman = !(owner && owner->getPlayerType() == PLAYER_COMPUTER);
+
+	std::vector<FloodMember> arrivals( memberCount );
+	for (Int k = 0; k < memberCount; k++)
+	{
+		FloodMember& arrival = arrivals[k];
+		arrival.obj = members[k];
+		arrival.index = k;
+		arrival.speed = MAX( members[k]->getAIUpdateInterface()->getCurLocomotorSpeed(), MIN_MEMBER_SPEED );
+		arrival.approachX = members[k]->getPosition()->x - dest->x;
+		arrival.approachY = members[k]->getPosition()->y - dest->y;
+		arrival.approachLength = sqrt( arrival.approachX*arrival.approachX + arrival.approachY*arrival.approachY );
+		arrival.arrival = arrival.approachLength / arrival.speed;
+		if (arrival.approachLength > PAST_CLICK_ALLOWANCE)
+		{
+			arrival.approachX /= arrival.approachLength;
+			arrival.approachY /= arrival.approachLength;
+		}
+	}
+	std::sort( arrivals.begin(), arrivals.end(), floodMemberArrivesFirst );
+
+	const Int extentWidth = m_extent.hi.x - m_extent.lo.x + 1;
+	const Int extentHeight = m_extent.hi.y - m_extent.lo.y + 1;
+	std::vector<bool> isOpened( extentWidth * extentHeight, false );
+	std::vector<bool> isPlaced( memberCount, false );
+	std::vector<FloodMember> candidates;
+	std::vector<ICoord2D> wave;
+	wave.push_back( start );
+	isOpened[ (start.x - m_extent.lo.x) + (start.y - m_extent.lo.y) * extentWidth ] = true;
+
+	Int unplacedCount = memberCount;
+	const Int cellLimit = MIN_FLOOD_CELLS + FLOOD_CELLS_PER_MEMBER * memberCount;
+
+	for (Int head = 0; head < (Int)wave.size() && head < cellLimit && unplacedCount > 0; head++)
+	{
+		const ICoord2D cell = wave[head];
+		const PathfindCell::CellType type = getCell( layer, cell.x, cell.y )->getType();
+		const Bool isStandable = type == PathfindCell::CELL_CLEAR || type == PathfindCell::CELL_RUBBLE;
+
+		if (isStandable)
+		{
+			const Real cellX = ((Real)cell.x + 0.5f) * PATHFIND_CELL_SIZE_F;
+			const Real cellY = ((Real)cell.y + 0.5f) * PATHFIND_CELL_SIZE_F;
+			const Real offsetX = cellX - dest->x;
+			const Real offsetY = cellY - dest->y;
+
+			candidates.clear();
+			for (Int a = 0; a < memberCount && (Int)candidates.size() < MAX_MEMBERS_TRIED_PER_CELL; a++)
+			{
+				if (isPlaced[arrivals[a].index])
+					continue;
+				FloodMember candidate = arrivals[a];
+				if (candidate.approachLength > PAST_CLICK_ALLOWANCE)
+				{
+					const Real depthPastClick = -(offsetX*candidate.approachX + offsetY*candidate.approachY);
+					if (depthPastClick > PAST_CLICK_ALLOWANCE)
+						continue;
+				}
+				const Real dx = candidate.obj->getPosition()->x - cellX;
+				const Real dy = candidate.obj->getPosition()->y - cellY;
+				candidate.arrival = sqrt( dx*dx + dy*dy ) / candidate.speed;
+				candidates.push_back( candidate );
+			}
+			std::sort( candidates.begin(), candidates.end(), floodMemberArrivesFirst );
+
+			for (size_t c = 0; c < candidates.size(); c++)
+			{
+				Object *member = candidates[c].obj;
+				Int iRadius;
+				Bool center;
+				getRadiusAndCenter( member, iRadius, center );
+				Coord3D goal = *dest;
+				if (!checkForAdjust( member, member->getAIUpdateInterface()->getLocomotorSet(), isHuman,
+						cell.x, cell.y, layer, iRadius, center, &goal, NULL ))
+					continue;
+
+				if (memberCount == 1 && head == 0)
+					goal = *dest;		// a lone unit stands where it was clicked, as adjustDestination lets it
+				updateGoal( member, &goal, layer );
+				goals[candidates[c].index] = goal;
+				isPlaced[candidates[c].index] = true;
+				unplacedCount--;
+				break;
+			}
+		}
+
+		if (!isStandable && head > 0)
+			continue;
+		for (Int dy = -1; dy <= 1; dy++)
+		{
+			for (Int dx = -1; dx <= 1; dx++)
+			{
+				ICoord2D next;
+				next.x = cell.x + dx;
+				next.y = cell.y + dy;
+				if (getCell( layer, next.x, next.y ) == NULL)
+					continue;
+				const Int openedIndex = (next.x - m_extent.lo.x) + (next.y - m_extent.lo.y) * extentWidth;
+				if (isOpened[openedIndex])
+					continue;
+				isOpened[openedIndex] = true;
+				wave.push_back( next );
+			}
+		}
+	}
+}
+
 Bool Pathfinder::checkForTarget(const Object *obj, 	Int cellX, Int cellY, const Weapon *weapon,
 																const Object *victim, const Coord3D *victimPos,
 																Int iRadius, Bool center,Coord3D *dest) 

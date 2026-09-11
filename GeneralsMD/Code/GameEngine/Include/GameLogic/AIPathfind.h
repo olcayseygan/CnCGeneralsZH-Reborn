@@ -1045,8 +1045,12 @@ public:
 	void cleanOpenAndClosedLists(void);
 
 	// Adjusts the destination to a spot near dest that is not occupied by other units.
-	Bool adjustDestination(Object *obj, const LocomotorSet& locomotorSet, 
+	Bool adjustDestination(Object *obj, const LocomotorSet& locomotorSet,
 		Coord3D *dest, const Coord3D *groupDest=NULL);
+
+	// Gives each ground member its own reserved goal, spreading outward from dest with the soonest
+	// arrivals nearest it. goals[k] belongs to members[k]; a member never placed keeps dest itself.
+	void floodGroupGoals(const Coord3D *dest, const std::vector<Object *>& members, std::vector<Coord3D>& goals);
 
 	// Adjusts the destination to a spot near dest for landing that is not occupied by other units.
 	Bool adjustToLandingDestination(Object *obj, Coord3D *dest);
