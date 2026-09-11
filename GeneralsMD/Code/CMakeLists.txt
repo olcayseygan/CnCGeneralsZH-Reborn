@@ -618,20 +618,17 @@ add_custom_command(TARGET generals POST_BUILD
   # and without it the crash log's stack is addresses with no names.
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           $<TARGET_PDB_FILE:generals> ${CMAKE_CURRENT_SOURCE_DIR}/../Run/
-  # The fork's key bindings and their labels.  Run/ is gitignored, so these two
-  # used to be hand-made files that silently went stale every time a command was
-  # added - the tracked copies under Code/Data are the masters and this puts them
-  # where the game reads them.  A loose file beats every .big, and the game never
-  # writes either one back, so overwriting them on each build is safe.
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          ${CMAKE_CURRENT_SOURCE_DIR}/Data/INI/CommandMap.ini
-          ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Data/INI/
-  # The fork's detonation light, loaded after EA's FXList.ini.  It is inside the
-  # multiplayer INI CRC, so it has to be here, in the zip, and identical on every
-  # machine in a game.
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          ${CMAKE_CURRENT_SOURCE_DIR}/Data/INI/FXListReborn.ini
-          ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Data/INI/
+  # The fork's INI files: the key bindings and their labels, and the detonation
+  # light loaded after EA's FXList.ini.  Run/ is gitignored, so these used to be
+  # hand-made files that silently went stale - the tracked copies under Code/Data
+  # are the masters and this puts them where the game reads them.  A loose file
+  # beats every .big and the game never writes one back, so overwriting them on
+  # each build is safe.  The whole directory, so a new master is copied without a
+  # line here: anything in it lands in the multiplayer INI CRC, and package.bat
+  # ships the same directory and refuses a Run/ that disagrees with it.
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${CMAKE_CURRENT_SOURCE_DIR}/Data/INI
+          ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Data/INI
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           ${CMAKE_CURRENT_SOURCE_DIR}/Data/Patch.str
           ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Data/
