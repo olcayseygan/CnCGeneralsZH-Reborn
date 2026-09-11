@@ -264,11 +264,8 @@ Real SupplyTruckAIUpdate::getDockActionProgress() const
 //-------------------------------------------------------------------------------------------------
 Real SupplyTruckAIUpdate::getWarehouseScanDistance() const
 {
-	// Ai players get larger scan range.  jba.
-	if (getObject()->getControllingPlayer()->getPlayerType() == PLAYER_COMPUTER) {
-		return 2 * getSupplyTruckAIUpdateModuleData()->m_warehouseScanDistance;
-	}
-	return getSupplyTruckAIUpdateModuleData()->m_warehouseScanDistance;
+	// The computer's reach, for everybody, as in WorkerAIUpdate::getWarehouseScanDistance.
+	return 2 * getSupplyTruckAIUpdateModuleData()->m_warehouseScanDistance;
 }
 
 // ------------------------------------------------------------------------------------------------

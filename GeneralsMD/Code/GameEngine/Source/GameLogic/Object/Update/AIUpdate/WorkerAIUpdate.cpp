@@ -262,11 +262,9 @@ Real WorkerAIUpdate::getDockActionProgress() const
 //-------------------------------------------------------------------------------------------------
 Real WorkerAIUpdate::getWarehouseScanDistance() const
 {
-	// Ai players get larger scan range.  jba.
-	if (getObject()->getControllingPlayer()->getPlayerType() == PLAYER_COMPUTER) {
-		return 2 * getWorkerAIUpdateModuleData()->m_warehouseScanDistance;
-	}
-	return getWorkerAIUpdateModuleData()->m_warehouseScanDistance;
+	// The computer's reach, for everybody: at the INI's own figure a human's workers went home
+	// from any pile they could see but not reach in 700 feet. INI files are in the checksum.
+	return 2 * getWorkerAIUpdateModuleData()->m_warehouseScanDistance;
 }
 
 //-------------------------------------------------------------------------------------------------
