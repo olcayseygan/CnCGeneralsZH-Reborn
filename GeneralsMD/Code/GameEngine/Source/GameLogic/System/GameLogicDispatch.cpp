@@ -131,6 +131,7 @@ static void considerBuilderProc( Object *obj, void *userData )
 #include "GameClient/KeyDefs.h"
 #include "GameClient/Mouse.h"
 #include "GameClient/ParticleSys.h"
+#include "GameClient/PlayerColorScheme.h"
 #include "GameClient/Shell.h"
 #include "GameClient/Module/BeaconClientUpdate.h"
 #include "GameClient/LookAtXlat.h"
@@ -399,23 +400,23 @@ void GameLogic::prepareNewGame( Int gameMode, GameDifficulty diff, Int rankPoint
 }  // end prepareNewGame
 
 //-------------------------------------------------------------------------------------------------
-/** What each smoke signal looks like on an ally's screen, indexed by SignalKind.  The smoke is the
-	* beacon's white template tinted, which is all the coloured beacon templates are: they differ
-	* from it in their second colour key and nowhere else.  No signal uses RADAR_EVENT_UNDER_ATTACK,
-	* because Radar::tryEvent refuses a real attack warning within ten seconds of one of those. */
+/** What each smoke signal says on an ally's screen, indexed by SignalKind.  The smoke is the sender's
+	* colour, so the kind is told apart by the word floated over it.  No signal uses
+	* RADAR_EVENT_UNDER_ATTACK, because Radar::tryEvent refuses a real attack warning within ten
+	* seconds of one of those. */
 //-------------------------------------------------------------------------------------------------
 struct SignalLook
 {
-	Color smokeColor;
 	RadarEventType radarEvent;
+	const char *wordLabel;
 	const char *announcementLabel;
 };
 
 static const SignalLook SIGNAL_LOOKS[ SIGNAL_KIND_COUNT ] =
 {
-	{ 0xFF0000,	RADAR_EVENT_BATTLE_PLAN,	"GUI:SignalAttackPlaced" },
-	{ 0x4368FE,	RADAR_EVENT_CONSTRUCTION,	"GUI:SignalDefendPlaced" },
-	{ 0xDDE20D,	RADAR_EVENT_INFORMATION,	"GUI:SignalAttentionPlaced" },
+	{ RADAR_EVENT_BATTLE_PLAN,	"GUI:SignalAttackLabel",		"GUI:SignalAttackPlaced" },
+	{ RADAR_EVENT_CONSTRUCTION,	"GUI:SignalDefendLabel",		"GUI:SignalDefendPlaced" },
+	{ RADAR_EVENT_INFORMATION,	"GUI:SignalAttentionLabel",	"GUI:SignalAttentionPlaced" },
 };
 
 static const char *SIGNAL_SMOKE_TEMPLATE = "BeaconSmokeFFFFFF";
@@ -434,6 +435,9 @@ static const Real SIGNAL_SMOKE_DENSITY_SCALE = 3.0f;
 static const Real SIGNAL_SMOKE_RISE_SCALE = 3.0f;
 static const Real SIGNAL_SMOKE_ALPHA_MIN = 0.6f;
 static const Real SIGNAL_SMOKE_ALPHA_MAX = 0.8f;
+
+/// the word starts this far above the ground, at about the top of the plume, and floats up from there
+static const Real SIGNAL_LABEL_HEIGHT = 40.0f;
 
 //-------------------------------------------------------------------------------------------------
 /** Is a signal on this frame too soon after the player's last one?  A last frame ahead of now is
@@ -2117,7 +2121,7 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 			if( smoke )
 			{
 				smoke->setPosition( &pos );
-				smoke->tintAllColors( look.smokeColor );
+				smoke->tintAllColors( clientPlayerColor( thisPlayer ) );
 				// the tint leaves the first key alone, and in this template that key is an orange flash
 				smoke->m_colorKey[ 0 ].color = smoke->m_colorKey[ 1 ].color;
 				smoke->setFiniteSystemLifetime( SIGNAL_HALF_FRAMES );
@@ -2132,6 +2136,17 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 			}
 
 			TheRadar->createEvent( &pos, look.radarEvent, SIGNAL_SECONDS );
+
+			// addFloatingText runs the colour through the viewer's scheme itself, so it takes the logic one
+			Coord3D labelPos = pos;
+			labelPos.z += SIGNAL_LABEL_HEIGHT;
+			FloatingTextData *word = TheInGameUI->addFloatingText( TheGameText->fetch( look.wordLabel ), &labelPos, thisPlayer->getPlayerColor() );
+			if( word )
+			{
+				// a money pop-up is gone in a third of a second and only over ground in plain sight
+				word->m_frameTimeOut = getFrame() + SIGNAL_HALF_FRAMES;
+				word->m_seenThroughShroud = TRUE;
+			}
 
 			UnicodeString announcement;
 			announcement.format( TheGameText->fetch( look.announcementLabel ), thisPlayer->getPlayerDisplayName().str() );

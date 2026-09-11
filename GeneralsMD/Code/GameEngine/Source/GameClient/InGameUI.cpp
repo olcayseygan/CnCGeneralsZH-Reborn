@@ -6901,9 +6901,11 @@ void InGameUI::buildRegion( const ICoord2D *anchor, const ICoord2D *dest, IRegio
 //-------------------------------------------------------------------------------------------------
 /** Add a new floating text to our list */
 //-------------------------------------------------------------------------------------------------
-void InGameUI::addFloatingText(const UnicodeString& text,const Coord3D *pos, Color color)
+FloatingTextData *InGameUI::addFloatingText(const UnicodeString& text,const Coord3D *pos, Color color)
 {
-	if( TheGameLogic->getDrawIconUI() )
+	if( !TheGameLogic->getDrawIconUI() )
+		return NULL;
+
 	{
 		FloatingTextData *newFTD = newInstance( FloatingTextData );
 		newFTD->m_frameCount = 0;
@@ -6923,6 +6925,7 @@ void InGameUI::addFloatingText(const UnicodeString& text,const Coord3D *pos, Col
 			newFTD->m_frameTimeOut = TheGameLogic->getFrame() +  m_floatingTextTimeOut; 
 		
 		m_floatingTextList.push_front( newFTD ); // add to the list
+		return newFTD;
 	}
 }
 
@@ -8521,7 +8524,7 @@ void InGameUI::drawFloatingText( void )
 		// translate it's 3d pos into a 2d screen pos
 		if( TheTacticalView->worldToScreen(&ftd->m_pos3D, &pos) 
 			&& ftd->m_dString 
-			&& ThePartitionManager->getShroudStatusForPlayer(playerNdx, pCX, pCY) == CELLSHROUD_CLEAR )
+			&& ( ftd->m_seenThroughShroud || ThePartitionManager->getShroudStatusForPlayer(playerNdx, pCX, pCY) == CELLSHROUD_CLEAR ) )
 		{
 			pos.y -= ftd->m_frameCount * m_floatingTextMoveUpSpeed;
 			Color dropColor;
@@ -8640,6 +8643,7 @@ FloatingTextData::FloatingTextData(void)
 	m_color = 0;
 	m_frameCount = 0;
 	m_frameTimeOut = 0;
+	m_seenThroughShroud = FALSE;
 	m_pos3D.zero();
 	m_text.clear();
 	//

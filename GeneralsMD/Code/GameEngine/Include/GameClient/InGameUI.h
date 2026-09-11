@@ -276,6 +276,7 @@ public:
 	Coord3D					m_pos3D;													///< the 3d position in game coords
 	Int							m_frameTimeOut;												///< when we want this thing to disappear
 	Int							m_frameCount;													///< how many frames have we been displaying text?
+	Bool						m_seenThroughShroud;										///< drawn over fogged ground too; a signal word is about a place nobody may be watching (fork)
 };
 
 typedef std::list<FloatingTextData *> FloatingTextList;
@@ -834,7 +835,8 @@ public:  // ********************************************************************
 	virtual void setDisplayedMaxWarning( Bool selected ) { m_displayedMaxWarning = selected; }
 
 	// Floating Test Methods
-	virtual void addFloatingText(const UnicodeString& text,const Coord3D * pos, Color color);
+	/// the text it added, for a caller that wants to hold it longer; NULL while icons are not drawn
+	virtual FloatingTextData *addFloatingText(const UnicodeString& text,const Coord3D * pos, Color color);
 
 	// Drawable caption stuff
 	AsciiString	getDrawableCaptionFontName( void )	{ return m_drawableCaptionFont; }
