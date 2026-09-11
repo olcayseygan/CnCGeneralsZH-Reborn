@@ -975,11 +975,13 @@ void ParticleSystemInfo::tintAllColors( Color tintColor )
 	rgb.setFromInt(tintColor);
 
 	//This tints all but the first colorKey!!!
+	// setFromInt has already brought each channel to 0..1; dividing by 255 again here turned every
+	// tint into black, which nobody saw because only the beacon's never-taken fallback called it
 	for (int key = 1; key < MAX_KEYFRAMES; ++key )
 	{
-		m_colorKey[ key ].color.red   *= (Real)(rgb.red  ) / 255.0f;
-		m_colorKey[ key ].color.green *= (Real)(rgb.green) / 255.0f;
-		m_colorKey[ key ].color.blue  *= (Real)(rgb.blue ) / 255.0f;
+		m_colorKey[ key ].color.red   *= rgb.red;
+		m_colorKey[ key ].color.green *= rgb.green;
+		m_colorKey[ key ].color.blue  *= rgb.blue;
 	}
 
 }  // end loadPostProcess

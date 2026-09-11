@@ -504,6 +504,7 @@ found and fixed â€” EA's own, not port damage.**
 - Off in one place. `ShowAllyCursors = no` in `Options.ini` stops both halves: nothing is sent from your machine and nothing is drawn on it.
 - Alt+Z, Alt+X and Alt+C put up a puff of smoke where your mouse is. Red says attack here, blue says defend here, yellow says look at this. Point at the radar instead and the smoke goes up on that spot of the map.
 - Your allies see the smoke and their radar blinks at the spot, and the message area says who sent it. Three seconds later the smoke has cleared, so the call you made a minute ago is never still standing next to the one you are making now. Enemies see none of it.
+- One signal a second per player. Hammering the key gets you the first puff and nothing else, and a teammate who tries it cannot bury your screen in smoke either, because every machine in the game holds everyone to the same limit.
 
 ## The options screen has pages
 

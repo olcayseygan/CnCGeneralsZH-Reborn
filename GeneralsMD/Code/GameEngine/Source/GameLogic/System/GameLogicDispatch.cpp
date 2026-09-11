@@ -424,6 +424,26 @@ static const Real SIGNAL_SECONDS = 3.0f;
 /// the smoke is fed for the first half of the signal and its last puff fades out over the second
 static const UnsignedInt SIGNAL_HALF_FRAMES = (UnsignedInt)( SIGNAL_SECONDS * LOGICFRAMES_PER_SECOND / 2 );
 
+static const UnsignedInt SIGNAL_COOLDOWN_FRAMES = LOGICFRAMES_PER_SECOND;
+
+// The beacon template draws a column nine units wide that needs five seconds to climb, which at the
+// signal's three seconds and the default camera height is a dark speck.  Measured on screen, not
+// derived: these make it a plume a tank's width across that a player finds at a glance.
+static const Real SIGNAL_SMOKE_SIZE_SCALE = 5.0f;
+static const Real SIGNAL_SMOKE_DENSITY_SCALE = 3.0f;
+static const Real SIGNAL_SMOKE_RISE_SCALE = 3.0f;
+static const Real SIGNAL_SMOKE_ALPHA_MIN = 0.6f;
+static const Real SIGNAL_SMOKE_ALPHA_MAX = 0.8f;
+
+//-------------------------------------------------------------------------------------------------
+/** Is a signal on this frame too soon after the player's last one?  A last frame ahead of now is
+	* left over from an earlier match, whose clock ran further, and holds nothing back. */
+//-------------------------------------------------------------------------------------------------
+Bool Signal_isThrottled( UnsignedInt now, UnsignedInt lastSignalFrame )
+{
+	return now >= lastSignalFrame && now - lastSignalFrame < SIGNAL_COOLDOWN_FRAMES;
+}
+
 //-------------------------------------------------------------------------------------------------
 /** This message handles dispatches object command messages to the
   * appropriate objects.
@@ -2075,6 +2095,14 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 			if( kind < 0 || kind >= SIGNAL_KIND_COUNT )
 				break;
 
+			// one a second per player, held here rather than at the key so every machine applies it
+			// to every sender, including one that was built without it
+			static UnsignedInt lastSignalFrame[ MAX_PLAYER_COUNT ];
+			Int senderIndex = thisPlayer->getPlayerIndex();
+			if( Signal_isThrottled( getFrame(), lastSignalFrame[ senderIndex ] ) )
+				break;
+			lastSignalFrame[ senderIndex ] = getFrame();
+
 			Player *localPlayer = ThePlayerList->getLocalPlayer();
 			Bool mutualAllies = thisPlayer->getRelationship( localPlayer->getDefaultTeam() ) == ALLIES &&
 				localPlayer->getRelationship( thisPlayer->getDefaultTeam() ) == ALLIES;
@@ -2090,10 +2118,17 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 			{
 				smoke->setPosition( &pos );
 				smoke->tintAllColors( look.smokeColor );
+				// the tint leaves the first key alone, and in this template that key is an orange flash
+				smoke->m_colorKey[ 0 ].color = smoke->m_colorKey[ 1 ].color;
 				smoke->setFiniteSystemLifetime( SIGNAL_HALF_FRAMES );
 				smoke->setLifetimeRange( SIGNAL_HALF_FRAMES, SIGNAL_HALF_FRAMES );
 				// the template's second alpha key is its fade to nothing, timed for a five second puff
 				smoke->m_alphaKey[ 1 ].frame = SIGNAL_HALF_FRAMES;
+				smoke->m_alphaKey[ 0 ].var.setRange( SIGNAL_SMOKE_ALPHA_MIN, SIGNAL_SMOKE_ALPHA_MAX );
+				smoke->setSizeMultiplier( SIGNAL_SMOKE_SIZE_SCALE );
+				smoke->setBurstCountMultiplier( SIGNAL_SMOKE_DENSITY_SCALE );
+				Coord3D rise = { 1.0f, 1.0f, SIGNAL_SMOKE_RISE_SCALE };
+				smoke->setVelocityMultiplier( &rise );
 			}
 
 			TheRadar->createEvent( &pos, look.radarEvent, SIGNAL_SECONDS );

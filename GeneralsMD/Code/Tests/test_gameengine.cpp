@@ -1046,6 +1046,37 @@ TEST(each_signal_key_drops_its_own_smoke)
 	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_PLACE_BEACON ) == SIGNAL_KIND_COUNT );
 }
 
+/* GameLogicDispatch.cpp: one signal a second per player. */
+extern Bool Signal_isThrottled( UnsignedInt now, UnsignedInt lastSignalFrame );
+
+TEST(a_signal_waits_a_second_after_the_last_one)
+{
+	CHECK( Signal_isThrottled( 1000, 1000 ) );
+	CHECK( Signal_isThrottled( 1029, 1000 ) );
+	CHECK( !Signal_isThrottled( 1030, 1000 ) );
+
+	/* a frame left over from a longer earlier match does not silence the new one */
+	CHECK( !Signal_isThrottled( 40, 50000 ) );
+}
+
+/* ParticleSys.cpp: tinting a white key by a colour gives that colour.  RGBColor::setFromInt already
+   scales to 0..1 and the tint divided by 255 again, so every tinted system came out black. */
+#include "GameClient/ParticleSys.h"
+
+TEST(a_tinted_particle_key_takes_the_tint_colour)
+{
+	ParticleSystemInfo info;
+	info.m_colorKey[ 1 ].color.red = 1.0f;
+	info.m_colorKey[ 1 ].color.green = 1.0f;
+	info.m_colorKey[ 1 ].color.blue = 1.0f;
+
+	info.tintAllColors( 0xFF8000 );
+
+	CHECK_NEAR( info.m_colorKey[ 1 ].color.red, 1.0f, 0.001f );
+	CHECK_NEAR( info.m_colorKey[ 1 ].color.green, 128.0f / 255.0f, 0.001f );
+	CHECK_NEAR( info.m_colorKey[ 1 ].color.blue, 0.0f, 0.001f );
+}
+
 /* DrawnPath.cpp: the drawn curve is measured by arc length, not by segment, so the stations divide
    the whole line however uneven the hand that drew it was. */
 #include "Common/DrawnPath.h"
