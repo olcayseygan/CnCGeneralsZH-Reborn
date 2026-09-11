@@ -1,7 +1,7 @@
 ﻿# Command and Conquer: Generals: Zero Hour: Reborn
 
-EA released the 2003 source for preservation. It did not compile, did not run, and nobody had touched
-the bugs inside it in twenty-two years. This build compiles, runs and plays.
+EA opened the source of Generals and Zero Hour, the game that is still on sale and still runs on
+Steam. This build is that source with the bugs the game shipped with fixed and everything below added.
 
 **123 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
 found and fixed â€” EA's own, not port damage.**
