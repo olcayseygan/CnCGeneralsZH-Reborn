@@ -158,7 +158,7 @@ GUI:ToggleAttackMove
 END
 
 GUI:ToggleAttackMoveDescription
-"Arms attack move: left click where the selected units should go, fighting anything they meet on the way. Right click puts it down."
+"Arms attack move: left click where the selected units should go, fighting anything they meet on the way, or drag the left button to spread them along a line. Right click puts it down."
 END
 
 GUI:ToggleForceAttack
@@ -174,7 +174,7 @@ GUI:ToggleGuard
 END
 
 GUI:ToggleGuardDescription
-"Arms guard: the next order click posts the selected units on that spot, and a right drag posts them along the line you draw."
+"Arms guard: left click posts the selected units on that spot, and a left drag posts them along the line you draw. Right click puts it down."
 END
 
 GUI:HoldPosition

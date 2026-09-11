@@ -268,7 +268,7 @@ SelectionTranslator::SelectionTranslator()
 {
 	m_leftMouseButtonIsDown = FALSE;
 	m_dragSelecting = FALSE;
-	m_attackCircleJustIssued = FALSE;
+	m_dragOrderJustIssued = FALSE;
 	m_lastGroupSelTime = 0;
 	m_lastGroupSelGroup = -1;
 	m_selectFeedbackAnchor.x = 0;
@@ -414,7 +414,10 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				break;
 			}
 
-			if (m_leftMouseButtonIsDown)
+			// with attack move or guard armed a left drag draws the order line over in CommandXlat, so
+			// no selection box grows under it
+			const Bool leftDrawsLine = TheInGameUI->isLineOrderArmed() && TheInGameUI->getSelectCount() > 0;
+			if (m_leftMouseButtonIsDown && !leftDrawsLine)
 			{
 				ICoord2D delta;
 
@@ -491,15 +494,15 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			// the release that ended a circle arrives as a double click when the circle was the
 			// second of a quick pair.  Letting it through would select everything of one kind on the
 			// screen, and that new selection is exactly what drops the orders just given
-			if( m_attackCircleJustIssued )
+			if( m_dragOrderJustIssued )
 			{
-				m_attackCircleJustIssued = FALSE;
+				m_dragOrderJustIssued = FALSE;
 				disp = DESTROY_MESSAGE;
 				break;
 			}
 
-			// an armed attack key makes this click an order, which CommandXlat gives
-			if (TheInGameUI->isAttackOrderArmed())
+			// an armed order key makes this click an order, which CommandXlat gives
+			if (TheInGameUI->isOrderKeyArmed())
 				break;
 
 			const IRegion2D& region = msg->getArgument(0)->pixelRegion;
@@ -634,9 +637,9 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			// the release that ended an attack circle still arrives here as a click.  Letting it
 			// through would reselect whatever sat under the anchor, and a changed selection is exactly
 			// what drops the queue that was just built
-			if( m_attackCircleJustIssued )
+			if( m_dragOrderJustIssued )
 			{
-				m_attackCircleJustIssued = FALSE;
+				m_dragOrderJustIssued = FALSE;
 				disp = DESTROY_MESSAGE;
 				break;
 			}
@@ -648,9 +651,9 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				break;
 			}
 
-			// With the attack or attack move key armed and something selected, a point click is the
-			// order and not a selection.  It goes on to CommandXlat untouched, drawable under it or not
-			if (TheInGameUI->isAttackOrderArmed() && TheInGameUI->getSelectCount() > 0)
+			// With the attack, attack move or guard key armed and something selected, a point click is
+			// the order and not a selection.  It goes on to CommandXlat untouched, drawable under it or not
+			if (TheInGameUI->isOrderKeyArmed() && TheInGameUI->getSelectCount() > 0)
 				break;
 
 			// Basically, we need to first determine if there are any drawables in the region of interest.
@@ -1064,7 +1067,7 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				if( TheInGameUI->issueAttackCircle() )
 				{
 					TheInGameUI->clearAttackMoveToMode();
-					m_attackCircleJustIssued = TRUE;
+					m_dragOrderJustIssued = TRUE;
 				}
 
 				//
@@ -1074,6 +1077,15 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				// enough to have no radius - that threw the group away a moment before the click behind
 				// it arrived as the order, leaving the order with nobody to give it to.
 				//
+				break;
+			}
+
+			// a left drag that drew an attack move or guard line is turned into its order by CommandXlat,
+			// which sees this release next.  The click behind the release would select whatever sat
+			// under it and drop the group the line was drawn for
+			if( TheInGameUI->isFormationDragging() && TheInGameUI->isLineOrderArmed() )
+			{
+				m_dragOrderJustIssued = TRUE;
 				break;
 			}
 
@@ -1098,8 +1110,8 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 
 				//Added support to cancel the GUI command without deselecting the unit(s) involved
 				//when you right click.
-				// an armed attack key keeps the group: the click behind this release is its order
-				if( !TheInGameUI->getGUICommand() && !TheInGameUI->isAttackOrderArmed()
+				// an armed order key keeps the group: the click behind this release is its order
+				if( !TheInGameUI->getGUICommand() && !TheInGameUI->isOrderKeyArmed()
 						&& !TheKeyboard->isShift() && !TheKeyboard->isCtrl() && !TheKeyboard->isAlt() )
 				{
 					//No GUI command mode, so a click on empty ground deselects everyone.

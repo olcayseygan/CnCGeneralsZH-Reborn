@@ -62,10 +62,14 @@ private:
 	// still an order, and weighing the camera's travel turned those into drags and lost them.
 	// The deselect path in SelectionXlat does weigh it, which is where it belongs.
 
-	// latched the moment the right button goes down: whether this drag is drawing a formation line.
+	// latched the moment the button goes down: whether this drag is drawing a formation line.
 	// Latched rather than asked again, so a selection that changes mid-drag cannot abandon a line
-	// the player is already dragging.
+	// the player is already dragging.  The right button draws one always, the left one only with
+	// attack move or guard armed, and the anchor is wherever the drawing button went down.
 	Bool m_formationDragArmed;
+	ICoord2D m_formationDragAnchor;
+
+	void finishFormationDrag( const ICoord2D& lift );
 
 	GameMessage::Type createMoveToLocationMessage( Drawable *draw, const Coord3D *dest, CommandEvaluateType commandType );
 	GameMessage::Type createAttackMessage( Drawable *draw, Drawable *other, CommandEvaluateType commandType );

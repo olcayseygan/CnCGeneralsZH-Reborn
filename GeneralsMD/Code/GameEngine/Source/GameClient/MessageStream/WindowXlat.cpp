@@ -242,7 +242,8 @@ GameMessageDisposition WindowTranslator::translateGameMessage(const GameMessage 
 			// command bar freezes there and never lets go.
 			if( TheInGameUI && TheInGameUI->isFormationDragging()
 					&& ( msg->getType() == GameMessage::MSG_RAW_MOUSE_POSITION
-							 || msg->getType() == GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_UP ) )
+							 || msg->getType() == GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_UP
+							 || msg->getType() == GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_UP ) )
 			{
 				forceKeepMessage = TRUE;
 			}

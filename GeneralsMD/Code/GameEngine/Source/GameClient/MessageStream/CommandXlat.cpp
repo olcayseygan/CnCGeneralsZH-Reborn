@@ -1436,11 +1436,67 @@ CommandTranslator::CommandTranslator() :
 	m_mouseRightDragAnchor.y = 0;
 	m_mouseRightDragLift.x = 0;
 	m_mouseRightDragLift.y = 0;
+	m_formationDragAnchor.x = 0;
+	m_formationDragAnchor.y = 0;
 }
 
 //====================================================================================
 CommandTranslator::~CommandTranslator()
 {
+}
+
+//-------------------------------------------------------------------------------------------------
+/**
+ * The button that drew a formation line came back up.  A drag that travelled far enough to be a
+ * line becomes the order its armed mode names; one that never did was a click, and the click
+ * message behind this release gives that order instead.
+ */
+void CommandTranslator::finishFormationDrag( const ICoord2D& lift )
+{
+	const Bool wasDrag = TheInGameUI->isFormationDragging();
+
+	if( wasDrag )
+		TheInGameUI->addFormationDragPoint( lift );
+
+	// copied out before the drag is cleared, which throws the curve away
+	std::vector<ICoord2D> curve = TheInGameUI->getFormationDragPoints();
+
+	// the preview goes with the drag; from here on the units' own goals are what gets drawn,
+	// so the picture carries on without a break
+	TheInGameUI->clearFormationDrag();
+	m_formationDragArmed = FALSE;
+
+	if( !wasDrag || curve.size() < 2 )
+		return;
+
+	// the same curve means "attack along this" while one of the attack modes is armed, which
+	// is the artillery gesture: a line of fire instead of a line of tanks.  Attack move
+	// walks it and shoots what it meets; the attack key fires on the line where it stands
+	const GameMessage::Type formationType =
+		Command_formationMessage( TheInGameUI->isInAttackMoveToMode(),
+															TheInGameUI->isForceAttackArmed(),
+															TheInGameUI->isGuardArmed() );
+
+	// the traced curve becomes world points; who stands where along it is decided on
+	// the logic side, where every machine decides it the same way
+	GameMessage *newMsg = TheMessageStream->appendMessage( formationType );
+	for( std::vector<ICoord2D>::const_iterator it = curve.begin(); it != curve.end(); ++it )
+	{
+		Coord3D world;
+		TheTacticalView->screenToTerrain( &(*it), &world );
+		newMsg->appendLocationArgument( world );
+	}
+
+	TheInGameUI->clearAttackMoveToMode();
+
+	// a hand-given order ends whatever list the group was working through, unless shift
+	// says the player is adding to it
+	if( !TheInGameUI->isInWaypointMode() )
+		TheInGameUI->clearShiftAttackQueue();
+
+	const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
+	if( selected && !selected->empty() )
+		pickAndPlayUnitVoiceResponse( selected, GameMessage::MSG_DO_MOVETO );
 }
 
 
@@ -3983,8 +4039,31 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			m_mouseRightDragAnchor = msg->getArgument( 0 )->pixel;
 			m_mouseRightDown = (UnsignedInt) msg->getArgument( 2 )->integer;
 
+			m_formationDragAnchor = m_mouseRightDragAnchor;
 			m_formationDragArmed = isFormationDragArmed();
 
+			break;
+		}
+
+		//-----------------------------------------------------------------------------
+		// Attack move and guard are aimed with the left button, so with either armed a left drag draws
+		// the same line a right drag does.  The attack key keeps its left drag for the attack circle.
+		case GameMessage::MSG_RAW_MOUSE_LEFT_DOUBLE_CLICK:
+		case GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_DOWN:
+		{
+			if( TheInGameUI->isLineOrderArmed() )
+			{
+				m_formationDragAnchor = msg->getArgument( 0 )->pixel;
+				m_formationDragArmed = isFormationDragArmed();
+			}
+			break;
+		}
+
+		//-----------------------------------------------------------------------------
+		case GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_UP:
+		{
+			if( m_formationDragArmed )
+				finishFormationDrag( msg->getArgument( 0 )->pixel );
 			break;
 		}
 
@@ -4001,10 +4080,10 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 					// once it is a drag, every position message is a point on the curve
 					TheInGameUI->addFormationDragPoint( here );
 				}
-				else if( (UnsignedInt)abs( here.x - m_mouseRightDragAnchor.x ) > TheMouse->m_dragTolerance
-								 || (UnsignedInt)abs( here.y - m_mouseRightDragAnchor.y ) > TheMouse->m_dragTolerance )
+				else if( (UnsignedInt)abs( here.x - m_formationDragAnchor.x ) > TheMouse->m_dragTolerance
+								 || (UnsignedInt)abs( here.y - m_formationDragAnchor.y ) > TheMouse->m_dragTolerance )
 				{
-					TheInGameUI->addFormationDragPoint( m_mouseRightDragAnchor );
+					TheInGameUI->addFormationDragPoint( m_formationDragAnchor );
 					TheInGameUI->addFormationDragPoint( here );
 				}
 			}
@@ -4020,54 +4099,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			m_mouseRightUp = (UnsignedInt) msg->getArgument( 2 )->integer;
 
 			if( m_formationDragArmed )
-			{
-				const Bool wasDrag = TheInGameUI->isFormationDragging();
-
-				if( wasDrag )
-					TheInGameUI->addFormationDragPoint( m_mouseRightDragLift );
-
-				// copied out before the drag is cleared, which throws the curve away
-				std::vector<ICoord2D> curve = TheInGameUI->getFormationDragPoints();
-
-				// the preview goes with the drag; from here on the units' own goals are what gets drawn,
-				// so the picture carries on without a break
-				TheInGameUI->clearFormationDrag();
-				m_formationDragArmed = FALSE;
-
-				if( wasDrag && curve.size() >= 2 )
-				{
-					// the same curve means "attack along this" while one of the attack modes is armed, which
-					// is the artillery gesture: a line of fire instead of a line of tanks.  Attack move
-					// walks it and shoots what it meets; the attack key fires on the line where it stands
-					const GameMessage::Type formationType =
-						Command_formationMessage( TheInGameUI->isInAttackMoveToMode(),
-																			TheInGameUI->isForceAttackArmed(),
-																			TheInGameUI->isGuardArmed() );
-
-					// the traced curve becomes world points; who stands where along it is decided on
-					// the logic side, where every machine decides it the same way
-					GameMessage *newMsg = TheMessageStream->appendMessage( formationType );
-					for( std::vector<ICoord2D>::const_iterator it = curve.begin(); it != curve.end(); ++it )
-					{
-						Coord3D world;
-						TheTacticalView->screenToTerrain( &(*it), &world );
-						newMsg->appendLocationArgument( world );
-					}
-
-					TheInGameUI->clearAttackMoveToMode();
-
-					// a hand-given order ends whatever list the group was working through, unless shift
-					// says the player is adding to it
-					if( !TheInGameUI->isInWaypointMode() )
-						TheInGameUI->clearShiftAttackQueue();
-
-					const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
-					if( selected && !selected->empty() )
-						pickAndPlayUnitVoiceResponse( selected, GameMessage::MSG_DO_MOVETO );
-
-					break;
-				}
-			}
+				finishFormationDrag( m_mouseRightDragLift );
 
 			// a structure waiting to be placed is dropped by the same release, over in
 			// SelectionXlat, which sees it whether this was a click or a drag
@@ -4101,9 +4133,9 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			// which is gone: a click here commands, a drag draws a formation line, and neither of
 			// them scrolls.
 			//
-			// The one exception is the attack or attack move key.  Those orders are aimed with the left
-			// button, so a right click while one is armed puts the key down and gives no order.
-			if( TheInGameUI->isAttackOrderArmed() )
+			// The one exception is the attack, attack move or guard key.  Those orders are aimed with the
+			// left button, so a right click while one is armed puts the key down and gives no order.
+			if( TheInGameUI->isOrderKeyArmed() )
 			{
 				TheInGameUI->clearAttackMoveToMode();
 				disp = DESTROY_MESSAGE;
@@ -4191,10 +4223,10 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 												|| command->getCommandType() == GUICOMMANDMODE_CONVERT_TO_CARBOMB));
 
 			// The left button selects and nothing else.  The exceptions are a GUI command that is
-			// already armed and waiting for a target, and the attack and attack move keys: all of them
-			// are aimed with the left button, because the right one cancels them.
-			const Bool isAttackOrder = TheInGameUI->isAttackOrderArmed();
-			if( !isFiringGUICommand && !isAttackOrder )
+			// already armed and waiting for a target, and the attack, attack move and guard keys: all of
+			// them are aimed with the left button, because the right one cancels them.
+			const Bool isOrderKey = TheInGameUI->isOrderKeyArmed();
+			if( !isFiringGUICommand && !isOrderKey )
 				break;
 
 			Bool controllable = TheInGameUI->areSelectedObjectsControllable()
@@ -4217,7 +4249,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 
 				// the same rule the right button's orders follow: a hand-given attack ends the list the
 				// group was working through, unless shift says it is being added to
-				if( isAttackOrder && !TheInGameUI->isInWaypointMode() )
+				if( isOrderKey && !TheInGameUI->isInWaypointMode() )
 					TheInGameUI->clearShiftAttackQueue();
 
 				//issueMoveToLocationCommand( &pos, draw, DO_COMMAND );

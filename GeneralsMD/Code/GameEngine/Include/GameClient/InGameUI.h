@@ -867,13 +867,14 @@ public:  // ********************************************************************
 	// same call that drops attack move
 	void toggleForceAttackArmed( void )				{ m_forceAttackArmed = !m_forceAttackArmed; m_attackMoveToMode = FALSE; m_guardArmed = FALSE; }
 	Bool isForceAttackArmed( void ) const			{ return m_forceAttackArmed; }
-	Bool isAttackOrderArmed( void ) const			{ return m_forceAttackArmed || m_attackMoveToMode; }	///< the next left click is an attack or an attack move
+	Bool isOrderKeyArmed( void ) const				{ return m_forceAttackArmed || m_attackMoveToMode || m_guardArmed; }	///< the next left click is an attack, an attack move or a guard
 
 	// and the guard key arms guard the same way: the next order click posts the selection on that
 	// spot, or on that object, and a drag posts them along the line instead of stacking them all
 	// on one point.  All three modes are one mode at a time
 	void toggleGuardArmed( void )							{ m_guardArmed = !m_guardArmed; m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; }
 	Bool isGuardArmed( void ) const						{ return m_guardArmed; }
+	Bool isLineOrderArmed( void ) const				{ return m_attackMoveToMode || m_guardArmed; }	///< a left drag draws an attack move or guard line; force fire's left drag is the attack circle
 	
 	// zeroing the repeat clock makes the first quantized step happen on the very next update, so a
 	// tap of the key is one eighth and a hold is one eighth every CAMERA_SNAP_REPEAT_MS.

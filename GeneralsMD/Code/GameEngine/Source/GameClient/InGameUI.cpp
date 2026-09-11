@@ -4282,7 +4282,9 @@ void InGameUI::createCommandHint( const GameMessage *msg )
 										 (TheRadar->isRadarHidden() || 
 										 ThePlayerList->getLocalPlayer()->hasRadar() == FALSE) )
 							setMouseCursor( Mouse::ARROW );
-						else 
+						else if( isGuardArmed() )
+							setMouseCursor( Mouse::CROSS );	// the targeting cross, the cursor EA's own guard button arms
+						else
 							setMouseCursor( Mouse::MOVETO );
 						break;
 					}
