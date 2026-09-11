@@ -3,7 +3,7 @@
 EA released the 2003 source for preservation. It did not compile, did not run, and nobody had touched
 the bugs inside it in twenty-two years. This build compiles, runs and plays.
 
-**121 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
+**122 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
 found and fixed â€” EA's own, not port damage.**
 
 ---
@@ -51,7 +51,7 @@ found and fixed â€” EA's own, not port damage.**
 
 - It never decided to expand. The machinery was all there - place a supply centre beside a pile, pick a pile worth taking, send a team to sit on it - and every piece of it only ran when a map script said so. An opponent that ran its starting piles dry simply stopped earning.
 - It now goes and takes the money that is lying around, out of spare cash so the army never pays for it.
-- On Brutal the expansion comes with a defence structure facing the enemy, placed in the same job. An undefended expansion is a gift.
+- On Hard the expansion comes with a defence structure facing the enemy, placed in the same job. An undefended expansion is a gift.
 - Measured: a third more army in the field and a quarter more money spent over the match.
 
 ## The computer spends its money
@@ -69,7 +69,7 @@ found and fixed â€” EA's own, not port damage.**
 
 - Its teams fought to the last man. The word "retreat" appeared nowhere in the opponent's code - the single most visible thing that made it look stupid.
 - It now measures the fight, not the health bar: how long its force lasts against how long it needs to finish yours. A unit at a fifth of its health that still out-damages what is shooting it stays; a full-health one being melted leaves. A health percentage gets both of those backwards.
-- Two levels of it. On Medium a unit that is personally finished pulls out of a fight its team is still winning. On Brutal the whole team breaks off when the exchange is lost. Easy never quits - that is part of what makes it easy.
+- Two levels of it. On Medium a unit that is personally finished pulls out of a fight its team is still winning. On Hard the whole team breaks off when the exchange is lost. Easy never quits - that is part of what makes it easy.
 - It only counts what it can see. An opponent that flinches from something it has not found is reading your unit list again.
 - It weighs a fight by what is in it, not by who is nearby: only things that can shoot count, and buildings do not. Its own base is not a reason to feel safe and yours is not a reason to run.
 - Its aircraft are left out of it. A retreat order was what took a parked jet off the runway, so while a fight raged near the airfield the whole wing took off, flew at the base, landed, and did it again every few seconds instead of ever reaching you. Aircraft already fly home on their own when the load is spent.
@@ -79,16 +79,16 @@ found and fixed â€” EA's own, not port damage.**
 
 - Which unit it trained next was a coin flip. It gathered the teams sharing the highest priority number in its data and picked one at random - not one line looked at what it was fighting. An opponent facing nothing but aircraft went on building tanks.
 - Now the priority is the start of a score, not the whole of it. What it can *see* you fielding weights the choice: air pushes anti-air up, stealth pushes detectors up, armour pushes anti-tank up. Its own data decides what counts as the answer to what, so a mod's units are read correctly too.
-- How much that weighs depends on the level, from nothing at all on Easy - which is what the game always did - to fully on Brutal.
+- How much that weighs depends on the level, from nothing at all on Easy - which is what the game always did - to fully on Hard.
 - Anti-air was the computer's oldest hole. It is closed.
 
 ## Three difficulty levels, and none of them cheat
 
-- Easy, Medium, Brutal, the three the game has always had. There were six for a while, with a rung either side of Medium and one above Brutal; they are gone again, and nothing above Brutal went with them - Brutal now plays what the top of that six-rung ladder played.
+- Easy, Medium, Hard, the three the game has always had. There were six for a while, with a rung either side of Medium and one above the top; they are gone again, and nothing above the top went with them - Hard now plays what the top of that six-rung ladder played. For a while the top rung was called Brutal on the seat list; it is Hard again, the name the box always printed.
 - Every level plays by your rules. No level gets extra money, cheaper units, faster building, longer vision or tougher units - in either direction. What changes is what the computer is allowed to decide: how often it looks at the map, how long it takes to react, whether it counters what you field, whether it masses before attacking, whether it pulls damaged units out.
-- Easy looks around and answers far too late. Medium reacts in time, saves its damaged units and goes out to take a second supply pile. Brutal is the opponent with nothing held back: no reaction delay at all, it builds against what it can see you fielding, it gathers an army before it commits it, and it takes a losing team off the field.
-- Measured, not asserted: Brutal beats Easy 15-0 over 32 headless matches with the seats swapped both ways, on twice the army and twice the spending.
-- The ladder reads as one ladder wherever a seat is listed. Half of it was named in EA's old words - "Easy Army", "Medium Army" - and half in ours, in the same drop-down, because four separate lists answered "what is this seat called" and no two of them agreed. Every one of them says Easy AI, Medium AI, Brutal AI now: the lobby, the seat itself, the game info panel and the online browser.
+- Easy looks around and answers far too late. Medium reacts in time, saves its damaged units and goes out to take a second supply pile. Hard is the opponent with nothing held back: no reaction delay at all, it builds against what it can see you fielding, it gathers an army before it commits it, and it takes a losing team off the field.
+- Measured, not asserted: Hard beats Easy 15-0 over 32 headless matches with the seats swapped both ways, on twice the army and twice the spending.
+- The ladder reads as one ladder wherever a seat is listed. Half of it was named in EA's old words - "Easy Army", "Medium Army" - and half in ours, in the same drop-down, because four separate lists answered "what is this seat called" and no two of them agreed. Every one of them says Easy AI, Medium AI, Hard AI now: the lobby, the seat itself, the game info panel and the online browser.
 - All three are in the network and online lobbies as well as skirmish, and the level the host picks is the level every machine at the table plays. A seat also keeps its name, its colour and its start position when the list refreshes, which it did not.
 - Making Easy easier means giving it worse decisions, never less money. That is the whole promise.
 - The computer also picks a personality each match and keeps it: one plays for the attack, the other for the base. Same resources, spent differently.
@@ -981,7 +981,7 @@ found and fixed â€” EA's own, not port damage.**
 - Soldiers used to drop their posed shadow once the camera pulled far enough back to make each man a
   few pixels tall. It saved frame time in a big crowd and it made the army look flat at the zoom
   most games are played at, so it came out again: every soldier on screen keeps his shadow.
-- The six-rung difficulty ladder is back down to three. The three extra rungs were built, played and taken out again: a player picks a level once and wants to know what it means, and six names that each moved one switch was a worse answer to that than three that each describe an opponent. The machinery underneath is the same, so the levels are still tunable in the data files, and Brutal kept the top rung's numbers rather than the old Brutal ones.
+- The six-rung difficulty ladder is back down to three. The three extra rungs were built, played and taken out again: a player picks a level once and wants to know what it means, and six names that each moved one switch was a worse answer to that than three that each describe an opponent. The machinery underneath is the same, so the levels are still tunable in the data files, and Hard kept the top rung's numbers rather than its old ones.
 - The three-piece command bar was reverted once, for having nowhere to put the painting of the bar, and is back now that the painting has been cut into three to match. Each piece is fitted by matching it against the artwork it was cut from rather than by eye: the eyeballed fit was four percent out, which nobody sees on the metal and everybody sees on the money readout.
 - The opponent's decisions are argued with a number: 20 headless matches per change, same seeds, win rate and match length before and after.
 - That caught two changes that looked right and measured catastrophic - a wave that waited jammed the whole production line, and a retreat rule that counted buildings as gunfire sent every attack home. Both showed up as twenty matches with zero kills.

@@ -279,7 +279,7 @@ UnicodeString SlotStateName( SlotState state )
 		case SLOT_TAKEOVER:			return TheGameText->fetch("GUI:HumanSlot");
 		case SLOT_EASY_AI:			return UnicodeString( L"Easy AI" );
 		case SLOT_MED_AI:				return UnicodeString( L"Medium AI" );
-		case SLOT_BRUTAL_AI:		return UnicodeString( L"Brutal AI" );
+		case SLOT_BRUTAL_AI:		return UnicodeString( L"Hard AI" );
 		case SLOT_CLOSED:
 		default:								return TheGameText->fetch("GUI:Closed");
 	}
