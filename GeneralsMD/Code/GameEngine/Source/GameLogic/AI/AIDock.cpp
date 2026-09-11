@@ -210,8 +210,15 @@ StateReturnType AIDockApproachState::onEnter( void )
 	// centre.  Taking the slot and reporting it reached without driving to it hands the dock to the
 	// next state a frame later; the queue behind is unaffected, because there is nobody in it.
 	//
+	// Only for a dock with an entry point of its own.  One without the bones - a supply pile, a GLA
+	// stash - names wherever the docker stands as its entry and its pad, so the approach walk is the
+	// only thing that brings the docker to it; skip that and the load is taken where the worker was.
+	//
+	Coord3D enterPosition;
+	dock->getEnterPosition( getMachineOwner(), &enterPosition );
 	if( dock->getActiveDocker() == INVALID_ID
-			&& ( (AIDockMachine*)getMachine() )->m_approachPosition == 0 )
+			&& ( (AIDockMachine*)getMachine() )->m_approachPosition == 0
+			&& !( enterPosition == *getMachineOwner()->getPosition() ) )
 	{
 		dock->onApproachReached( getMachineOwner() );
 		return STATE_SUCCESS;
