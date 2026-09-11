@@ -126,6 +126,10 @@ SUPERWEAPON_CHECKBOX = ("CheckboxLimitSuperweapons", "CheckBoxLimitSuperweapons"
 # menu code names them and a missing control is as silent as the rest.
 HAND_PLACED_CHECKBOXES = ("CheckBoxUnitLimit", "CheckBoxProRules")
 
+# Pro Rules are for people playing each other, so the skirmish page lost its box again for v1.0.0 and
+# the selfcheck wants it gone there rather than present.
+NO_PRO_RULES_MENU = "SkirmishGameOptionsMenu"
+
 # Cloned from a control that is already on the screen, so they inherit its images and font.  A
 # layout gets the ones its own page has a row for: the skirmish lobby has no peace time, because a
 # skirmish is played against computer players and those do not honour a truce.
@@ -290,7 +294,10 @@ def selfcheck():
 
         for name in HAND_PLACED_CHECKBOXES:
             checkbox = layout.find(name)
-            if checkbox is None:
+            if menu == NO_PRO_RULES_MENU and name == "CheckBoxProRules":
+                if checkbox is not None:
+                    problems.append("%s.wnd still carries %s; a skirmish has no Pro Rules" % (menu, name))
+            elif checkbox is None:
                 problems.append("%s.wnd has no %s" % (menu, name))
             elif page is not None and checkbox not in list(page.walk()):
                 problems.append("%s.wnd: %s is not on the settings page" % (menu, name))

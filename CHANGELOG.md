@@ -480,10 +480,10 @@ found and fixed â€” EA's own, not port damage.**
 - The USA Superweapon General is the exception to both, because the rule that reads as a handicap to everyone else reads as a deletion to him: three superweapons of his own are what he pays for weaker tanks, weaker infantry and a worse air force with. Under Limit he keeps four of each of his. Under No he keeps one. Play him against a lobby that has banned superweapons and you are playing the army you paid for, not an empty base.
 - The tick box was one number for everybody, which is why it could only ever say yes or no. A ticked box in a settings file from an older build reads back as No Superweapons.
 
-## Pro Rules, in every skirmish and network game
+## Pro Rules, in every network game
 
-- A fixed list of units, upgrades and tricks is out of every skirmish, LAN and online match. There is no warning and no penalty after the fact: the button is grey and it stays grey. The campaign and the Generals Challenge play the way they always did.
-- It is one box on the lobby settings page, Pro Rules, ticked unless the host clears it. The host's choice goes to everyone in the room and into the replay, and the lobby remembers it for next time. A host on an older build has no box to send, so that game plays without the list.
+- A fixed list of units, upgrades and tricks is out of every LAN and online match. There is no warning and no penalty after the fact: the button is grey and it stays grey. A skirmish against the computer has the whole arsenal, and so do the campaign and the Generals Challenge.
+- It is one box on the network lobby's settings page, Pro Rules, ticked unless the host clears it. The skirmish lobby has no such box. The host's choice goes to everyone in the room and into the replay, and the lobby remembers it for next time. A host on an older build has no box to send, so that game plays without the list.
 - No Particle Cannon and no SCUD Storm. The USA Superweapon General keeps one Particle Cannon, because a general who paid for his superweapons with a weaker army and then may not build any is playing half a faction.
 - The Nuclear Missile silo still goes up, since it is where China buys Nuclear Tanks and Uranium Shells. The missile inside it never launches, and nobody's screen counts down to it.
 - No Aurora Bomber, the Air Force General's Alpha Aurora included, and no Tactical Nuke upgrade for the Nuke General's MiGs.

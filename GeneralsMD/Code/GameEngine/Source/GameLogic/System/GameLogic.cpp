@@ -1236,12 +1236,13 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
       m_unitCap = 0;
     }
 
-    /* Pro Rules hold in the modes people play each other in, when the lobby's check box is ticked.
-       A replay asks the mode it was recorded in, or a skirmish that refused an Aurora would play
-       back one that built it; the box itself travels in the replay's options string as PR. */
+    /* Pro Rules hold in the modes people play each other in, when the lobby's check box is ticked,
+       and never in a skirmish, which has no box.  A replay asks the mode it was recorded in, or a
+       LAN game that refused an Aurora would play back as a skirmish that built it; the box itself
+       travels in the replay's options string as PR. */
     const Int proRulesMode = (TheRecorder && TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK)
                              ? TheRecorder->getGameMode() : m_gameMode;
-    m_proRules = (proRulesMode == GAME_SKIRMISH || proRulesMode == GAME_LAN || proRulesMode == GAME_INTERNET)
+    m_proRules = (proRulesMode == GAME_LAN || proRulesMode == GAME_INTERNET)
                  && TheGameInfo && TheGameInfo->getProRules();
     /* -unitlimit is the lobby's check box for an -autoskirmish run, which has no lobby to tick it
        in.  A network game reads the host's options string instead, and the switch is cleared for
