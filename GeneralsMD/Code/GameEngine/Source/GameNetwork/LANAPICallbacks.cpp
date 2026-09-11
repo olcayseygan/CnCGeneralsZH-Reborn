@@ -341,6 +341,7 @@ void LANAPI::OnGameStart( void )
     	pref["Map"] = AsciiStringToQuotedPrintable(m_currentGame->getMap());
       pref.setSuperweaponRestriction( m_currentGame->getSuperweaponRestriction() );
       pref.setInt( "UnitLimit", m_currentGame->getUnitLimit() ? 1 : 0 );
+      pref.setInt( "ProRules", m_currentGame->getProRules() ? 1 : 0 );
       pref.setStartingCash( m_currentGame->getStartingCash() );
     }
 		pref.write();

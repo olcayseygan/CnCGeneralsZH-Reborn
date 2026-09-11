@@ -1633,6 +1633,10 @@ CommandAvailability ControlBar::getCommandAvailability( const CommandButton *com
 				GadgetButtonSetSeconds( applyToWin, ControlBar_secondsFromFrames( frames ) );
 			}
 
+			// Pro Rules: the power is there and the button stays dead
+			if( TheGameLogic->isProRules() && ProRulesBanSpecialPower( command->getSpecialPowerTemplate()->getSpecialPowerType() ) )
+				return COMMAND_RESTRICTED;
+
 			if( mod->isReady() == FALSE )
 			{
 				Int percent =  mod->getPercentReady() * 100;

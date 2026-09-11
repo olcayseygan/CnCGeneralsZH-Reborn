@@ -62,6 +62,15 @@
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+/** Rule 2 of Pro Rules: the silo stands and charges, and firing it is refused.  Every route to
+	* firing - the button, a hotkey, a script, a computer player - ends in one of the four do calls. */
+static Bool proRulesRefuse( const SpecialPowerTemplate *specialPowerTemplate )
+{
+	return TheGameLogic->isProRules() && ProRulesBanSpecialPower( specialPowerTemplate->getSpecialPowerType() );
+}
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 SpecialPowerModuleData::SpecialPowerModuleData()
 {
 
@@ -690,7 +699,7 @@ void SpecialPowerModule::aboutToDoSpecialPower( const Coord3D *location )
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerModule::doSpecialPower( UnsignedInt commandOptions )
 {
-	if (m_pausedCount > 0 || getObject()->isDisabled()) {
+	if (m_pausedCount > 0 || getObject()->isDisabled() || proRulesRefuse( getSpecialPowerTemplate() )) {
 		return;
 	}
 
@@ -712,7 +721,7 @@ void SpecialPowerModule::doSpecialPower( UnsignedInt commandOptions )
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerModule::doSpecialPowerAtObject( Object *obj, UnsignedInt commandOptions )
 {
-	if (m_pausedCount > 0 || getObject()->isDisabled()) {
+	if (m_pausedCount > 0 || getObject()->isDisabled() || proRulesRefuse( getSpecialPowerTemplate() )) {
 		return;
 	}
 
@@ -734,7 +743,7 @@ void SpecialPowerModule::doSpecialPowerAtObject( Object *obj, UnsignedInt comman
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerModule::doSpecialPowerAtLocation( const Coord3D *loc, Real angle, UnsignedInt commandOptions )
 {
-	if (m_pausedCount > 0 || getObject()->isDisabled()) {
+	if (m_pausedCount > 0 || getObject()->isDisabled() || proRulesRefuse( getSpecialPowerTemplate() )) {
 		return;
 	}
 
@@ -756,7 +765,7 @@ void SpecialPowerModule::doSpecialPowerAtLocation( const Coord3D *loc, Real angl
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerModule::doSpecialPowerUsingWaypoints( const Waypoint *way, UnsignedInt commandOptions )
 {
-	if (m_pausedCount > 0 || getObject()->isDisabled()) {
+	if (m_pausedCount > 0 || getObject()->isDisabled() || proRulesRefuse( getSpecialPowerTemplate() )) {
 		return;
 	}
 

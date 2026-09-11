@@ -2998,6 +2998,48 @@ Int UnitLimitPerPlayer( Int nonObserverPlayers )
 }
 
 //=============================================================================
+/* Pro Rules.  A general's copy of a unit is the faction's name with a prefix (SupW_, AirF_,
+   Lazr_, Demo_), so a rule names the ending every copy shares.  The Air Force General's Alpha
+   Aurora is AirF_AmericaJetAurora, which is why rules 4 and 5 are one ending. */
+static const char theProRulesAuroraSuffix[] = "JetAurora";
+static const char theProRulesNukeSiloSuffix[] = "NuclearMissileLauncher";
+static const char theProRulesTacticalNukeMigUpgrade[] = "Upgrade_ChinaTacticalNukeMig";
+static const char theProRulesTerroristSuffix[] = "InfantryTerrorist";
+
+// rules 4 and 5
+Bool ProRulesBanThing( const AsciiString &templateName )
+{
+  return templateName.endsWithNoCase( theProRulesAuroraSuffix );
+}
+
+// Rule 11: the silo is built for the Nuclear Tanks and Uranium Shells upgrades it sells, so the
+// building keeps the lobby's superweapon rule and only its missile is refused.
+Bool ProRulesExemptSuperweapon( const AsciiString &templateName )
+{
+  return templateName.endsWithNoCase( theProRulesNukeSiloSuffix );
+}
+
+// rule 6
+Bool ProRulesBanUpgrade( const AsciiString &upgradeName )
+{
+  return upgradeName.compareNoCase( theProRulesTacticalNukeMigUpgrade ) == 0;
+}
+
+// rule 2, the silo's missile, which each China general and the Superweapon General fire as a type of their own
+Bool ProRulesBanSpecialPower( SpecialPowerType specialPowerType )
+{
+  return specialPowerType == SPECIAL_NEUTRON_MISSILE
+      || specialPowerType == NUKE_SPECIAL_NEUTRON_MISSILE
+      || specialPowerType == SUPW_SPECIAL_NEUTRON_MISSILE;
+}
+
+// rule 7, the demo bike: a combat cycle with a terrorist in the saddle
+Bool ProRulesBanRider( const AsciiString &riderTemplateName )
+{
+  return riderTemplateName.endsWithNoCase( theProRulesTerroristSuffix );
+}
+
+//=============================================================================
 /* What the unit limit counts: infantry, vehicles and aircraft.  A structure is not a unit, and
    neither is a drone or a projectile - those arrive with their owner or out of a weapon, nobody
    queued them, and they should not eat the share a player spends. */
@@ -3045,13 +3087,23 @@ Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild ) const
   if ( unitCap > 0 && isUnitTowardCap( whatToBuild ) && (UnsignedInt)countUnitsTowardCap() >= unitCap )
     return false;
 
+  // Pro Rules refuse a banned unit outright, through the same door
+  const Bool proRules = TheGameLogic && TheGameLogic->isProRules();
+  if ( proRules && ProRulesBanThing( whatToBuild->getName() ) )
+    return false;
+
   // make sure we're not maxed out for this type of unit.
   UnsignedInt maxSimultaneousOfType = whatToBuild->getMaxSimultaneousOfType();
 
   if ( whatToBuild->isMaxSimultaneousFromSuperweaponRestriction() )
   {
-    const Int restriction = TheGameLogic ? (Int)TheGameLogic->getSuperweaponRestriction()
-                                         : (Int)SUPERWEAPONS_ALLOW;
+    Int restriction = TheGameLogic ? (Int)TheGameLogic->getSuperweaponRestriction()
+                                   : (Int)SUPERWEAPONS_ALLOW;
+    // Rules 1, 3 and 10: under Pro Rules the Particle Cannon and the SCUD Storm are No Superweapons
+    // whatever the lobby picked, which leaves the Superweapon General his one cannon and nobody
+    // else anything.  The silo is rule 11's and keeps the lobby's pick.
+    if ( proRules && !ProRulesExemptSuperweapon( whatToBuild->getName() ) )
+      restriction = SUPERWEAPONS_NONE;
     const AsciiString templateName =
         getPlayerTemplate() ? getPlayerTemplate()->getName() : AsciiString::TheEmptyString;
     const Int cap = SuperweaponBuildCap( restriction, templateName );

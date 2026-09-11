@@ -237,6 +237,7 @@ GameLogic::GameLogic( void )
 	m_rankLevelLimit = 1000;
 	m_peaceTimeEndFrame = 0;
 	m_unitCap = 0;
+	m_proRules = FALSE;
 	m_gamePaused = FALSE;
 	m_inputEnabledMemory = TRUE;
 	m_mouseVisibleMemory = TRUE;
@@ -1240,6 +1241,13 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
       m_unitCap = 0;
     }
 
+    /* Pro Rules hold in the modes people play each other in, when the lobby's check box is ticked.
+       A replay asks the mode it was recorded in, or a skirmish that refused an Aurora would play
+       back one that built it; the box itself travels in the replay's options string as PR. */
+    const Int proRulesMode = (TheRecorder && TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK)
+                             ? TheRecorder->getGameMode() : m_gameMode;
+    m_proRules = (proRulesMode == GAME_SKIRMISH || proRulesMode == GAME_LAN || proRulesMode == GAME_INTERNET)
+                 && TheGameInfo && TheGameInfo->getProRules();
     /* -unitlimit is the lobby's check box for an -autoskirmish run, which has no lobby to tick it
        in.  A network game reads the host's options string instead, and the switch is cleared for
        one above. */
@@ -5544,13 +5552,14 @@ void GameLogic::prepareLogicForObjectLoad( void )
 	*     the list in the order it was saved in.  Version 10 and earlier are reversed on load.
 	* 12: xfer m_peaceTimeEndFrame
 	* 13: xfer m_unitCap
+	* 14: xfer m_proRules
 	*/
 // ------------------------------------------------------------------------------------------------
 void GameLogic::xfer( Xfer *xfer )
 {
   
 	// version
-	const XferVersion currentVersion = 13;
+	const XferVersion currentVersion = 14;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -5914,6 +5923,15 @@ void GameLogic::xfer( Xfer *xfer )
   else if ( xfer->getXferMode() == XFER_LOAD )
   {
     m_unitCap = 0;
+  }
+
+  if ( version >= 14 )
+  {
+    xfer->xferBool( &m_proRules );
+  }
+  else if ( xfer->getXferMode() == XFER_LOAD )
+  {
+    m_proRules = FALSE;
   }
 }  // end xfer
 

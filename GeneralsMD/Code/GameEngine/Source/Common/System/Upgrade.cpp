@@ -34,6 +34,7 @@
 #include "Common/Upgrade.h"
 #include "Common/Player.h"
 #include "Common/Xfer.h"
+#include "GameLogic/GameLogic.h"
 #include "GameClient/InGameUI.h"
 #include "GameClient/Image.h"
 
@@ -435,6 +436,11 @@ Bool UpgradeCenter::canAffordUpgrade( Player *player, const UpgradeTemplate *upg
  
 	// sanity
 	if( player == NULL || upgradeTemplate == NULL )
+		return FALSE;
+
+	// Pro Rules: a banned upgrade is off the table whatever it costs.  The command bar, the queue and
+	// the computer player's build list all ask here before they buy
+	if( TheGameLogic->isProRules() && ProRulesBanUpgrade( upgradeTemplate->getUpgradeName() ) )
 		return FALSE;
 
 	// money check

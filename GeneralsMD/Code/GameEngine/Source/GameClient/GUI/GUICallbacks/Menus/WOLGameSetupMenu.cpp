@@ -205,6 +205,7 @@ static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
 static NameKeyType comboBoxPeaceTimeID = NAMEKEY_INVALID;
 static NameKeyType checkBoxLimitArmiesID = NAMEKEY_INVALID;
 static NameKeyType checkBoxUnitLimitID = NAMEKEY_INVALID;
+static NameKeyType checkBoxProRulesID = NAMEKEY_INVALID;
 
 // Window Pointers ------------------------------------------------------------------------
 static GameWindow *parentWOLGameSetup = NULL;
@@ -221,6 +222,7 @@ static GameWindow *comboBoxStartingCash = NULL;
 static GameWindow *comboBoxPeaceTime = NULL;
 static GameWindow *checkBoxLimitArmies = NULL;
 static GameWindow *checkBoxUnitLimit = NULL;
+static GameWindow *checkBoxProRules = NULL;
 
 static GameWindow *comboBoxPlayer[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 																									 NULL,NULL,NULL,NULL };
@@ -339,6 +341,7 @@ static void savePlayerInfo( void )
           pref.setStartingCash( TheGameSpyGame->getStartingCash() );
           pref.setInt( "PeaceTime", TheGameSpyGame->getPeaceTime() );
           pref.setInt( "UnitLimit", TheGameSpyGame->getUnitLimit() ? 1 : 0 );
+          pref.setInt( "ProRules", TheGameSpyGame->getProRules() ? 1 : 0 );
         }
 				pref.write();
 			}
@@ -809,6 +812,24 @@ static Bool superweaponIsTheHostsToPick( void )
   return TheGameSpyGame && TheGameSpyGame->amIHost() && !TheGameSpyGame->getUseStats();
 }
 
+static void handleProRulesSelection()
+{
+  GameInfo *myGame = TheGameSpyInfo->getCurrentStagingRoom();
+
+  // the same guard as the unit limit box below
+  if (myGame == NULL || checkBoxProRules == NULL || myGame->getProRules() == GadgetCheckBoxIsChecked( checkBoxProRules ))
+    return;
+
+  myGame->setProRules( GadgetCheckBoxIsChecked( checkBoxProRules ) );
+  myGame->resetAccepted();
+
+  if (myGame->amIHost())
+  {
+    TheGameSpyInfo->setGameOptions();
+    WOLDisplaySlotList();// Update the accepted button UI
+  }
+}
+
 static void handleUnitLimitSelection()
 {
   GameInfo *myGame = TheGameSpyInfo->getCurrentStagingRoom();
@@ -1098,6 +1119,8 @@ void WOLDisplayGameOptions( void )
     UpdatePeaceTimeComboBox( comboBoxPeaceTime, theGame, peaceTimeIsTheHostsToPick() );
   if ( checkBoxUnitLimit )
     UpdateUnitLimitCheckBox( checkBoxUnitLimit, theGame, superweaponIsTheHostsToPick() );
+  if ( checkBoxProRules )
+    UpdateProRulesCheckBox( checkBoxProRules, theGame, superweaponIsTheHostsToPick() );
 }
 
 
@@ -1186,6 +1209,7 @@ void InitWOLGameGadgets( void )
   comboBoxPeaceTimeID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:ComboBoxPeaceTime"));
   checkBoxLimitArmiesID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckBoxLimitArmies"));
   checkBoxUnitLimitID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckBoxUnitLimit"));
+  checkBoxProRulesID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckBoxProRules"));
 	windowMapSelectMapID = TheNameKeyGenerator->nameToKey(AsciiString("WOLMapSelectMenu.wnd:WinMapPreview"));
 
 	NameKeyType staticTextTitleID = NAMEKEY("GameSpyGameOptionsMenu.wnd:StaticTextGameName");
@@ -1220,6 +1244,10 @@ void InitWOLGameGadgets( void )
   DEBUG_ASSERTCRASH(checkBoxUnitLimit, ("Could not find the GameSpyGameOptionsMenu.wnd:CheckBoxUnitLimit" ));
   if ( checkBoxUnitLimit )
     UpdateUnitLimitCheckBox( checkBoxUnitLimit, TheGameSpyGame, superweaponIsTheHostsToPick() );
+  checkBoxProRules = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, checkBoxProRulesID );
+  DEBUG_ASSERTCRASH(checkBoxProRules, ("Could not find the GameSpyGameOptionsMenu.wnd:CheckBoxProRules" ));
+  if ( checkBoxProRules )
+    UpdateProRulesCheckBox( checkBoxProRules, TheGameSpyGame, superweaponIsTheHostsToPick() );
   checkBoxLimitArmies = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, checkBoxLimitArmiesID );
   DEBUG_ASSERTCRASH(windowMap, ("Could not find the GameSpyGameOptionsMenu.wnd:CheckBoxLimitArmies" ));
 
@@ -1375,7 +1403,8 @@ void DeinitWOLGameGadgets( void )
   comboBoxStartingCash = NULL;
   comboBoxPeaceTime = NULL;
   checkBoxUnitLimit = NULL;
-  
+  checkBoxProRules = NULL;
+
 //	GameWindow *staticTextTitle = NULL;
 	for (Int i = 0; i < MAX_SLOTS; i++)
 	{
@@ -1472,6 +1501,8 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 		game->setSuperweaponRestriction( isUsingStats? 0 : customPref.getSuperweaponRestriction() );
 		game->setPeaceTime( isUsingStats? 0 : customPref.getInt( "PeaceTime", 0 ) );
 		game->setUnitLimit( !isUsingStats && customPref.getInt( "UnitLimit", 0 ) != 0 );
+		// a recorded stats game is the ranked one, so it plays the tournament list
+		game->setProRules( isUsingStats || customPref.getInt( "ProRules", 1 ) != 0 );
 		if (isUsingStats)
 			game->setOldFactionsOnly( 0 );
 
@@ -2779,6 +2810,12 @@ WindowMsgHandledType WOLGameSetupMenuSystem( GameWindow *window, UnsignedInt msg
 				if ( controlID == checkBoxUnitLimitID )
 				{
 					handleUnitLimitSelection();
+					break;
+				}
+
+				if ( controlID == checkBoxProRulesID )
+				{
+					handleProRulesSelection();
 					break;
 				}
 

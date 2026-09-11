@@ -84,6 +84,8 @@ Int SuperweaponRestrictionFromComboBox(GameWindow *comboBox);
 // UpdateUnitLimitCheckBox puts the box on what the game says and greys it out for anyone who may not
 // touch it, and it only sets the box when the box is wrong.
 void UpdateUnitLimitCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMayEdit);
+// The Pro Rules check box, the same thing for PR.
+void UpdateProRulesCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMayEdit);
 
 // The lobby's own tab strip: one page of host settings, and the window that page covers - the chat
 // log in the two network lobbies, the map info list in the skirmish one.  All three screens share

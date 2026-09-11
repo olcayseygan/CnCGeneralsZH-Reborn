@@ -1319,6 +1319,14 @@ void ActiveBody::internalAddSubdualDamage( Real delta )
 //-------------------------------------------------------------------------------------------------
 Bool ActiveBody::canBeSubdued() const
 {
+	// Rule 8 of Pro Rules, the microwave bug: a building still going up cannot be subdued, so a
+	// Microwave Tank has nothing to gain by firing at it and does not, and a scaffold is not frozen
+	// half built while the tank sits on it.
+	const Object *me = getObject();
+	if( TheGameLogic->isProRules() && me->isKindOf( KINDOF_STRUCTURE ) &&
+			me->getStatusBits().test( OBJECT_STATUS_UNDER_CONSTRUCTION ) )
+		return FALSE;
+
 	// Any body with subdue listings can be subdued.
 	return getActiveBodyModuleData()->m_subdualDamageCap > 0;
 }

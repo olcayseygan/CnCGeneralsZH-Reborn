@@ -250,6 +250,11 @@ public:
   inline Bool getUnitLimit( void ) const;
   void setUnitLimit( Bool unitLimit );
 
+  // The lobby's Pro Rules check box (PRO-RULES.md, the list ProRulesBanThing and its neighbours in
+  // Player.h hold).  On is the default for a lobby this build made; a host too old to send it is off.
+  inline Bool getProRules( void ) const;
+  void setProRules( Bool proRules );
+
   Bool hasAIPlayers( void ) const;									///< is any slot held by a computer player?
 
 protected:
@@ -275,6 +280,7 @@ protected:
   Bool m_oldFactionsOnly; // Only USA, China, GLA -- not USA Air Force General, GLA Toxic General, et al
   Int m_peaceTime; // minutes of enforced peace at the start of the match, 0 = off
   Bool m_unitLimit; // the lobby's unit limit is on
+  Bool m_proRules; // the lobby's Pro Rules are on
 };
 
 extern GameInfo *TheGameInfo;
@@ -304,6 +310,7 @@ void        GameInfo::setOldFactionsOnly( Bool oldFactionsOnly ) { m_oldFactions
 	 bot back out and it is still there. */
 Int         GameInfo::getPeaceTime( void ) const            { return hasAIPlayers() ? 0 : m_peaceTime; }
 Bool        GameInfo::getUnitLimit( void ) const            { return m_unitLimit; }
+Bool        GameInfo::getProRules( void ) const             { return m_proRules; }
 
 AsciiString GameInfoToAsciiString( const GameInfo *game );
 Bool ParseAsciiStringToGameInfo( GameInfo *game, AsciiString options );

@@ -126,6 +126,21 @@ Int SuperweaponBuildCap( Int restriction, const AsciiString &playerTemplateName 
 enum { UNIT_LIMIT_TOTAL = 840 };
 Int UnitLimitPerPlayer( Int nonObserverPlayers );
 
+// Pro Rules, PRO-RULES.md: what every skirmish and network match refuses whoever plays it.
+// GameLogic::isProRules() says whether a match is under them; these say what they cover, by name
+// or by type, so a test can ask them without a match.
+enum SpecialPowerType;
+Bool ProRulesBanThing( const AsciiString &templateName );
+Bool ProRulesExemptSuperweapon( const AsciiString &templateName );
+Bool ProRulesBanUpgrade( const AsciiString &upgradeName );
+Bool ProRulesBanSpecialPower( SpecialPowerType specialPowerType );
+Bool ProRulesBanRider( const AsciiString &riderTemplateName );
+
+// Rule 9: no foundation this close to an enemy building, edge to edge.  The same 300 world units
+// the derrick cluster rules measure with, which is also more than a Patriot or a Stinger Site
+// reaches on the ground, so a scaffold wall cannot be laid under an enemy's own defences.
+enum { PRO_RULES_ENEMY_STRUCTURE_CLEARANCE = 300 };
+
 static const Int NUM_HOTKEY_SQUADS = 10;
 
 enum { NO_HOTKEY_SQUAD = -1 };

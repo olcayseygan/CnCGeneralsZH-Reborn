@@ -699,6 +699,10 @@ void InGameUI::addSuperweapon(Int playerIndex, const AsciiString& powerName, Obj
 	if (powerTemplate == NULL)
 		return;
 
+	// Pro Rules: a silo nobody may fire gets no countdown on everybody's screen and no "missile ready"
+	if (TheGameLogic->isProRules() && ProRulesBanSpecialPower(powerTemplate->getSpecialPowerType()))
+		return;
+
 	// srj sez: don't allow adding the same superweapon more than once. it can happen. not sure how. (srj)
 	SuperweaponInfo* swInfo = findSWInfo(playerIndex, powerName, id, powerTemplate);
 	if (swInfo != NULL)
@@ -5961,6 +5965,11 @@ void InGameUI::displayCantBuildMessage( LegalBuildCode lbc )
 		//---------------------------------------------------------------------------------------------
 		case LBC_TOO_CLOSE_TO_SUPPLIES:
 			TheInGameUI->message( "GUI:CantBuildTooCloseToSupplies" );
+			break;
+
+		//---------------------------------------------------------------------------------------------
+		case LBC_TOO_CLOSE_TO_ENEMY:
+			TheInGameUI->message( "GUI:CantBuildTooCloseToEnemy" );
 			break;
 
 		//---------------------------------------------------------------------------------------------

@@ -87,8 +87,10 @@ LOBBIES = {
             ("ComboBoxPeaceTime",    273, 388, 180, 24),
             ("LabelSuperweapons",     97, 420, 170, 24),
             ("ComboBoxSuperweapons", 273, 420, 220, 24),
-            ("CheckBoxUseStats",     500, 356, 160, 24),
-            ("CheckBoxLimitArmies",  500, 388, 160, 24),
+            # 28 apart rather than 32: the unit limit and Pro Rules boxes go under these two by
+            # hand, and four rows at 32 do not fit in a page 124 high
+            ("CheckBoxUseStats",     500, 352, 160, 24),
+            ("CheckBoxLimitArmies",  500, 380, 160, 24),
         ],
     ),
     "SkirmishGameOptionsMenu": dict(
@@ -119,10 +121,10 @@ PAGE = "PageLobbySettings"
 # in the LAN layout than in the other two.
 SUPERWEAPON_CHECKBOX = ("CheckboxLimitSuperweapons", "CheckBoxLimitSuperweapons")
 
-# The unit limit check box was put on all three pages by hand after the pages were generated, so
-# build() does not make it; the selfcheck still wants it on every page, because the menu code names it
-# and a missing control is as silent as the rest.
-UNIT_LIMIT_CHECKBOX = "CheckBoxUnitLimit"
+# The unit limit and Pro Rules check boxes were put on all three pages by hand after the pages were
+# generated, so build() does not make them; the selfcheck still wants them on every page, because the
+# menu code names them and a missing control is as silent as the rest.
+HAND_PLACED_CHECKBOXES = ("CheckBoxUnitLimit", "CheckBoxProRules")
 
 # Cloned from a control that is already on the screen, so they inherit its images and font.  A
 # layout gets the ones its own page has a row for: the skirmish lobby has no peace time, because a
@@ -146,6 +148,8 @@ STRINGS = [
     "TOOLTIP:Superweapons",
     "GUI:UnitLimit",
     "TOOLTIP:UnitLimit",
+    "GUI:ProRules",
+    "TOOLTIP:ProRules",
 ]
 
 
@@ -284,11 +288,12 @@ def selfcheck():
             elif page is not None and control not in list(page.walk()):
                 problems.append("%s.wnd: %s is not on the settings page" % (menu, name))
 
-        unit_limit = layout.find(UNIT_LIMIT_CHECKBOX)
-        if unit_limit is None:
-            problems.append("%s.wnd has no %s" % (menu, UNIT_LIMIT_CHECKBOX))
-        elif page is not None and unit_limit not in list(page.walk()):
-            problems.append("%s.wnd: %s is not on the settings page" % (menu, UNIT_LIMIT_CHECKBOX))
+        for name in HAND_PLACED_CHECKBOXES:
+            checkbox = layout.find(name)
+            if checkbox is None:
+                problems.append("%s.wnd has no %s" % (menu, name))
+            elif page is not None and checkbox not in list(page.walk()):
+                problems.append("%s.wnd: %s is not on the settings page" % (menu, name))
 
         for name in SUPERWEAPON_CHECKBOX:
             if layout.find(name) is not None:

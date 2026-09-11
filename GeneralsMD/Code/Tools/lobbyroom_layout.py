@@ -91,11 +91,14 @@ LAN_COLUMNS = [
 # "Allow Superweapons" needs 152 at 800x600.
 SKIRMISH_SETTINGS = [
     (96, 152, [("StartingCashLabel", "ComboBoxStartingCash"), ("LabelSuperweapons", "ComboBoxSuperweapons")]),
-    (88, 112, [("LabelGameSpeed", "SliderGameSpeed", "StaticTextGameSpeed"), ("CheckBoxUnitLimit",)]),
+    (88, 112, [("LabelGameSpeed", "SliderGameSpeed", "StaticTextGameSpeed"), ("CheckBoxUnitLimit",),
+               ("CheckBoxProRules",)]),
 ]
+# The LAN page is 84 high over the chat entry, two rows, so Pro Rules takes a third column instead.
 LAN_SETTINGS = [
     (96, 152, [("StartingCashLabel", "ComboBoxStartingCash"), ("LabelSuperweapons", "ComboBoxSuperweapons")]),
     (96, 152, [("LabelPeaceTime", "ComboBoxPeaceTime"), ("CheckBoxUnitLimit",)]),
+    (0, 128, [("CheckBoxProRules",)]),
 ]
 
 STAT_ROWS = [

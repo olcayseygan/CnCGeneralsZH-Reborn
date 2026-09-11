@@ -479,6 +479,19 @@ found and fixed â€” EA's own, not port damage.**
 - The USA Superweapon General is the exception to both, because the rule that reads as a handicap to everyone else reads as a deletion to him: three superweapons of his own are what he pays for weaker tanks, weaker infantry and a worse air force with. Under Limit he keeps four of each of his. Under No he keeps one. Play him against a lobby that has banned superweapons and you are playing the army you paid for, not an empty base.
 - The tick box was one number for everybody, which is why it could only ever say yes or no. A ticked box in a settings file from an older build reads back as No Superweapons.
 
+## Pro Rules, in every skirmish and network game
+
+- A fixed list of units, upgrades and tricks is out of every skirmish, LAN and online match. There is no warning and no penalty after the fact: the button is grey and it stays grey. The campaign and the Generals Challenge play the way they always did.
+- It is one box on the lobby settings page, Pro Rules, ticked unless the host clears it. The host's choice goes to everyone in the room and into the replay, and the lobby remembers it for next time. A host on an older build has no box to send, so that game plays without the list.
+- No Particle Cannon and no SCUD Storm. The USA Superweapon General keeps one Particle Cannon, because a general who paid for his superweapons with a weaker army and then may not build any is playing half a faction.
+- The Nuclear Missile silo still goes up, since it is where China buys Nuclear Tanks and Uranium Shells. The missile inside it never launches, and nobody's screen counts down to it.
+- No Aurora Bomber, the Air Force General's Alpha Aurora included, and no Tactical Nuke upgrade for the Nuke General's MiGs.
+- No demo bike. A terrorist cannot climb onto a Combat Cycle any more; a rebel, a worker, a hijacker or Jarmen Kell still can.
+- A Microwave Tank cannot freeze a building that is still going up. There is nothing for it to fire at until the scaffold is finished, so parking one beside a half-built base no longer keeps it half built.
+- No foundation goes down closer to an enemy building than 300, a margin past the 225 a Patriot battery or a Stinger Site reaches on the ground. That ends walling somebody's base in with scaffolds nobody means to finish, and it ends building a tower in their yard too. The placement ghost says why it is red.
+- The computer opponent is held to the same list, because it asks the same question your build buttons ask before it spends a dollar.
+- With these rules on, the superweapon dropdown above decides one thing: how many Nuclear Missile silos a player may have standing.
+
 ## Two windows, one machine, a real LAN game
 
 - You can start the game twice on one computer and play the two copies against each other over the LAN screen, the ordinary way: one hosts, picks a map and starts, the other finds the game in the list and joins. Faction, colour and team per slot as always. It is how a network change gets tested here, and it is how two people sharing a desk can play a match without a second machine.

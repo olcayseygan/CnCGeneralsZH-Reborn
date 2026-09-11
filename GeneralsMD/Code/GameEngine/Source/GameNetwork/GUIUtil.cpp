@@ -543,6 +543,15 @@ void UpdateUnitLimitCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMa
     GadgetCheckBoxSetChecked( checkBox, unitLimit );
 }
 
+void UpdateProRulesCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMayEdit)
+{
+  checkBox->winEnable( hostMayEdit );
+
+  const Bool proRules = myGame->getProRules();
+  if ( GadgetCheckBoxIsChecked( checkBox ) != proRules )
+    GadgetCheckBoxSetChecked( checkBox, proRules );
+}
+
 // -----------------------------------------------------------------------------
 // The lobby tab strip.
 static GameWindow *theLobbySettingsPage = NULL;

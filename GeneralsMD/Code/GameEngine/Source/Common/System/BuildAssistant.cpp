@@ -45,6 +45,7 @@
 #include "GameClient/InGameUI.h"
 #include "GameClient/TerrainVisual.h"
 #include "GameLogic/AI.h"
+#include "GameLogic/GameLogic.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/AIPathfind.h"
@@ -1082,6 +1083,30 @@ LegalBuildCode BuildAssistant::isLocationLegalToBuild( const Coord3D *worldPos,
 			return LBC_NOT_FLAT_ENOUGH;
 
 	}  // end if
+
+	//
+	// Rule 9 of Pro Rules: no foundation within reach of an enemy building, which is what a scaffold
+	// wall across somebody's base is made of.  Last, because the computer player tries thousands of
+	// spots a frame and only the ones every other check passed should pay for a range query.
+	//
+	const Player *owner = builderObject ? builderObject->getControllingPlayer() : player;
+	if( TheGameLogic->isProRules() && owner && build->isKindOf( KINDOF_STRUCTURE ) )
+	{
+		PartitionFilterAcceptByKindOf structures( MAKE_KINDOF_MASK( KINDOF_STRUCTURE ), KINDOFMASK_NONE );
+		PartitionFilter *filters[] = { &structures, NULL };
+
+		Real range = build->getTemplateGeometryInfo().getBoundingCircleRadius() + PRO_RULES_ENEMY_STRUCTURE_CLEARANCE;
+		ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( worldPos, range, FROM_BOUNDINGSPHERE_2D, filters );
+		MemoryPoolObjectHolder hold( iter );
+		for( Object *them = iter->first(); them; them = iter->next() )
+		{
+			// The relationship is asked here rather than through PartitionFilterPlayerAffiliation, which
+			// lets a player's own objects through whatever it is asked for - and the first building near
+			// any spot in a base is that base's own command center, so every base refused itself.
+			if( owner->getRelationship( them->getTeam() ) == ENEMIES )
+				return LBC_TOO_CLOSE_TO_ENEMY;
+		}
+	}
 
 	// we passed all the checks
 	return LBC_OK;

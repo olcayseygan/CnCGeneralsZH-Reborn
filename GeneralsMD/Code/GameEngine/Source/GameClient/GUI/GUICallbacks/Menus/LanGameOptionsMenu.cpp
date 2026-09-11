@@ -122,6 +122,7 @@ static NameKeyType comboBoxSuperweaponsID = NAMEKEY_INVALID;
 static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
 static NameKeyType comboBoxPeaceTimeID = NAMEKEY_INVALID;
 static NameKeyType checkBoxUnitLimitID = NAMEKEY_INVALID;
+static NameKeyType checkBoxProRulesID = NAMEKEY_INVALID;
 static NameKeyType windowMapID = NAMEKEY_INVALID;
 // Window Pointers ------------------------------------------------------------------------
 static GameWindow *parentLanGameOptions = NULL;
@@ -135,6 +136,7 @@ static GameWindow *comboBoxSuperweapons = NULL;
 static GameWindow *comboBoxStartingCash = NULL;
 static GameWindow *comboBoxPeaceTime = NULL;
 static GameWindow *checkBoxUnitLimit = NULL;
+static GameWindow *checkBoxProRules = NULL;
 static GameWindow *windowMap = NULL;
 
 static GameWindow *comboBoxPlayer[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
@@ -663,6 +665,24 @@ static void handlePeaceTimeSelection()
   }
 }
 
+static void handleProRulesSelection()
+{
+  LANGameInfo *myGame = TheLAN->GetMyGame();
+
+  // the same guard as the unit limit box below
+  if (myGame == NULL || checkBoxProRules == NULL || myGame->getProRules() == GadgetCheckBoxIsChecked( checkBoxProRules ))
+    return;
+
+  myGame->setProRules( GadgetCheckBoxIsChecked( checkBoxProRules ) );
+  myGame->resetAccepted();
+
+  if (myGame->amIHost() && !s_isIniting)
+  {
+    TheLAN->RequestGameOptions(GenerateGameOptionsString(), true);
+    lanUpdateSlotList(); // Update the accepted button UI
+  }
+}
+
 static void handleUnitLimitSelection()
 {
   LANGameInfo *myGame = TheLAN->GetMyGame();
@@ -730,6 +750,7 @@ void InitLanGameGadgets( void )
   comboBoxStartingCashID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxStartingCash" ) );
   comboBoxPeaceTimeID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxPeaceTime" ) );
   checkBoxUnitLimitID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:CheckBoxUnitLimit" ) );
+  checkBoxProRulesID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:CheckBoxProRules" ) );
 	windowMapID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:MapWindow" ) );
 
 	// Initialize the pointers to our gadgets
@@ -768,6 +789,10 @@ void InitLanGameGadgets( void )
   DEBUG_ASSERTCRASH(checkBoxUnitLimit, ("Could not find the checkBoxUnitLimit"));
 	if (checkBoxUnitLimit)
 		UpdateUnitLimitCheckBox(checkBoxUnitLimit, TheLAN->GetMyGame(), TheLAN->AmIHost());
+  checkBoxProRules = TheWindowManager->winGetWindowFromId( parentLanGameOptions, checkBoxProRulesID );
+  DEBUG_ASSERTCRASH(checkBoxProRules, ("Could not find the checkBoxProRules"));
+	if (checkBoxProRules)
+		UpdateProRulesCheckBox(checkBoxProRules, TheLAN->GetMyGame(), TheLAN->AmIHost());
 
 	windowMap = TheWindowManager->winGetWindowFromId( parentLanGameOptions,windowMapID  );
 	DEBUG_ASSERTCRASH(windowMap, ("Could not find the LanGameOptionsMenu.wnd:MapWindow" ));
@@ -871,6 +896,7 @@ void DeinitLanGameGadgets( void )
   comboBoxStartingCash = NULL;
   comboBoxPeaceTime = NULL;
   checkBoxUnitLimit = NULL;
+  checkBoxProRules = NULL;
 	windowMap = NULL;
 	for (Int i = 0; i < MAX_SLOTS; i++)
 	{
@@ -927,6 +953,7 @@ void LanGameOptionsMenuInit( WindowLayout *layout, void *userData )
     game->setStartingCash( pref.getStartingCash() );
     game->setSuperweaponRestriction( pref.getSuperweaponRestriction() );
     game->setUnitLimit( pref.getInt( "UnitLimit", 0 ) != 0 );
+    game->setProRules( pref.getInt( "ProRules", 1 ) != 0 );
 		AsciiString lowerMap = pref.getPreferredMap();
 		lowerMap.toLower();
 		std::map<AsciiString, MapMetaData>::iterator it = TheMapCache->find(lowerMap);
@@ -1048,6 +1075,8 @@ void updateGameOptions( void )
 			UpdatePeaceTimeComboBox( comboBoxPeaceTime, theGame, TheLAN->AmIHost() );
 		if (checkBoxUnitLimit)
 			UpdateUnitLimitCheckBox( checkBoxUnitLimit, theGame, TheLAN->AmIHost() );
+		if (checkBoxProRules)
+			UpdateProRulesCheckBox( checkBoxProRules, theGame, TheLAN->AmIHost() );
 	}
 }
 
@@ -1281,6 +1310,12 @@ WindowMsgHandledType LanGameOptionsMenuSystem( GameWindow *window, UnsignedInt m
 				if ( controlID == checkBoxUnitLimitID )
 				{
 					handleUnitLimitSelection();
+					break;
+				}
+
+				if ( controlID == checkBoxProRulesID )
+				{
+					handleProRulesSelection();
 					break;
 				}
 

@@ -45,6 +45,7 @@
 #include "GameLogic/AI.h"
 #include "GameLogic/AIPathfind.h"
 #include "GameLogic/ExperienceTracker.h"
+#include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/Locomotor.h"
 
@@ -177,8 +178,8 @@ Bool RiderChangeContain::isValidContainerFor(const Object* rider, Bool checkCapa
 			const ThingTemplate *thing = TheThingFactory->findTemplate( data->m_riders[ i ].m_templateName );
 			if( thing->isEquivalentTo( rider->getTemplate() ) )
 			{
-				//We found a valid rider, so return success.
-				return TRUE;
+				//We found a valid rider, so return success - unless Pro Rules refuse this one the saddle.
+				return !( TheGameLogic->isProRules() && ProRulesBanRider( thing->getName() ) );
 			}
 		}
 	}

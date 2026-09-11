@@ -262,6 +262,11 @@ public:
 			limit is off, which is every campaign mission and every game it was not ticked for. */
 	UnsignedInt getUnitCap( void ) const { return m_unitCap; }
 
+	/** Whether this match is played under Pro Rules (PRO-RULES.md): a skirmish, LAN or online game
+			whose lobby box is ticked, never a campaign mission or a Generals Challenge.  Fixed when the match starts and
+			carried by a save, so a loaded game agrees with the one that was saved. */
+	Bool isProRules( void ) const { return m_proRules; }
+
 #ifdef DUMP_PERF_STATS
 	void getAIMetricsStatistics( UnsignedInt *numAI, UnsignedInt *numMoving, UnsignedInt *numAttacking, UnsignedInt *numWaitingForPath, UnsignedInt *overallFailedPathfinds );
 	void resetOverallFailedPathfinds() { m_overallFailedPathfinds = 0; }
@@ -379,6 +384,7 @@ private:
   UnsignedShort m_superweaponRestriction;
 	UnsignedInt m_peaceTimeEndFrame;	///< logic frame the lobby's peace time runs out on, 0 = no peace time
 	UnsignedInt m_unitCap;						///< units each player may have standing and queued, 0 = no limit
+	Bool m_proRules;									///< this match refuses what PRO-RULES.md bans
 
 	LoadScreen *getLoadScreen( Bool loadSaveGame );
 	LoadScreen *m_loadScreen;

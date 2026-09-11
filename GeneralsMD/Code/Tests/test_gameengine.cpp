@@ -11317,6 +11317,80 @@ TEST(the_superweapon_rule_is_a_mode_with_one_exception)
 	TheWritableGlobalData = saved;
 }
 
+/* The lobby's Pro Rules box starts ticked, so a lobby nobody touched plays the tournament list the
+	 way every match did before the box existed.  The wire half, PR= in the options string, needs
+	 TheGameState and TheMapCache to build a string at all; replay-check carries that one. */
+TEST(pro_rules_box_starts_ticked_and_clears)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	SkirmishGameInfo game;
+	game.init();
+	CHECK( game.getProRules() );
+	game.setProRules( FALSE );
+	CHECK( !game.getProRules() );
+	game.reset();
+	CHECK( game.getProRules() );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+#include "Common/SpecialPowerType.h"
+
+/* Pro Rules name what they ban by the ending every general's copy shares, so each check below
+	 is a template name out of the game's own INI, and each near miss is the thing next to it on the
+	 same build menu that must stay buildable. */
+TEST(pro_rules_ban_the_listed_things_and_nothing_beside_them)
+{
+	// rules 4 and 5: every faction's Aurora, the Alpha Aurora being the Air Force General's copy
+	CHECK( ProRulesBanThing( AsciiString( "AmericaJetAurora" ) ) );
+	CHECK( ProRulesBanThing( AsciiString( "AirF_AmericaJetAurora" ) ) );
+	CHECK( ProRulesBanThing( AsciiString( "Lazr_AmericaJetAurora" ) ) );
+	CHECK( ProRulesBanThing( AsciiString( "SupW_AmericaJetAurora" ) ) );
+	CHECK( !ProRulesBanThing( AsciiString( "AmericaJetRaptor" ) ) );
+	CHECK( !ProRulesBanThing( AsciiString( "AmericaJetAuroraHulk" ) ) );
+	CHECK( !ProRulesBanThing( AsciiString( "AmericaParticleCannonUplink" ) ) );
+
+	// rule 11: the silo keeps the lobby's rule, every other superweapon is rule 1 and 3's
+	CHECK( ProRulesExemptSuperweapon( AsciiString( "ChinaNuclearMissileLauncher" ) ) );
+	CHECK( ProRulesExemptSuperweapon( AsciiString( "Nuke_ChinaNuclearMissileLauncher" ) ) );
+	CHECK( !ProRulesExemptSuperweapon( AsciiString( "AmericaParticleCannonUplink" ) ) );
+	CHECK( !ProRulesExemptSuperweapon( AsciiString( "SupW_AmericaParticleCannonUplink" ) ) );
+	CHECK( !ProRulesExemptSuperweapon( AsciiString( "GLAScudStorm" ) ) );
+	CHECK( !ProRulesExemptSuperweapon( AsciiString( "Demo_GLAScudStorm" ) ) );
+
+	// rules 1, 3 and 10 are No Superweapons for everyone but one general
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, AsciiString( "FactionAmericaSuperWeaponGeneral" ) ), 1 );
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, AsciiString( "FactionAmericaAirForceGeneral" ) ), (Int)SUPERWEAPON_CAP_BANNED );
+
+	// rule 6, and the Nuke General's other upgrades
+	CHECK( ProRulesBanUpgrade( AsciiString( "Upgrade_ChinaTacticalNukeMig" ) ) );
+	CHECK( !ProRulesBanUpgrade( AsciiString( "Nuke_Upgrade_HelixNukeBomb" ) ) );
+	CHECK( !ProRulesBanUpgrade( AsciiString( "Nuke_Upgrade_ChinaWGUraniumShells" ) ) );
+
+	// rule 2: the missile, for each general that fires one, and not the other superweapons' powers
+	CHECK( ProRulesBanSpecialPower( SPECIAL_NEUTRON_MISSILE ) );
+	CHECK( ProRulesBanSpecialPower( NUKE_SPECIAL_NEUTRON_MISSILE ) );
+	CHECK( ProRulesBanSpecialPower( SUPW_SPECIAL_NEUTRON_MISSILE ) );
+	CHECK( !ProRulesBanSpecialPower( SPECIAL_SCUD_STORM ) );
+	CHECK( !ProRulesBanSpecialPower( SPECIAL_PARTICLE_UPLINK_CANNON ) );
+	CHECK( !ProRulesBanSpecialPower( SPECIAL_CLUSTER_MINES ) );
+
+	// rule 7: a terrorist on a combat cycle, and every other rider still rides
+	CHECK( ProRulesBanRider( AsciiString( "GLAInfantryTerrorist" ) ) );
+	CHECK( ProRulesBanRider( AsciiString( "Demo_GLAInfantryTerrorist" ) ) );
+	CHECK( ProRulesBanRider( AsciiString( "GC_Slth_GLAInfantryTerrorist" ) ) );
+	CHECK( !ProRulesBanRider( AsciiString( "Demo_GLAInfantryRebel" ) ) );
+	CHECK( !ProRulesBanRider( AsciiString( "GLAInfantryWorker" ) ) );
+	CHECK( !ProRulesBanRider( AsciiString( "Demo_GLAInfantryHijacker" ) ) );
+
+	// rule 9: the clearance is past a Patriot's and a Stinger Site's ground reach, 225 in Weapon.ini,
+	// so no foundation goes down inside an enemy's own defensive cover
+	CHECK( (Int)PRO_RULES_ENEMY_STRUCTURE_CLEARANCE > 225 );
+}
+
 /* -scenario's line parser.
  *
  * A scenario file that gets half-read still plays a match and still writes a frame time table, so

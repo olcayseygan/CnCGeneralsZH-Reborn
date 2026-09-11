@@ -828,3 +828,16 @@ END
 TOOLTIP:UnitLimit
 "840 units shared out evenly between the players: two players get 420 each, eight get 105. Units standing and units waiting in a queue both count, buildings do not. Your own count and your share are in the top right corner during the match."
 END
+
+GUI:ProRules
+"Pro Rules"
+END
+
+TOOLTIP:ProRules
+"The tournament list. No Particle Cannon or SCUD Storm, except the Superweapon General's one cannon. The Nuclear Missile silo goes up but never fires. No Aurora, no Tactical Nuke MiGs, no demo bike. A Microwave Tank cannot freeze a building still going up, and nobody builds within 300 of an enemy building."
+END
+
+// Pro Rules, rule 9: no foundation within reach of an enemy building
+GUI:CantBuildTooCloseToEnemy
+"Can't build this close to an enemy building."
+END
