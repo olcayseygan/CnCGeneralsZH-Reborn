@@ -399,6 +399,32 @@ void GameLogic::prepareNewGame( Int gameMode, GameDifficulty diff, Int rankPoint
 }  // end prepareNewGame
 
 //-------------------------------------------------------------------------------------------------
+/** What each smoke signal looks like on an ally's screen, indexed by SignalKind.  The smoke is the
+	* beacon's white template tinted, which is all the coloured beacon templates are: they differ
+	* from it in their second colour key and nowhere else.  No signal uses RADAR_EVENT_UNDER_ATTACK,
+	* because Radar::tryEvent refuses a real attack warning within ten seconds of one of those. */
+//-------------------------------------------------------------------------------------------------
+struct SignalLook
+{
+	Color smokeColor;
+	RadarEventType radarEvent;
+	const char *announcementLabel;
+};
+
+static const SignalLook SIGNAL_LOOKS[ SIGNAL_KIND_COUNT ] =
+{
+	{ 0xFF0000,	RADAR_EVENT_BATTLE_PLAN,	"GUI:SignalAttackPlaced" },
+	{ 0x4368FE,	RADAR_EVENT_CONSTRUCTION,	"GUI:SignalDefendPlaced" },
+	{ 0xDDE20D,	RADAR_EVENT_INFORMATION,	"GUI:SignalAttentionPlaced" },
+};
+
+static const char *SIGNAL_SMOKE_TEMPLATE = "BeaconSmokeFFFFFF";
+static const Real SIGNAL_SECONDS = 3.0f;
+
+/// the smoke is fed for the first half of the signal and its last puff fades out over the second
+static const UnsignedInt SIGNAL_HALF_FRAMES = (UnsignedInt)( SIGNAL_SECONDS * LOGICFRAMES_PER_SECOND / 2 );
+
+//-------------------------------------------------------------------------------------------------
 /** This message handles dispatches object command messages to the
   * appropriate objects.
 	* @todo Rename this to "CommandProcessor", or similiar. */
@@ -2038,6 +2064,50 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 			}
 			break;
 		} // end beacon placement
+
+		// --------------------------------------------------------------------------------------------
+		// A smoke signal is a picture and a line of text on the machines allowed to see it, and
+		// nothing else: no object is made and no logic state moves, so a machine that draws it and a
+		// machine that does not stay in step.
+		case GameMessage::MSG_PLACE_SIGNAL:
+		{
+			Int kind = msg->getArgument( 1 )->integer;
+			if( kind < 0 || kind >= SIGNAL_KIND_COUNT )
+				break;
+
+			Player *localPlayer = ThePlayerList->getLocalPlayer();
+			Bool mutualAllies = thisPlayer->getRelationship( localPlayer->getDefaultTeam() ) == ALLIES &&
+				localPlayer->getRelationship( thisPlayer->getDefaultTeam() ) == ALLIES;
+			if( thisPlayer != localPlayer && !mutualAllies && !localPlayer->isPlayerObserver() )
+				break;
+
+			const SignalLook &look = SIGNAL_LOOKS[ kind ];
+			Coord3D pos = msg->getArgument( 0 )->location;
+
+			ParticleSystem *smoke = TheParticleSystemManager->createParticleSystem(
+				TheParticleSystemManager->findTemplate( SIGNAL_SMOKE_TEMPLATE ) );
+			if( smoke )
+			{
+				smoke->setPosition( &pos );
+				smoke->tintAllColors( look.smokeColor );
+				smoke->setFiniteSystemLifetime( SIGNAL_HALF_FRAMES );
+				smoke->setLifetimeRange( SIGNAL_HALF_FRAMES, SIGNAL_HALF_FRAMES );
+				// the template's second alpha key is its fade to nothing, timed for a five second puff
+				smoke->m_alphaKey[ 1 ].frame = SIGNAL_HALF_FRAMES;
+			}
+
+			TheRadar->createEvent( &pos, look.radarEvent, SIGNAL_SECONDS );
+
+			UnicodeString announcement;
+			announcement.format( TheGameText->fetch( look.announcementLabel ), thisPlayer->getPlayerDisplayName().str() );
+			TheInGameUI->message( announcement );
+
+			static AudioEventRTS signalSound( "BeaconPlaced" );
+			signalSound.setPlayerIndex( thisPlayer->getPlayerIndex() );
+			signalSound.setPosition( &pos );
+			TheAudio->addAudioEvent( &signalSound );
+			break;
+		}
 
 		// --------------------------------------------------------------------------------------------
 		case GameMessage::MSG_REMOVE_BEACON:

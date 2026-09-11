@@ -702,6 +702,7 @@ public:
 	const Coord3D *getSlavePositionOffset( void ) { return &m_slavePosOffset; }
 	
 	void setSystemLifetime( UnsignedInt frames ) { m_systemLifetimeLeft = frames; }; ///< not the particle life, the system!... Lorenzen
+	void setFiniteSystemLifetime( UnsignedInt frames ) { m_isForever = false; m_systemLifetimeLeft = frames; }	///< the same, and it ends even when the template said forever (fork)
 	void setLifetimeRange( Real min, Real max );
 	Bool isSystemForever() const {return m_isForever;}
 

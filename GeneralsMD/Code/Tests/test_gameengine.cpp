@@ -1036,6 +1036,16 @@ TEST(a_formation_line_carries_the_armed_order)
 	CHECK( Command_formationMessage( false, false, true  ) == GameMessage::MSG_DO_FORMATION_GUARD );
 }
 
+/* CommandXlat.cpp: each smoke signal key names its own kind, and nothing else names one - the
+   receiving side indexes a table with that value. */
+TEST(each_signal_key_drops_its_own_smoke)
+{
+	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_SIGNAL_ATTACK ) == SIGNAL_ATTACK );
+	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_SIGNAL_DEFEND ) == SIGNAL_DEFEND );
+	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_SIGNAL_ATTENTION ) == SIGNAL_ATTENTION );
+	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_PLACE_BEACON ) == SIGNAL_KIND_COUNT );
+}
+
 /* DrawnPath.cpp: the drawn curve is measured by arc length, not by segment, so the stations divide
    the whole line however uneven the hand that drew it was. */
 #include "Common/DrawnPath.h"

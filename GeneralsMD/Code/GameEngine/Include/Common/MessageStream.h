@@ -472,6 +472,9 @@ public:
 
 		MSG_META_PLACE_BEACON,
 		MSG_META_REMOVE_BEACON,
+		MSG_META_SIGNAL_ATTACK,											///< smoke for the allies: attack here (fork)
+		MSG_META_SIGNAL_DEFEND,											///< smoke for the allies: defend here (fork)
+		MSG_META_SIGNAL_ATTENTION,									///< smoke for the allies: look here (fork)
 
 		MSG_END_META_MESSAGES,											///< Marker to delineate "meta" messages
 
@@ -643,6 +646,7 @@ public:
 		MSG_DO_FORMATION_ATTACKMOVETO,							///< (location...) the same curve, taken as an attack move (fork)
 		MSG_DO_FORMATION_FORCEATTACK,								///< (location...) the same curve, each unit force firing its own point (fork)
 		MSG_DO_FORMATION_GUARD,											///< (location...) the same curve, each unit guarding its own point (fork)
+		MSG_PLACE_SIGNAL,														///< (location, Int SignalKind) smoke only the sender's allies are shown (fork)
 
 		MSG_BEGIN_DEBUG_NETWORK_MESSAGES = 1900,		///< network messages that exist only in debug/internal builds. all grouped separately.
 

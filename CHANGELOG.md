@@ -502,6 +502,8 @@ found and fixed â€” EA's own, not port damage.**
 - Allies only, and only mutual ones. Your position is sent to the players you are actually allied with and to nobody else; an enemy is never sent it at all, and a machine that has been made to send it anyway is ignored by everyone who is not your ally.
 - An ally who alt-tabs away fades out over a couple of seconds instead of freezing on the map, so a marker that is still there is a marker somebody is still behind.
 - Off in one place. `ShowAllyCursors = no` in `Options.ini` stops both halves: nothing is sent from your machine and nothing is drawn on it.
+- Alt+Z, Alt+X and Alt+C put up a puff of smoke where your mouse is. Red says attack here, blue says defend here, yellow says look at this. Point at the radar instead and the smoke goes up on that spot of the map.
+- Your allies see the smoke and their radar blinks at the spot, and the message area says who sent it. Three seconds later the smoke has cleared, so the call you made a minute ago is never still standing next to the one you are making now. Enemies see none of it.
 
 ## The options screen has pages
 

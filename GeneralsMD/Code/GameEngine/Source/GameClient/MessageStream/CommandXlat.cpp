@@ -156,6 +156,18 @@ GameMessage::Type Command_formationMessage( Bool attackMoveArmed, Bool forceAtta
 	return GameMessage::MSG_DO_FORMATION_MOVETO;
 }
 
+//-------------------------------------------------------------------------------------------------
+SignalKind Command_signalKindForMeta( GameMessage::Type meta )
+{
+	switch( meta )
+	{
+		case GameMessage::MSG_META_SIGNAL_ATTACK:			return SIGNAL_ATTACK;
+		case GameMessage::MSG_META_SIGNAL_DEFEND:			return SIGNAL_DEFEND;
+		case GameMessage::MSG_META_SIGNAL_ATTENTION:	return SIGNAL_ATTENTION;
+		default:																			return SIGNAL_KIND_COUNT;
+	}
+}
+
 static Bool isFormationDragArmed( void )
 {
 	return Command_formationDragArmed( TheGlobalData->m_formationDrag,
@@ -3285,6 +3297,27 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			if (TheGameLogic->isInMultiplayerGame() && !TheGameLogic->isInReplayGame())
 			{
 				TheMessageStream->appendMessage( GameMessage::MSG_REMOVE_BEACON );
+			}
+			disp = DESTROY_MESSAGE;
+			break;
+
+		//-----------------------------------------------------------------------------------------
+		// Smoke for the allies where the cursor points: on the radar, the map spot it stands for,
+		// otherwise the ground under it.
+		case GameMessage::MSG_META_SIGNAL_ATTACK:
+		case GameMessage::MSG_META_SIGNAL_DEFEND:
+		case GameMessage::MSG_META_SIGNAL_ATTENTION:
+			if (TheGameLogic->isInMultiplayerGame() && !TheGameLogic->isInReplayGame() &&
+				ThePlayerList->getLocalPlayer()->isPlayerActive())
+			{
+				const ICoord2D *cursor = &TheMouse->getMouseStatus()->pos;
+				Coord3D world;
+				if( TheRadar->screenPixelToWorld( cursor, &world ) || TheTacticalView->screenToTerrain( cursor, &world ) )
+				{
+					GameMessage *signalMsg = TheMessageStream->appendMessage( GameMessage::MSG_PLACE_SIGNAL );
+					signalMsg->appendLocationArgument( world );
+					signalMsg->appendIntegerArgument( Command_signalKindForMeta( t ) );
+				}
 			}
 			disp = DESTROY_MESSAGE;
 			break;

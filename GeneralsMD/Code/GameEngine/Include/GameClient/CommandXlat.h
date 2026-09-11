@@ -141,6 +141,20 @@ extern Bool Command_stopMeansCancelConstruction( Int selectionCount, Bool locall
 extern Bool Command_formationDragArmed( Bool setting, Bool haveMovableSelection,
 																				Bool guiCommandPending );
 
+/** The smoke signals a player drops for their allies, carried as the integer argument of
+  * MSG_PLACE_SIGNAL.  The value arrives from another machine, so the receiving side range-checks
+  * it against SIGNAL_KIND_COUNT. */
+enum SignalKind
+{
+	SIGNAL_ATTACK,
+	SIGNAL_DEFEND,
+	SIGNAL_ATTENTION,
+	SIGNAL_KIND_COUNT
+};
+
+/** Which signal a SIGNAL_* meta key drops; SIGNAL_KIND_COUNT for every other message. */
+extern SignalKind Command_signalKindForMeta( GameMessage::Type meta );
+
 class Player;
 /** Single-player test hook: make this player the one at the keyboard, throwing away any AI behind
   * it first.  FALSE if that player cannot be played (yourself, neutral, observer, beaten) or this

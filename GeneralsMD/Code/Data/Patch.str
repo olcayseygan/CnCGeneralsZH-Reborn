@@ -185,6 +185,43 @@ GUI:HoldPositionDescription
 "Every selected unit guards the spot it is standing on: it shoots what comes into range and never chases it."
 END
 
+// Smoke signals.  The three ...Placed lines are what an ally reads; %s is the sender's name.
+GUI:SignalAttack
+"Signal: Attack"
+END
+
+GUI:SignalAttackDescription
+"Red smoke for three seconds where the cursor is, or on the radar spot under it. Only your allies see it."
+END
+
+GUI:SignalDefend
+"Signal: Defend"
+END
+
+GUI:SignalDefendDescription
+"Blue smoke for three seconds where the cursor is, or on the radar spot under it. Only your allies see it."
+END
+
+GUI:SignalAttention
+"Signal: Look Here"
+END
+
+GUI:SignalAttentionDescription
+"Yellow smoke for three seconds where the cursor is, or on the radar spot under it. Only your allies see it."
+END
+
+GUI:SignalAttackPlaced
+"%s: attack here!"
+END
+
+GUI:SignalDefendPlaced
+"%s: defend here!"
+END
+
+GUI:SignalAttentionPlaced
+"%s: look here!"
+END
+
 GUI:TogglePause
 "Pause"
 END
