@@ -210,12 +210,14 @@ for ($i = 0; $i -lt $Runs; $i++) {
 			if ($report -match "repath (\d+)")            { $pf.Repaths = [int]$Matches[1] }
 			if ($report -match "dither (\d+)")            { $pf.Dithers = [int]$Matches[1] }
 		}
-		elseif ($line -match "HEADLESS PLAYER (\d+) '(.*?)': (\w+) \| score (\d+) \| money (\d+) earned (\d+) spent \| units (\d+) built (\d+) lost (\d+) killed peak (\d+)") {
+		elseif ($line -match "HEADLESS PLAYER (\d+) '(.*?)': (\w+) \| score (\d+) \| money (\d+) earned (\d+) spent \| units (\d+) built (\d+) lost (\d+) killed peak (\d+)(?:.*\| slot (-?\d+) team (-?\d+))?") {
+			# the lobby team is -1 for a free-for-all seat, and absent from a log an older build wrote
+			$team = if ($Matches[12]) { [int]$Matches[12] } else { -1 }
 			$slots[[int]$Matches[1]] = [pscustomobject]@{
 				Name = $Matches[2]; Status = $Matches[3]; Score = [int]$Matches[4]
 				Earned = [int]$Matches[5]; Spent = [int]$Matches[6]
 				Built = [int]$Matches[7]; Lost = [int]$Matches[8]; Killed = [int]$Matches[9]
-				Peak = [int]$Matches[10]
+				Peak = [int]$Matches[10]; Team = $team
 			}
 		}
 	}
@@ -262,6 +264,28 @@ $summary = foreach ($p in $slotIds) {
 	}
 }
 if ($summary) { $summary | Format-Table -AutoSize | Out-String | Write-Host }
+
+# With -Teams the question is which block won, not which seat: allies share a victory, so a team
+# is counted once per match it won, and its kills and losses are the sum over its members.
+$teamIds = $rows | ForEach-Object { $_.Slots.Values } | Where-Object { $_.Team -ge 0 } | ForEach-Object { $_.Team } | Sort-Object -Unique
+$teamSummary = foreach ($t in $teamIds) {
+	# not $matches: PowerShell names are case-insensitive and that is the -match result every parse above reads
+	$teamRows = @($rows | ForEach-Object { ,@($_.Slots.Values | Where-Object { $_.Team -eq $t }) } | Where-Object { $_.Count -gt 0 })
+	$wins = @($teamRows | Where-Object { @($_ | Where-Object { $_.Status -eq "WON" }).Count -gt 0 }).Count
+	$seats = $rows | ForEach-Object { $slots = $_.Slots; $slots.Keys | Where-Object { $slots[$_].Team -eq $t } } | Sort-Object -Unique
+	[pscustomobject]@{
+		Team     = $t
+		Players  = ($seats -join ",")
+		Wins     = $wins
+		"Win%"   = [math]::Round(100.0 * $wins / $rows.Count, 1)
+		AvgKills = [math]::Round(($teamRows | ForEach-Object { ($_ | Measure-Object Killed -Sum).Sum } | Measure-Object -Average).Average, 1)
+		AvgLost  = [math]::Round(($teamRows | ForEach-Object { ($_ | Measure-Object Lost -Sum).Sum } | Measure-Object -Average).Average, 1)
+	}
+}
+if ($teamSummary) {
+	Write-Host "per team:"
+	$teamSummary | Format-Table -AutoSize | Out-String | Write-Host
+}
 
 # Pathfinder cost and traffic, averaged per match. A match that produced no log has nothing to
 # say here, so it is left out rather than counted as a zero.

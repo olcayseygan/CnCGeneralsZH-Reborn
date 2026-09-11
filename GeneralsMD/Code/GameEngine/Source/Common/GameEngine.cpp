@@ -1998,8 +1998,13 @@ static void updateHeadlessRun( void )
 		if (!p->isPlayableSide() || p->isPlayerObserver())
 			continue;
 
+		// The lobby seat and its -teams block, so a batch can add a team's result up without guessing
+		// which player index came from which slot.  A player no slot built has neither.
+		const Int slot = ThePlayerList->getSlotIndex( i );
+		const Int team = (slot >= 0 && TheGameInfo) ? TheGameInfo->getConstSlot( slot )->getTeamNumber() : -1;
+
 		ScoreKeeper *score = p->getScoreKeeper();
-		DEBUG_LOG(("HEADLESS PLAYER %d '%ls': %s | score %d | money %d earned %d spent | units %d built %d lost %d killed peak %d | buildings %d built %d lost\n",
+		DEBUG_LOG(("HEADLESS PLAYER %d '%ls': %s | score %d | money %d earned %d spent | units %d built %d lost %d killed peak %d | buildings %d built %d lost | slot %d team %d\n",
 							 i, p->getPlayerDisplayName().str(),
 							 TheVictoryConditions->hasAchievedVictory(p) ? "WON" :
 								 (TheVictoryConditions->hasSinglePlayerBeenDefeated(p) ? "eliminated" : "alive"),
@@ -2007,7 +2012,8 @@ static void updateHeadlessRun( void )
 							 score->getTotalMoneyEarned(), score->getTotalMoneySpent(),
 							 score->getTotalUnitsBuilt(), score->getTotalUnitsLost(), score->getTotalUnitsDestroyed(),
 							 peakUnits[ i ],
-							 score->getTotalBuildingsBuilt(), score->getTotalBuildingsLost()));
+							 score->getTotalBuildingsBuilt(), score->getTotalBuildingsLost(),
+							 slot, team));
 	}
 
 	/* Tear the match down the way the benchmark timer does, so the replay of the run is closed and
