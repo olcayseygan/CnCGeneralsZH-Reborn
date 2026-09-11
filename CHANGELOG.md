@@ -925,6 +925,7 @@ found and fixed â€” EA's own, not port damage.**
   honoured now, so the picture holds to your monitor's refresh rate unless you turn it off.
 - No disc, no registry keys, no retail installer â€” a normal install works.
 - The startup screen is this build's own, so you can see which one you launched before the menu loads.
+- The main menu buttons are there when the menu is. On the first visit they used to stay hidden, pointer and all, until you nudged the mouse or pressed a key, so a freshly started game looked stuck on the background battle.
 - The zip installs itself and takes itself back off. `install.bat` asks where the game is, offering
   whatever the registry says, and copies the build there; anything it is about to write over goes
   into a zip in `ZHReborn-Uninstall` first, and anything it adds that was not there is written down

@@ -452,6 +452,18 @@ GameWindow *win = NULL;
 		win->winHide(TRUE);
 
 }
+
+// EA held the buttons back on the first entry until the mouse moved 20 pixels or a key went down.
+// They now come up with the menu.
+static void revealMainMenu( void )
+{
+	initialGadgetDelay = 1;
+	dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE);
+	TheTransitionHandler->setGroup("MainMenuFade", TRUE);
+	TheTransitionHandler->setGroup("MainMenuDefaultMenu");
+	TheMouse->setVisibility(TRUE);
+	notShown = FALSE;
+}
 //-------------------------------------------------------------------------------------------------
 /** Initialize the main menu */
 //-------------------------------------------------------------------------------------------------
@@ -666,6 +678,7 @@ void MainMenuInit( WindowLayout *layout, void *userData )
 
 		TheTransitionHandler->reverse("FadeWholeScreen");
 		FirstTimeRunningTheGame  = FALSE;
+		revealMainMenu();
 	}
 	else
 	{
@@ -1002,59 +1015,6 @@ void MainMenuUpdate( WindowLayout *layout, void *userData )
 WindowMsgHandledType MainMenuInput( GameWindow *window, UnsignedInt msg,
 																		WindowMsgData mData1, WindowMsgData mData2 )
 {
-
-	if(!notShown)
-		return MSG_IGNORED;
-	
-	switch( msg ) 
-	{
-
-		// --------------------------------------------------------------------------------------------
-		case GWM_MOUSE_POS:
-		{
-			ICoord2D mouse;
-			mouse.x = mData1 & 0xFFFF;
-			mouse.y = mData1 >> 16;
-			if( mouse.x == 0 && mouse.y == 0)
-				break;
-
-			static Int mousePosX = mouse.x;
-			static Int mousePosY = mouse.y;
-			if(abs(mouse.x - mousePosX) > 20 || abs(mouse.y - mousePosY) > 20)
-			{
-			
-				DEBUG_LOG(("Mouse X:%d, Y:%d\n", mouse.x, mouse.y));
-				if(notShown)
-				{
-					initialGadgetDelay = 1;
-					dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE);
-					TheTransitionHandler->setGroup("MainMenuFade", TRUE);
-					TheTransitionHandler->setGroup("MainMenuDefaultMenu");
-					TheMouse->setVisibility(TRUE);
-					notShown = FALSE;
-					return MSG_HANDLED;
-				}
-			}
-			
-		}  // end char
-		break;
-		case GWM_CHAR:
-		{
-			if(notShown)
-			{
-				initialGadgetDelay = 1;
-				dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE);
-				TheTransitionHandler->setGroup("MainMenuFade", TRUE);
-				TheTransitionHandler->setGroup("MainMenuDefaultMenu");
-				TheMouse->setVisibility(TRUE);
-				notShown = FALSE;
-				return MSG_HANDLED;
-			}
-			
-		}  // end char
-
-	}  // end switch( msg )
-	
 
 	return MSG_IGNORED;
 
