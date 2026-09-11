@@ -159,6 +159,7 @@ public:
 	virtual void cancelUpgrade( const UpgradeTemplate *upgrade ) = 0;
 	virtual Bool isUpgradeInQueue( const UpgradeTemplate *upgrade ) const = 0;
 	virtual UnsignedInt countUnitTypeInQueue( const ThingTemplate *unitType ) const = 0;
+	virtual Int getQuantityPerOrder( const ThingTemplate *unitType ) const = 0;
 
 	virtual Bool queueCreateUnit( const ThingTemplate *unitType, ProductionID productionID ) = 0;
 	virtual void cancelUnitCreate( ProductionID productionID ) = 0;
@@ -216,6 +217,7 @@ public:
 	virtual void cancelUpgrade( const UpgradeTemplate *upgrade );				///< cancel upgrade "research"
 	virtual Bool isUpgradeInQueue( const UpgradeTemplate *upgrade ) const;		///< is the upgrade in our production queue already
 	virtual UnsignedInt countUnitTypeInQueue( const ThingTemplate *unitType ) const;  ///< count number of units with matching unit type in the production queue
+	virtual Int getQuantityPerOrder( const ThingTemplate *unitType ) const;	///< units one paid order hands back, from QuantityModifier
 
 	virtual Bool queueCreateUnit( const ThingTemplate *unitType, ProductionID productionID );					///< queue unit to be produced
 	virtual void cancelUnitCreate( ProductionID productionID );		      ///< cancel construction of unit with matching production ID

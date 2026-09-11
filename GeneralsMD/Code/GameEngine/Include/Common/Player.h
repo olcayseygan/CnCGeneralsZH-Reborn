@@ -125,6 +125,8 @@ Int SuperweaponBuildCap( Int restriction, const AsciiString &playerTemplateName 
 // players who are not watching.  UnitLimitPerPlayer is one player's share.
 enum { UNIT_LIMIT_TOTAL = 840 };
 Int UnitLimitPerPlayer( Int nonObserverPlayers );
+// Whether a build that adds unitsItAdds (a transport and its payload) goes past the share.  0 is no cap.
+Bool UnitCapRefuses( Int unitsTowardCap, Int unitsItAdds, UnsignedInt unitCap );
 
 // Pro Rules, PRO-RULES.md: what every skirmish and network match refuses whoever plays it.
 // GameLogic::isProRules() says whether a match is under them; these say what they cover, by name
@@ -322,7 +324,8 @@ public:
 	Bool canAffordBuild( const ThingTemplate *whatToBuild ) const;
   
   // Check MaxSimultaneousOfType
-  Bool canBuildMoreOfType( const ThingTemplate *whatToBuild ) const;
+  // unitsPerOrder is what one queue entry delivers at the factory asking (QuantityModifier), 1 without one
+  Bool canBuildMoreOfType( const ThingTemplate *whatToBuild, Int unitsPerOrder = 1 ) const;
   Int countUnitsTowardCap( void ) const;	///< units standing and queued, what the lobby's unit limit is checked against
   
 	/// Difficulty level for this player.

@@ -1379,7 +1379,7 @@ CanMakeType BuildAssistant::canMakeUnit( Object *builder, const ThingTemplate *w
   // make sure we're not maxed out for this type of unit.
   // Warning: isPossibleToMakeUnit() now implicitly calls
   // canBuildMoreOfType(), so do this check first
-  if ( player && !player->canBuildMoreOfType( whatToBuild ) )
+  if ( player && !player->canBuildMoreOfType( whatToBuild, pu ? pu->getQuantityPerOrder( whatToBuild ) : 1 ) )
     return CANMAKE_MAXED_OUT_FOR_PLAYER;
   
 	if (!isPossibleToMakeUnit(builder, whatToBuild)) 

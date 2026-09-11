@@ -97,6 +97,7 @@
 #include "GameLogic/Module/SupplyTruckAIUpdate.h"
 #include "GameLogic/Module/BattlePlanUpdate.h"
 #include "GameLogic/Module/ProductionUpdate.h"
+#include "GameLogic/Module/TransportContain.h"
 #include "GameLogic/VictoryConditions.h"
 
 #include "GameNetwork/GameInfo.h"
@@ -3051,6 +3052,46 @@ static Bool isUnitTowardCap( const ThingTemplate *thing )
   return thing->isKindOf( KINDOF_INFANTRY ) || thing->isKindOf( KINDOF_VEHICLE ) || thing->isKindOf( KINDOF_AIRCRAFT );
 }
 
+/* The contain modules that fill a new transport from its InitialPayload line.  MobNexusContain
+   parses the line too but never creates anything from it. */
+static const char *const theInitialPayloadContainModules[] =
+{
+  "TransportContain",
+  "HelixContain",
+  "OverlordContain",
+  "InternetHackContain",
+  "RiderChangeContain"
+};
+
+/* A queued Troop Crawler is nine units, not one: its eight Red Guards are born inside it the
+   frame it rolls out and count from then on, so the queue has to charge for them already or a
+   player one short of the cap overshoots it by eight. */
+static Int unitsTowardCapPerBuild( const ThingTemplate *unit )
+{
+  Int units = 1;
+  const ModuleInfo &modules = unit->getBehaviorModuleInfo();
+  for ( Int m = 0; m < modules.getCount(); ++m )
+  {
+    const AsciiString moduleName = modules.getNthName( m );
+    for ( Int c = 0; c < ARRAY_SIZE( theInitialPayloadContainModules ); ++c )
+    {
+      if ( moduleName.compare( theInitialPayloadContainModules[ c ] ) != 0 )
+        continue;
+
+      const TransportContainModuleData *contain = (const TransportContainModuleData *)modules.getNthData( m );
+      if ( contain->m_initialPayload.count > 0
+        && isUnitTowardCap( TheThingFactory->findTemplate( contain->m_initialPayload.name ) ) )
+        units += contain->m_initialPayload.count;
+    }
+  }
+  return units;
+}
+
+Bool UnitCapRefuses( Int unitsTowardCap, Int unitsItAdds, UnsignedInt unitCap )
+{
+  return unitCap > 0 && (UnsignedInt)( unitsTowardCap + unitsItAdds ) > unitCap;
+}
+
 // one object: itself if it is a unit, and whatever units it has queued, however many each entry makes
 static void countUnitTowardCap( Object *obj, void *userData )
 {
@@ -3066,7 +3107,7 @@ static void countUnitTowardCap( Object *obj, void *userData )
   {
     const ThingTemplate *unit = entry->getProductionObject();
     if ( entry->getProductionType() == PRODUCTION_UNIT && unit && isUnitTowardCap( unit ) )
-      *count += entry->getProductionQuantityRemaining();
+      *count += entry->getProductionQuantityRemaining() * unitsTowardCapPerBuild( unit );
   }
 }
 
@@ -3078,13 +3119,16 @@ Int Player::countUnitsTowardCap( void ) const
 }
 
 //=============================================================================
-Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild ) const
+Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild, Int unitsPerOrder ) const
 {
-  // the lobby's unit limit: a queue entry is refused once what stands and what is queued fills the
-  // share.  Everything that decides whether a unit may be built comes through here - the command
-  // bar, the production queue and the computer players' build lists
+  // the lobby's unit limit: a queue entry is refused when everything it delivers - a pair of Red
+  // Guards, a transport and its payload - would take what stands and what is queued past the share.
+  // Everything that decides whether a unit may be built comes through here - the command bar, the
+  // production queue and the computer players' build lists.  A shift batch is one queue message per
+  // entry, so the logic takes entries until the next one no longer fits and drops the rest
   const UnsignedInt unitCap = TheGameLogic ? TheGameLogic->getUnitCap() : 0;
-  if ( unitCap > 0 && isUnitTowardCap( whatToBuild ) && (UnsignedInt)countUnitsTowardCap() >= unitCap )
+  if ( unitCap > 0 && isUnitTowardCap( whatToBuild )
+    && UnitCapRefuses( countUnitsTowardCap(), unitsPerOrder * unitsTowardCapPerBuild( whatToBuild ), unitCap ) )
     return false;
 
   // Pro Rules refuse a banned unit outright, through the same door

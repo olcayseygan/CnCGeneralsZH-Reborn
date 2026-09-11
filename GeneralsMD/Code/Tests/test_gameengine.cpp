@@ -1003,6 +1003,22 @@ TEST(unit_limit_shares_840_between_the_players)
 	CHECK_EQ( UnitLimitPerPlayer( 1 ), 840 );
 }
 
+/* Player.cpp: a build is refused when it and its payload would go past the share, not when the
+   share is already full. */
+TEST(unit_limit_charges_a_transport_for_its_payload)
+{
+	/* one short of 105: a tank fits, a pair of Red Guards and a Troop Crawler with its eight do not */
+	CHECK( !UnitCapRefuses( 104, 1, 105 ) );
+	CHECK(  UnitCapRefuses( 104, 2, 105 ) );
+	CHECK( !UnitCapRefuses( 103, 2, 105 ) );
+	CHECK(  UnitCapRefuses( 104, 9, 105 ) );
+	CHECK( !UnitCapRefuses( 96, 9, 105 ) );
+	CHECK(  UnitCapRefuses( 105, 1, 105 ) );
+
+	/* no limit in the lobby refuses nothing */
+	CHECK( !UnitCapRefuses( 5000, 9, 0 ) );
+}
+
 /* CommandXlat.cpp: a right drag spreads the selection along the line drawn, but only when there is
    a selection to spread and no GUI command already waiting for the click. */
 extern Bool Command_formationDragArmed( Bool setting, Bool haveMovableSelection,
