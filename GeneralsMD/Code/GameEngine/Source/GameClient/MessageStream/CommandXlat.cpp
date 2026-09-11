@@ -4039,8 +4039,9 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			m_mouseRightDragAnchor = msg->getArgument( 0 )->pixel;
 			m_mouseRightDown = (UnsignedInt) msg->getArgument( 2 )->integer;
 
+			// attack move and guard draw their line with the left button only
 			m_formationDragAnchor = m_mouseRightDragAnchor;
-			m_formationDragArmed = isFormationDragArmed();
+			m_formationDragArmed = isFormationDragArmed() && !TheInGameUI->isLineOrderArmed();
 
 			break;
 		}

@@ -64,8 +64,8 @@ private:
 
 	// latched the moment the button goes down: whether this drag is drawing a formation line.
 	// Latched rather than asked again, so a selection that changes mid-drag cannot abandon a line
-	// the player is already dragging.  The right button draws one always, the left one only with
-	// attack move or guard armed, and the anchor is wherever the drawing button went down.
+	// the player is already dragging.  With attack move or guard armed only the left button draws
+	// one, otherwise only the right, and the anchor is wherever the drawing button went down.
 	Bool m_formationDragArmed;
 	ICoord2D m_formationDragAnchor;
 
