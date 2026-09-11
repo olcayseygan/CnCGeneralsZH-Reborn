@@ -436,8 +436,8 @@ static const Real SIGNAL_SMOKE_RISE_SCALE = 3.0f;
 static const Real SIGNAL_SMOKE_ALPHA_MIN = 0.6f;
 static const Real SIGNAL_SMOKE_ALPHA_MAX = 0.8f;
 
-/// the word starts this far above the ground, at about the top of the plume, and floats up from there
-static const Real SIGNAL_LABEL_HEIGHT = 40.0f;
+/// the word is written this far above the ground, which is about the middle of the plume
+static const Real SIGNAL_LABEL_HEIGHT = 20.0f;
 
 //-------------------------------------------------------------------------------------------------
 /** Is a signal on this frame too soon after the player's last one?  A last frame ahead of now is
@@ -2137,16 +2137,11 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, void *userData )
 
 			TheRadar->createEvent( &pos, look.radarEvent, SIGNAL_SECONDS );
 
-			// addFloatingText runs the colour through the viewer's scheme itself, so it takes the logic one
+			// floating text runs the colour through the viewer's scheme itself, so it takes the logic one
 			Coord3D labelPos = pos;
 			labelPos.z += SIGNAL_LABEL_HEIGHT;
-			FloatingTextData *word = TheInGameUI->addFloatingText( TheGameText->fetch( look.wordLabel ), &labelPos, thisPlayer->getPlayerColor() );
-			if( word )
-			{
-				// a money pop-up is gone in a third of a second and only over ground in plain sight
-				word->m_frameTimeOut = getFrame() + SIGNAL_HALF_FRAMES;
-				word->m_seenThroughShroud = TRUE;
-			}
+			TheInGameUI->addSignalWord( TheGameText->fetch( look.wordLabel ), &labelPos,
+				thisPlayer->getPlayerColor(), SIGNAL_HALF_FRAMES );
 
 			UnicodeString announcement;
 			announcement.format( TheGameText->fetch( look.announcementLabel ), thisPlayer->getPlayerDisplayName().str() );

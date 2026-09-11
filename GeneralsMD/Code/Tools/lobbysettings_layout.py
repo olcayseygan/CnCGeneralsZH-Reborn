@@ -32,7 +32,8 @@ client reading a 4 gets four, because that is what the field has always meant.
 
 writes all three masters from the shipped files.  The two network layouts also want the peace time
 box, so this calls peacetime_layout.build for it rather than keeping a second copy of the knowledge
-of where that box comes from; run this one, not that one, when regenerating the lobbies.
+of where that box comes from; run this one, not that one, when regenerating the lobbies.  The
+skirmish and LAN rooms then go through lobbyroom_layout.py, which puts them on their grid.
 
     python lobbysettings_layout.py selfcheck
 

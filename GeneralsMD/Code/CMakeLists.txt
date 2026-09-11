@@ -801,6 +801,13 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME lobbysettings_selfcheck
            COMMAND ${Python3_EXECUTABLE}
                    ${CMAKE_CURRENT_SOURCE_DIR}/Tools/lobbysettings_layout.py selfcheck)
+
+  # The skirmish and LAN rooms are laid out on one grid by arithmetic, and the mistake arithmetic
+  # makes is silent: a control drawn over its neighbour, or a button a few pixels off the edge the
+  # rest of its column stands on.  Both are checked here, with every window the menu code names.
+  add_test(NAME lobbyroom_selfcheck
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_CURRENT_SOURCE_DIR}/Tools/lobbyroom_layout.py selfcheck)
 endif()
 
 if(RELEASE_DEBUG_LOGGING)

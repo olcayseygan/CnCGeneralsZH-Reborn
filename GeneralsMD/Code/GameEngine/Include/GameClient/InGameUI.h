@@ -276,7 +276,7 @@ public:
 	Coord3D					m_pos3D;													///< the 3d position in game coords
 	Int							m_frameTimeOut;												///< when we want this thing to disappear
 	Int							m_frameCount;													///< how many frames have we been displaying text?
-	Bool						m_seenThroughShroud;										///< drawn over fogged ground too; a signal word is about a place nobody may be watching (fork)
+	Bool						m_isSignalWord;													///< a smoke signal's word: stays on its spot, outlined, drawn over fogged ground too (fork)
 };
 
 typedef std::list<FloatingTextData *> FloatingTextList;
@@ -837,6 +837,8 @@ public:  // ********************************************************************
 	// Floating Test Methods
 	/// the text it added, for a caller that wants to hold it longer; NULL while icons are not drawn
 	virtual FloatingTextData *addFloatingText(const UnicodeString& text,const Coord3D * pos, Color color);
+	/// a smoke signal's word, written on the smoke for holdFrames and then faded like any floating text
+	void addSignalWord( const UnicodeString& text, const Coord3D *pos, Color color, UnsignedInt holdFrames );
 
 	// Drawable caption stuff
 	AsciiString	getDrawableCaptionFontName( void )	{ return m_drawableCaptionFont; }
