@@ -59,7 +59,6 @@
 #include "GameLogic/TerrainLogic.h"
 #include "WW3D2/DX8Caps.h"
 #include "GameClient/Drawable.h"
-#include "GameClient/View.h"
 #include "wwshade/shdmesh.h"
 #include "wwshade/shdsubmesh.h"
 
@@ -370,7 +369,6 @@ protected:
 		return m_verts[dwVertId];
 	}
 
-public:
 	Bool isSkin (void) const { return m_isSkin;}
 	Int getNumSourceVerts (void) const { return m_numSourceVerts;}
 	/**Point the vertex and face normal accessors at externally owned, per-frame data.  Used while a
@@ -1987,36 +1985,6 @@ void W3DVolumetricShadow::SetGeometry( W3DShadowGeometry *geometry )
 
 }  // end SetGeometry
 
-static Bool geometryHasSkinMesh( W3DShadowGeometry *geometry )
-{
-	if( geometry == NULL )
-		return FALSE;
-	Int n = geometry->getMeshCount();
-	for( Int i = 0; i < n; ++i )
-		if( geometry->getMesh( i )->isSkin() )
-			return TRUE;
-	return FALSE;
-}
-
-static Bool skinCasterLargeEnoughOnScreen( RenderObjClass *robj )
-{
-	if( robj == NULL || TheTacticalView == NULL )
-		return TRUE;
-
-	const SphereClass &sphere = robj->Get_Bounding_Sphere();
-	Coord3D p;
-	p.x = sphere.Center.X;
-	p.y = sphere.Center.Y;
-	p.z = sphere.Center.Z;
-	ICoord2D s0, s1;
-	if( !TheTacticalView->worldToScreen( &p, &s0 ) )
-		return FALSE;
-	p.x += sphere.Radius;
-	if( !TheTacticalView->worldToScreen( &p, &s1 ) )
-		return TRUE;
-	return Shadow_skinVolumeLargeEnoughOnScreen( s1.x - s0.x, s1.y - s0.y );
-}
-
 /**Called once per frame for each object, when necessary it will reconstruct
  the shadow volume for this shadow from the silhouette of the geometry
  and any light sources
@@ -2031,12 +1999,6 @@ void W3DVolumetricShadow::Update()
 
 	// sanity
 	if( m_geometry == NULL)
-		return;
-
-	// Infantry at max zoom are a few pixels; rebuilding a posed volume for
-	// each of a thousand of them is the frame. The pose is still there when
-	// the caster is large enough to see it.
-	if( geometryHasSkinMesh( m_geometry ) && !skinCasterLargeEnoughOnScreen( m_robj ) )
 		return;
 
 	//

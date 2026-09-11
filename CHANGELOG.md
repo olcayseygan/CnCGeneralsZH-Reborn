@@ -3,7 +3,7 @@
 EA released the 2003 source for preservation. It did not compile, did not run, and nobody had touched
 the bugs inside it in twenty-two years. This build compiles, runs and plays.
 
-**122 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
+**121 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
 found and fixed â€” EA's own, not port damage.**
 
 ---
@@ -610,7 +610,6 @@ found and fixed â€” EA's own, not port damage.**
 ## Soldiers cast real shadows
 
 - Infantry shadows are built from the pose: arms, head, weapon, moving with him.
-- A crowd of infantry no longer rebuilds a posed shadow for every man too small to make out. Zoom in and the pose is still there.
 - `UseShadowVolumesForSkins = No` puts the old flat blobs back.
 - Scuds, rockets and falling bombs cast a shadow running along the ground.
 - A big smoke cloud darkens the ground under it and fades as it does.
@@ -979,6 +978,9 @@ found and fixed â€” EA's own, not port damage.**
   shadow trees have now is the opposite trick, and cost about thirty lines: the batch of triangles
   the trees are already drawn from, drawn a second time with the tree laid flat on its own base and
   slid along the sun. The shape comes free because it is the same triangles and the same texture.
+- Soldiers used to drop their posed shadow once the camera pulled far enough back to make each man a
+  few pixels tall. It saved frame time in a big crowd and it made the army look flat at the zoom
+  most games are played at, so it came out again: every soldier on screen keeps his shadow.
 - The six-rung difficulty ladder is back down to three. The three extra rungs were built, played and taken out again: a player picks a level once and wants to know what it means, and six names that each moved one switch was a worse answer to that than three that each describe an opponent. The machinery underneath is the same, so the levels are still tunable in the data files, and Brutal kept the top rung's numbers rather than the old Brutal ones.
 - The three-piece command bar was reverted once, for having nowhere to put the painting of the bar, and is back now that the painting has been cut into three to match. Each piece is fitted by matching it against the artwork it was cut from rather than by eye: the eyeballed fit was four percent out, which nobody sees on the metal and everybody sees on the money readout.
 - The opponent's decisions are argued with a number: 20 headless matches per change, same seeds, win rate and match length before and after.

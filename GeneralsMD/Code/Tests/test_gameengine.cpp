@@ -10911,21 +10911,6 @@ TEST(build_placement_preview_defaults_are_the_ones_the_game_always_used)
 }
 
 //-------------------------------------------------------------------------------------------------
-// A posed skin volume smaller than this on screen is not rebuilt that frame. The threshold is
-// the shipped contract: 20 pixels of radius is still drawn, 19 is not.
-//-------------------------------------------------------------------------------------------------
-TEST(skin_volume_screen_lod_keeps_readable_shadows)
-{
-	CHECK( Shadow_skinVolumeLargeEnoughOnScreen( SHADOW_SKIN_VOLUME_MIN_SCREEN_RADIUS, 0 ) );
-	CHECK( Shadow_skinVolumeLargeEnoughOnScreen( 0, SHADOW_SKIN_VOLUME_MIN_SCREEN_RADIUS ) );
-	CHECK( !Shadow_skinVolumeLargeEnoughOnScreen( SHADOW_SKIN_VOLUME_MIN_SCREEN_RADIUS - 1, 0 ) );
-	CHECK( !Shadow_skinVolumeLargeEnoughOnScreen( 0, 0 ) );
-	// 16^2 + 12^2 = 400, which is exactly the 20-pixel radius
-	CHECK( Shadow_skinVolumeLargeEnoughOnScreen( 16, 12 ) );
-	CHECK( !Shadow_skinVolumeLargeEnoughOnScreen( 15, 12 ) );
-}
-
-//-------------------------------------------------------------------------------------------------
 // A map name with a non-ASCII byte in it reaches isalnum as a negative number, which is undefined
 // and is what the CRT asserted on while building the map cache. Every byte over 127 has to encode,
 // and the round trip has to bring it back.
