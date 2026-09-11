@@ -1103,6 +1103,21 @@ void AIUpdateInterface::friend_notifyStateMachineChanged()
 }
 
 //-------------------------------------------------------------------------------------------------
+static Bool hasFightingWeapon( const Object *obj )
+{
+	for (Int slot = PRIMARY_WEAPON; slot < WEAPONSLOT_COUNT; ++slot)
+	{
+		const Weapon *weapon = obj->getWeaponInWeaponSlot( (WeaponSlotType)slot );
+		if (weapon == NULL)
+			continue;
+		const DamageType damageType = weapon->getDamageType();
+		if (damageType != DAMAGE_DISARM && damageType != DAMAGE_HAZARD_CLEANUP)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
 /**
  * The "main loop" of the AI subsystem
  */
@@ -1139,12 +1154,14 @@ UpdateSleepTime AIUpdateInterface::update( void )
 	// instead of taking the shots and walking on.  This is checked right after the machine ran,
 	// because finishing (or failing) the exit path is what drops us into idle in the first place.
 	// Something with nothing to fight with - a dozer, a supply truck, an empty ambulance - has no
-	// reason to stop for what it meets, so it takes the plain move instead.
+	// reason to stop for what it meets, so it takes the plain move instead.  isAbleToAttack alone
+	// does not say that: a dozer or a GLA worker carries a mine disarming weapon and an ambulance a
+	// hazard cleanup one, and both count as weapons there.
 	if (m_hasExitProductionRallyPoint && getAIStateType() == AI_IDLE)
 	{
 		Coord3D rallyPoint = m_exitProductionRallyPoint;
 		m_hasExitProductionRallyPoint = FALSE;
-		if (getObject()->isAbleToAttack())
+		if (getObject()->isAbleToAttack() && hasFightingWeapon(getObject()))
 			privateAttackMoveToPosition( &rallyPoint, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
 		else
 			privateMoveToPosition( &rallyPoint, CMD_FROM_AI );
