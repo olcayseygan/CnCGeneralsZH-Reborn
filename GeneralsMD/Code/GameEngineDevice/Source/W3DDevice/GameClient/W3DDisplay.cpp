@@ -775,6 +775,20 @@ static void sizeWindowToClient( Int mode, Int width, Int height )
 									x, y, outerW, outerH, SWP_NOACTIVATE );
 }
 
+//=============================================================================
+// GlobalData carries the whole chain by default and -dx11post replaces it, "off" included.  FXAA is
+// always in the default: the Direct3D 11 swap chain takes one sample, and a multisampled scene
+// target would break the screen filters, which redirect the scene into a texture of the same size
+// and share the back buffer's depth with it.
+static void pushDirect3D11PostChain( void )
+{
+	const AsciiString & requested = TheGlobalData->m_direct3D11PostChain;
+	if( !Direct3D11_Post_Chain( requested.str() ) && !requested.isEmpty() )
+	{
+		DEBUG_LOG(( "-dx11post: '%s' names no effect this build has, so no chain runs\n", requested.str() ));
+	}
+}
+
 /** Set resolution of display */
 //=============================================================================
 Bool W3DDisplay::setDisplayMode( UnsignedInt xres, UnsignedInt yres, UnsignedInt bitdepth, Bool windowed )
@@ -787,6 +801,7 @@ Bool W3DDisplay::setDisplayMode( UnsignedInt xres, UnsignedInt yres, UnsignedInt
 	{
 		DX8Wrapper::Set_Requested_VSync( TheGlobalData->m_vsync != FALSE );
 		Direct3D11_Set_VSync( TheGlobalData->m_vsync != FALSE );
+		pushDirect3D11PostChain();
 	}
 
 	//
@@ -1042,8 +1057,11 @@ void W3DDisplay::init( void )
 
 	// Multisampling has to be known before the device exists, and WW3D2 cannot read GlobalData, so
 	// the sample count is handed to it here.  msaaSamplesForLevel turns the stored index into 0, 2,
-	// 4, 8 or 16; the device degrades an unsupported one on its own.
-	DX8Wrapper::Set_Requested_MultiSample_Level( msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
+	// 4, 8 or 16; the device degrades an unsupported one on its own.  While Direct3D 11 presents,
+	// the Direct3D 9 frame is never shown, so its samples would be memory spent on nothing; the
+	// Direct3D 11 frame is smoothed by the FXAA in its default chain instead.
+	DX8Wrapper::Set_Requested_MultiSample_Level( TheGlobalData->m_direct3D11
+		? 0 : msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
 	DX8Wrapper::Set_Requested_VSync( TheGlobalData->m_vsync != FALSE );
 	Direct3D11_Set_VSync( TheGlobalData->m_vsync != FALSE );
 
@@ -1054,12 +1072,7 @@ void W3DDisplay::init( void )
 	Direct3D11_Enable( TheGlobalData->m_direct3D11 != FALSE );
 	Direct3D11_Present_Enable( TheGlobalData->m_direct3D11 != FALSE );
 	Direct3D11_Dump_Programs_To( TheGlobalData->m_direct3D11DumpPath.str() );
-	if( !Direct3D11_Post_Chain( TheGlobalData->m_direct3D11PostChain.str() )
-		&& !TheGlobalData->m_direct3D11PostChain.isEmpty() )
-	{
-		DEBUG_LOG(( "-dx11post: '%s' names no effect this build has, so no chain runs\n",
-			TheGlobalData->m_direct3D11PostChain.str() ));
-	}
+	pushDirect3D11PostChain();
 
 	// Same problem, same answer: the filter table is built the moment the device exists and WW3D2
 	// cannot see GlobalData, so the player's texture filtering goes in here. Nothing in the game

@@ -39,9 +39,12 @@ $cases = @(
 # .bmp in it afterwards, and a run that writes none - the reference build needs more than the wait
 # below to reach frame 2400 - would otherwise hand back the previous case's picture and compare two
 # different frames.  Empty, that is a stated failure instead of a number.
+#
+# -dx11post off for the same kind of reason: the post chain runs by default since v1.0.0, and a
+# reference build from before that draws without it, so the bloom would be the difference counted.
 function Shoot($exe, $c, $tag) {
   Get-ChildItem "$shots\sshot*.bmp" -ErrorAction SilentlyContinue | Remove-Item -Force
-  $args = @('-win','-xres','1280','-yres','720','-quickstart','-noshellmap','-multiInstance','-msaa','0',
+  $args = @('-win','-xres','1280','-yres','720','-quickstart','-noshellmap','-multiInstance','-msaa','0','-dx11post','off',
             '-map',"`"Maps\$($c.map)\$($c.map).map`"",'-autoskirmish','4','-aidiff','easy','-seed','5',
             '-maxframes',($c.f+80),'-screenshot',$c.f,'-camera',$c.x,$c.y,'-logPrefix',"chk_$tag`_")
   try {

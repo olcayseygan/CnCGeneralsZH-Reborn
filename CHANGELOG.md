@@ -3,7 +3,7 @@
 EA opened the source of Generals and Zero Hour, the game that is still on sale and still runs on
 Steam. This build is that source with the bugs the game shipped with fixed and everything below added.
 
-**123 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
+**124 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
 found and fixed â€” EA's own, not port damage.**
 
 ---
@@ -204,6 +204,7 @@ found and fixed â€” EA's own, not port damage.**
 ## Sharper textures, for free
 
 - The game draws its picture through Direct3D 11 now, and falls back to the old renderer on a machine that cannot make a Direct3D 11 device. Eight views over five maps come out within one step of one colour channel of the old picture, which is the smallest difference a screen can show.
+- The Direct3D 11 picture comes with its finishing passes on, no switch needed. Explosions glow past their own edges, because the battlefield is kept brighter than white until the glow is worked out; jagged edges are smoothed; and a light sharpening brings the 2003 textures back up after the smoothing. All three run over the battlefield only, before the health bars and the command bar go on top, so the lettering is untouched. In a screen of thirty inferno cannons firing the frame averaged 11.89ms with them against 11.82ms without. The antialiasing setting on the display page is for the old renderer; `-dx11post off` on the command line gives you the plain picture, and `-dx11post fxaa` picks effects one by one. The old renderer's rolling-wave sea never went missing in a real match either: both of the game's settings files turn it off, so no map ever drew it.
 - 481 base-game textures at four times the resolution now beat Zero Hour's downscaled copies.
 - A long thin texture loads at the size it was drawn at. Anything wider than eight to one used to be stretched onto a bigger, blurrier one, because that was the limit of a 2002 graphics card; the card is asked now, and modern ones have no such limit.
 - Anything standing still keeps its shadow in the fog. A town you have already walked through used
@@ -1128,5 +1129,4 @@ found and fixed â€” EA's own, not port damage.**
 ## Not there yet
 - Online and LAN play are untested.
 - A frame through Direct3D 11 still costs more than it did through the old renderer: 13.6ms against 8.6ms in a screen full of inferno cannon fire, down from 16.9ms once the old renderer stopped drawing a second copy of every frame that nobody saw. `-d3d9` on the command line puts the old renderer back on its own.
-- Antialiasing from the display page does not reach the Direct3D 11 picture yet, and the rolling-wave sea is drawn only by the old renderer, so it is missing from the new one.
 - You need to own the game; no game data ships here.

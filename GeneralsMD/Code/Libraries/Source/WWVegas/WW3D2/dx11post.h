@@ -26,10 +26,10 @@
 ** backend binds Get_Scene_View() where it used to bind the back buffer view and the change ends
 ** there.
 **
-** The chain is off by default and the exit measurement for the backend is taken with it off.  An
-** effect that improves the picture makes the frame differ from Direct3D 9's on purpose, which is
-** the one thing dx11-check.ps1 is built to refuse, so the two cannot both be the default and this
-** is the one that gives way.
+** The game asks for bloom, fxaa and sharpen unless -dx11post says otherwise.  An effect that
+** improves the picture makes the frame differ from Direct3D 9's on purpose, which is the one thing
+** dx11-check.ps1 is built to refuse, so that script passes "-dx11post off" and measures the
+** backend without it.
 **
 ** Where it runs matters as much as what it does.  W3DView::draw calls for the chain at the moment
 ** the world is finished and before the health bars, the unit names and the command bar go over it.

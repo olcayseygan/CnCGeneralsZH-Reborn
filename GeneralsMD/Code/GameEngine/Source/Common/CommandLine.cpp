@@ -1504,9 +1504,9 @@ Int parseDirect3D11Dump(char *args[], int num)
 	 * amount by which something beat white, and the frame comes back to eight bits through a tone
 	 * curve whose knee leaves everything ordinary exactly where it was.
 	 *
-	 * Everything else in the backend exists to draw the frame Direct3D 9 draws and this exists to
-	 * draw a different one, so it is off unless it is asked for and dx11-check.ps1 is run without
-	 * it. */
+	 * Without the switch the chain is "bloom,fxaa,sharpen", set in GlobalData, since v1.0.0.  The
+	 * rest of the backend exists to draw the frame Direct3D 9 draws and this exists to draw a
+	 * different one, so dx11-check.ps1 and tree-check.ps1 pass "-dx11post off". */
 Int parseDirect3D11Post(char *args[], int num)
 {
 	if (TheWritableGlobalData)

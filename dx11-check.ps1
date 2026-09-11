@@ -46,9 +46,10 @@
 # -MeanMargin is the pass threshold in levels a channel, and 1.0 is the frame buffer's own step: two
 # frames that agree to within the smallest value the buffer can hold are the same frame.
 #
-# -dx11post is the one switch that must never be added here.  It runs an effect over the finished
-# frame on purpose, so a run with it on disagrees with Direct3D 9 by design and this script would be
-# measuring the effect rather than the backend.  Its own before and after is a pair of pictures.
+# -dx11post off is on every launch and must stay there.  The post chain runs by default since
+# v1.0.0, and it changes the finished frame on purpose, so a run with it on disagrees with Direct3D 9
+# by design and this script would be measuring the effect rather than the backend.  Its own before
+# and after is a pair of pictures.
 param([double]$Margin = 1.0, [double]$MeanMargin = 1.0, [string]$Map = '',
   [switch]$BackendNoise, [switch]$CountRule, [string[]]$Extra = @())
 
@@ -75,7 +76,7 @@ $cases = @(
 function Shoot($c, $tag, $extra) {
   Get-ChildItem "$shots\sshot*.bmp" -ErrorAction SilentlyContinue | Remove-Item -Force
   $arguments = @('-win','-xres','1280','-yres','720','-quickstart','-noshellmap','-multiInstance',
-    '-msaa','0','-map',"`"Maps\$($c.map)\$($c.map).map`"",'-autoskirmish','4','-aidiff','easy',
+    '-msaa','0','-dx11post','off','-map',"`"Maps\$($c.map)\$($c.map).map`"",'-autoskirmish','4','-aidiff','easy',
     '-seed','5','-maxframes',($c.f+80),'-screenshot',$c.f,'-camera',$c.x,$c.y,
     '-logPrefix',"dx11chk_$tag`_") + $extra + $Extra
   try {

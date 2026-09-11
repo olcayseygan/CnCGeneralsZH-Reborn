@@ -124,8 +124,9 @@ void Direct3D11_Set_VSync(bool enabled);
 // always has.  Returns false for a name it does not know and turns the chain off, so a misspelt
 // switch is a plain frame and a report line rather than a different picture.
 //
-// This is the first thing in the backend that draws a frame Direct3D 9 does not draw, so it is off
-// unless it is asked for and dx11-check.ps1's exit measurement is taken without it.
+// This is the first thing in the backend that draws a frame Direct3D 9 does not draw.  The game
+// hands it "bloom,fxaa,sharpen" unless -dx11post names another chain; dx11-check.ps1's exit
+// measurement passes "-dx11post off".
 bool Direct3D11_Post_Chain(const char * chain);
 
 // The chain and the size it runs at, for the shutdown report, or why there is no chain.

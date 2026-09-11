@@ -649,7 +649,9 @@ GlobalData::GlobalData()
 	m_vsync = FALSE;
 	m_direct3D11 = TRUE;
 	m_direct3D11DumpPath.clear();
-	m_direct3D11PostChain.clear();
+	// The Direct3D 11 frame gets every effect the backend has unless -dx11post names a chain of its
+	// own; "-dx11post off" is the faithful 2003 picture that dx11-check.ps1 compares against.
+	m_direct3D11PostChain = "bloom,fxaa,sharpen";
 	m_xResolution = 800;
 	m_yResolution = 600;
 	m_maxShellScreens = 0;
