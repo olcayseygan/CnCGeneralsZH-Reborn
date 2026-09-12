@@ -56,7 +56,6 @@
 #include "GameClient/GameClient.h"
 #include "GameClient/Display.h"
 #include "W3DDevice/GameClient/W3DDisplayString.h"
-#include "GameClient/HotKey.h"
 #include "GameClient/GameFont.h"
 #include "GameClient/GlobalLanguage.h"
 
@@ -124,9 +123,6 @@ W3DDisplayString::W3DDisplayString( void )
 	m_clipRegion.hi.y = 0;
 	m_lastResourceFrame = 0;
 	m_useHotKey = FALSE;
-	m_hotKeyPos.x = 0;
-	m_hotKeyPos.y = 0;
-	m_hotKeyColor = GameMakeColor(255,255,255,255);
 	
 }  // end W3DDisplayString
 
@@ -150,16 +146,7 @@ void W3DDisplayString::notifyTextChanged( void )
 	DisplayString::notifyTextChanged();
 	if(TheGlobalLanguageData)
 	{
-		if(TheGlobalLanguageData->m_useHardWrap == TRUE)
-		{	
-			m_textRenderer.Set_Use_Hard_Word_Wrap(true);
-			m_textRendererHotKey.Set_Use_Hard_Word_Wrap(true);
-		}
-		else
-		{	
-			m_textRenderer.Set_Use_Hard_Word_Wrap(false);
-			m_textRendererHotKey.Set_Use_Hard_Word_Wrap(false);
-		}
+		m_textRenderer.Set_Use_Hard_Word_Wrap(TheGlobalLanguageData->m_useHardWrap == TRUE);
 	}
 
 	// get our new text extents
@@ -173,7 +160,6 @@ void W3DDisplayString::notifyTextChanged( void )
 
 	// reset data for our text renderer
 	m_textRenderer.Reset();
-	m_textRendererHotKey.Reset();
 
 }  // end notifyTextChanged
 
@@ -209,21 +195,9 @@ void W3DDisplayString::draw( Int x, Int y, Color color, Color dropColor, Int xDr
 	// if our font or text has changed we need to build a new sentence
 	if( m_fontChanged || m_textChanged )
 	{
-		if(m_useHotKey)
-		{
-			m_textRenderer.Set_Hot_Key_Parse(TRUE);
-			m_textRenderer.Build_Sentence( getText().str(), &m_hotKeyPos.x, &m_hotKeyPos.y );
-			m_hotkey.translate(TheHotKeyManager->searchHotKey(getText()));
-			if(!m_hotkey.isEmpty())
-				m_textRendererHotKey.Build_Sentence(m_hotkey.str(), NULL, NULL);
-			else
-			{
-				m_useHotKey = FALSE;
-				m_textRendererHotKey.Reset();
-			}
-		}
-		else
-			m_textRenderer.Build_Sentence( getText().str(), NULL, NULL );
+		// Reset() clears the parse flag on every text change, so it is put back here, where it is read
+		m_textRenderer.Set_Hot_Key_Parse( m_useHotKey != FALSE );
+		m_textRenderer.Build_Sentence( getText().str(), NULL, NULL );
 		m_fontChanged = FALSE;
 		m_textChanged = FALSE;
 		needNewPolys = TRUE;
@@ -261,15 +235,7 @@ void W3DDisplayString::draw( Int x, Int y, Color color, Color dropColor, Int xDr
 		// draw the text
 		m_textRenderer.Set_Location( Vector2( m_textPos.x, m_textPos.y ) );
 		m_textRenderer.Draw_Sentence( m_currTextColor );
-		
-		if(m_useHotKey)
-		{
-			m_textRendererHotKey.Reset_Polys();
-			m_textRendererHotKey.Set_Location( Vector2( m_textPos.x + m_hotKeyPos.x , m_textPos.y +m_hotKeyPos.y) );
-			m_textRendererHotKey.Draw_Sentence( m_hotKeyColor );
-			m_textRendererHotKey.Render();
-		}
-	
+
 	}  // end if
 
 	// render the text
@@ -345,15 +311,7 @@ void W3DDisplayString::setFont( GameFont *font )
 
 	// set the font in our renderer
 	m_textRenderer.Set_Font( static_cast<FontCharsClass *>(m_font->fontData) );
-	
-	//
-	// The hotkey underline is drawn in the bold cut of the same font, and the library hands back
-	// null when it has not got one - a font set that ships without its bold face, or a malformed
-	// one that failed to load.  This read straight through that.
-	//
-	GameFont *boldFont = TheFontLibrary->getFont( font->nameString, font->pointSize, TRUE );
-	m_textRendererHotKey.Set_Font( boldFont ? static_cast<FontCharsClass *>(boldFont->fontData)
-																					: static_cast<FontCharsClass *>(m_font->fontData) );
+
 	// recompute extents for text with new font
 	computeExtents();
 
@@ -383,10 +341,6 @@ void W3DDisplayString::setClipRegion( IRegion2D *region )
 
 		// set new region in renderer
 		m_textRenderer.Set_Clipping_Rect( RectClass( m_clipRegion.lo.x,
-																								 m_clipRegion.lo.y,
-																								 m_clipRegion.hi.x,
-																								 m_clipRegion.hi.y ) );
-		m_textRendererHotKey.Set_Clipping_Rect( RectClass( m_clipRegion.lo.x,
 																								 m_clipRegion.lo.y,
 																								 m_clipRegion.hi.x,
 																								 m_clipRegion.hi.y ) );
@@ -430,11 +384,10 @@ void W3DDisplayString::setWordWrap( Int wordWrap )
 		notifyTextChanged();
 }// void setWordWrap( Int wordWrap )
 
-void W3DDisplayString::setUseHotkey( Bool useHotkey, Color hotKeyColor )
+void W3DDisplayString::setUseHotkey( Bool useHotkey )
 {
-	const Bool unchanged = ( m_useHotKey == useHotkey && m_hotKeyColor == hotKeyColor );
+	const Bool unchanged = ( m_useHotKey == useHotkey );
 	m_useHotKey = useHotkey;
-	m_hotKeyColor = hotKeyColor;
 	m_textRenderer.Set_Hot_Key_Parse(useHotkey);
 
 	// W3DStaticText asks again on every draw, and a rebuilt sentence is a new text texture: the money

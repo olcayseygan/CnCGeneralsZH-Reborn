@@ -95,7 +95,7 @@ public:
 	virtual void getSize( Int *width, Int *height ) = 0;  ///< get render size
 	virtual Int getWidth( Int charPos = -1 ) = 0; ///< get text with up to charPos characters, 1- = all characters
 
-	virtual void setUseHotkey( Bool useHotkey, Color hotKeyColor ) = 0;
+	virtual void setUseHotkey( Bool useHotkey ) = 0;	///< hide '&' hotkey markers; the letter stays in the text's own colour
 
 	virtual void setClipRegion( IRegion2D *region );  ///< clip text in this region
 

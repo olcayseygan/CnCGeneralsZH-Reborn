@@ -40,6 +40,7 @@
 #include "wwprofile.h"
 #include "wwmemlog.h"
 #include "dx8wrapper.h"
+#include <math.h>
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -772,7 +773,6 @@ void	Render2DSentenceClass::Build_Sentence_Centered (const WCHAR *text, int *hkX
 	int hotKeyPosX = 0;
 	int hotKeyPosY = 0;
 	bool calcHotKeyX = false;
-	bool dontBlit = false;
 	while (!end)
 	{
 		//
@@ -881,14 +881,15 @@ void	Render2DSentenceClass::Build_Sentence_Centered (const WCHAR *text, int *hkX
 		
 		for(int i = 0; i <= charCount; i++) {
 			WCHAR ch = *text++;
-			dontBlit = false;
 			//
-			//	Determine how much horizontal space this character requires
+			//	Determine how much horizontal space this character requires.  A hotkey '&' is
+			//	dropped and the letter after it drawn like any other: the grid keys are the
+			//	shortcuts now, and the letter used to be left out here for a second renderer to
+			//	paint in yellow, which drew nothing at all for a letter outside ASCII.
 			//
 			if(ParseHotKey && (ch == L'&') && (*text != 0) && (*text > L' ') && (*text != L'\n'))
 			{
 				ch = *text++;
-				dontBlit = true;
 			}
 			float char_spacing = Font->Get_Char_Spacing (ch);
 			
@@ -953,18 +954,8 @@ void	Render2DSentenceClass::Build_Sentence_Centered (const WCHAR *text, int *hkX
 				//
 				//	Blit the character to the surface
 				//
-				if(!dontBlit)
-					Font->Blit_Char (ch, LockedPtr, LockedStride, TextureOffset.I, TextureOffset.J);
-				
-				if (dontBlit) {
-					// we don't blit for a hot key character.  So add extra spacing.
-					char_spacing += Font->Get_Extra_Overlap();
-					// Brutal hack #27 Gamma - Bolded M's are just a problem.	jba.
-					if (ch=='M') {
-						char_spacing++;
-					}
-				}
-				
+				Font->Blit_Char (ch, LockedPtr, LockedStride, TextureOffset.I, TextureOffset.J);
+
 				TextureOffset.I += char_spacing;
 			}
 		}
@@ -996,7 +987,6 @@ Vector2	Render2DSentenceClass::Build_Sentence_Not_Centered (const WCHAR *text, i
 	int hotKeyPosX = 0;
 	int hotKeyPosY = 0;
 	bool calcHotKeyX = false;
-	bool dontBlit = false;
 	Vector2i textureOffset = TextureOffset;
 
 
@@ -1026,9 +1016,9 @@ Vector2	Render2DSentenceClass::Build_Sentence_Not_Centered (const WCHAR *text, i
 	//
 	while (text != NULL) {
 		WCHAR ch = *text++;
-		dontBlit = false;
 		//
-		//	Determine how much horizontal space this character requires
+		//	Determine how much horizontal space this character requires; a hotkey '&' is
+		//	dropped and its letter drawn like the rest, as in Build_Sentence_Centered
 		//
 		if(ParseHotKey && (ch == L'&') && (*text != 0) && (*text > L' ') && (*text != L'\n'))
 		{
@@ -1039,7 +1029,6 @@ Vector2	Render2DSentenceClass::Build_Sentence_Not_Centered (const WCHAR *text, i
 				hotKeyPosX = Cursor.X + TextureOffset.I -TextureStartX;//TextureOffset.I;
 
 			ch = *text++;
-			dontBlit = true;
 		}
 		float char_spacing = Font->Get_Char_Spacing (ch);
 
@@ -1144,7 +1133,7 @@ Vector2	Render2DSentenceClass::Build_Sentence_Not_Centered (const WCHAR *text, i
 			//
 			//	Blit the character to the surface
 			//
-			if (!justCalcExtents && !dontBlit )
+			if (!justCalcExtents)
 			{
 				Font->Blit_Char (ch, LockedPtr, LockedStride, TextureOffset.I, TextureOffset.J);			
 			}
@@ -1452,9 +1441,12 @@ FontCharsClass::Store_GDI_Char (WCHAR ch)
 			
 			//
 			//	Convert the pixel intensity from 8bit to 4bit and
-			// store it in our buffer
+			// store it in our buffer.  Coverage goes through a square root first: GDI's
+			// antialiased coverage taken straight as alpha leaves every edge pixel of a
+			// small glyph two thirds transparent, and light lettering on the game's dark
+			// panels read as hairlines.  Fully covered and empty pixels stay what they were.
 			//
-			uint8 alpha_value	= ((pixel_value >> 4) & 0xF);
+			uint8 alpha_value	= (uint8)( sqrt( pixel_value / 255.0 ) * 15.0 + 0.5 );
 			*curr_buffer_p++	= pixel_color | (alpha_value << 12);
 		}
 	}

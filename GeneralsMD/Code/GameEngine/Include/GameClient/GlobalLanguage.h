@@ -101,6 +101,7 @@ public:
 	FontDesc  m_creditsNormalFont;
 
 	Real			m_resolutionFontSizeAdjustment;
+	static const Real TEXT_GROWS_WITH_LAYOUT;	///< the damping init sets: text grows exactly as its layout does
 
 	//UnicodeString	m_unicodeFontNameUStr;
 	

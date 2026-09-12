@@ -104,10 +104,8 @@ static void drawStaticTextText( GameWindow *window, WinInstanceData *instData,
 		text->setWordWrapCentered(TRUE);
 	else
 		text->setWordWrapCentered(FALSE);
-	if( BitTest( window->winGetStatus(), WIN_STATUS_HOTKEY_TEXT ) && TheGlobalData)
-		text->setUseHotkey(TRUE, TheGlobalData->m_hotKeyTextColor);
-	else
-		text->setUseHotkey(FALSE, 0);
+	// a HOTKEY_TEXT window hides its label's '&' markers; the letter is no longer painted apart
+	text->setUseHotkey( BitTest( window->winGetStatus(), WIN_STATUS_HOTKEY_TEXT ) );
 
 
 	// how much space will this text take up

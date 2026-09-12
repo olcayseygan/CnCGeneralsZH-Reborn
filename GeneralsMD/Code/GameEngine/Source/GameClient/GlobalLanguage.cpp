@@ -154,6 +154,13 @@ void GlobalLanguage::init( void )
 
 
 	ini.load( fname, INI_LOAD_OVERWRITE, NULL );
+
+	// EA's Language.ini grows the lettering at 0.7 of the rate the screen grows.  The window layouts
+	// grow at the full rate, so on a 1920x1080 screen every label was drawn a size or two smaller than
+	// the box drawn for it, and on 2560x1440 a tooltip's text filled half its panel.  The text keeps
+	// pace with its panel now, which is also the size it was authored at on 800x600.
+	m_resolutionFontSizeAdjustment = TEXT_GROWS_WITH_LAYOUT;
+
 	StringListIt it = m_localFonts.begin();
 	while( it != m_localFonts.end())
 	{
@@ -189,6 +196,8 @@ void GlobalLanguage::parseFontFileName( INI *ini, void * instance, void *store, 
 	monkey->m_localFonts.push_front(asciiString);
 }	 
 
+const Real GlobalLanguage::TEXT_GROWS_WITH_LAYOUT = 1.0f;
+
 Int GlobalLanguage::adjustFontSize(Int theFontSize)
 {
 	return adjustFontSizeForScreen( theFontSize, TheGlobalData->m_xResolution,
@@ -219,8 +228,8 @@ Int GlobalLanguage::adjustFontSizeForScreen(Int theFontSize, Int screenWidth, In
 	// the window layouts themselves are stretched by the full resolution ratio, so a font ceiling
 	// of 2x meant that from about 1950 pixels wide up the text stopped growing while the panel it
 	// sits in kept going - at 2560 a command bar three times the size of its 800x600 original wore
-	// 8pt letters.  The damping factor already keeps the text below the layout's own scale
-	// (0.7 < 1), so the ceiling only has to be high enough not to bite before 4K.
+	// 8pt letters.  The damping factor keeps the text at or below the layout's own scale (init
+	// sets 1, the layout's), so the ceiling only has to be high enough not to bite before 4K.
 	//
 	if (adjustFactor>4.0f) adjustFactor = 4.0f;
 	Int pointSize = REAL_TO_INT_FLOOR(theFontSize*adjustFactor);

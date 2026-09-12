@@ -204,7 +204,6 @@ void W3DDisplayStringManager::update( void )
 
 			// free the resources
 			string->m_textRenderer.Reset();
-			string->m_textRendererHotKey.Reset();
 			//
 			// mark data in the string as changed so that if it needs to
 			// be drawn again it will know to reconstruct the render data
