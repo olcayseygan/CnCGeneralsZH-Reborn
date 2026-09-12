@@ -694,6 +694,22 @@ void GameEngine::init( int argc, char *argv[] )
 	#endif/////////////////////////////////////////////////////////////////////////////////////////////
 
 
+		// Every INI below comes out of INIZH.big beside the exe.  Started anywhere else, the unzipped
+		// package folder being the usual place, the first of them failed to open and the player got
+		// EA's "viruses, overheated hardware" box, which names nothing they can act on.
+		if (!TheFileSystem->doesFileExist("Data\\INI\\Default\\GameData.ini"))
+		{
+			Char gameDirectory[ _MAX_PATH ];
+			GetCurrentDirectory( ARRAY_SIZE(gameDirectory), gameDirectory );
+			DEBUG_LOG(("GameEngine::init - Data\\INI\\Default\\GameData.ini is in no archive under %s\n", gameDirectory));
+
+			AsciiString message;
+			message.format("Zero Hour's game files are not in\n\n%s\n\nThis generals.exe has to be in the Zero Hour folder, the one with INIZH.big in it. Run install.bat from the zip instead of starting the game in the folder it was unzipped to.", gameDirectory);
+			extern int MessageBoxWrapper( LPCSTR lpText, LPCSTR lpCaption, UINT uType );
+			MessageBoxWrapper( message.str(), "Command & Conquer Generals Zero Hour", MB_OK | MB_TASKMODAL | MB_ICONERROR );
+			_exit(1);
+		}
+
 		initSubsystem(TheWritableGlobalData, "TheWritableGlobalData", MSGNEW("GameEngineSubsystem") GlobalData(), &xferCRC, "Data\\INI\\Default\\GameData.ini", "Data\\INI\\GameData.ini");
 
 
