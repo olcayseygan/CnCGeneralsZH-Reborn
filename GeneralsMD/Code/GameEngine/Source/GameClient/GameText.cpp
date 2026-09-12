@@ -211,6 +211,14 @@ static int _cdecl			compareLUT ( const void *,  const void*);
 
 GameTextInterface *TheGameText = NULL;
 
+// The translation each TextLanguageType lays over the CSF.  English is the CSF itself.  Loose
+// files, which the build copies from Code/Data into Run/Data.
+static const char *const TheTextLanguageOverlays[ TEXT_LANGUAGE_COUNT ] =
+{
+	NULL,
+	"Data\\Turkish\\Generals.str",
+};
+
 //----------------------------------------------------------------------------
 //         Private Prototypes                                               
 //----------------------------------------------------------------------------
@@ -331,16 +339,32 @@ void GameTextManager::init( void )
 	// inside PatchData.big - instead of an updated CSF. The retail 1.04 exe reads it;
 	// this source drop predates that, so without it the patched MainMenu.wnd shows
 	// MISSING: 'GUI:CustomMission'. Parse it into the tail of the string table.
-	Int patchCount = 0;
-	Int mainCount = m_textCount;
-	if ( !getStringCount( "Data\\Patch.str", patchCount ) )
+	//
+	// The player's text language is a second overlay after it, so a translation overrules the
+	// CSF and this fork's own English lines in Patch.str alike, and a line it does not carry
+	// stays English rather than turning into a key name.
+	enum { OVERLAY_COUNT = 2 };
+	const Int language = TheGlobalData ? TheGlobalData->m_textLanguage : TEXT_LANGUAGE_ENGLISH;
+	const char *overlays[ OVERLAY_COUNT ] =
 	{
-		patchCount = 0;
+		"Data\\Patch.str",
+		( language > TEXT_LANGUAGE_ENGLISH && language < TEXT_LANGUAGE_COUNT ) ? TheTextLanguageOverlays[ language ] : NULL,
+	};
+	Int overlayCounts[ OVERLAY_COUNT ] = { 0, 0 };
+	Int overlayTotal = 0;
+	for ( Int overlay = 0; overlay < OVERLAY_COUNT; ++overlay )
+	{
+		if ( overlays[ overlay ] == NULL || !getStringCount( overlays[ overlay ], overlayCounts[ overlay ] ) )
+		{
+			overlayCounts[ overlay ] = 0;
+		}
+		overlayTotal += overlayCounts[ overlay ];
 	}
+	Int mainCount = m_textCount;
 
 	//Allocate StringInfo Array
 
-	m_stringInfo = NEW StringInfo[m_textCount + patchCount];
+	m_stringInfo = NEW StringInfo[m_textCount + overlayTotal];
 
 	if( m_stringInfo == NULL )
 	{
@@ -365,19 +389,24 @@ void GameTextManager::init( void )
 		}
 	}
 
-	if ( patchCount > 0 )
+	// parseStringFile fills m_stringInfo from index 0, so point it at each overlay's slice of
+	// the tail in turn and restore afterwards.
+	StringInfo *wholeTable = m_stringInfo;
+	Int filled = mainCount;
+	for ( Int overlay = 0; overlay < OVERLAY_COUNT; ++overlay )
 	{
-		// parseStringFile fills m_stringInfo from index 0, so point it at the tail
-		// for the overlay and restore afterwards.
-		StringInfo *wholeTable = m_stringInfo;
-		m_stringInfo += mainCount;
-		Bool patchOk = parseStringFile( "Data\\Patch.str" );
-		m_stringInfo = wholeTable;
-		if ( patchOk )
+		if ( overlayCounts[ overlay ] == 0 )
 		{
-			m_textCount = mainCount + patchCount;
+			continue;
+		}
+		m_stringInfo = wholeTable + filled;
+		if ( parseStringFile( overlays[ overlay ] ) )
+		{
+			filled += overlayCounts[ overlay ];
 		}
 	}
+	m_stringInfo = wholeTable;
+	m_textCount = filled;
 
 	m_stringLUT = NEW StringLookUp[m_textCount];
 
@@ -394,19 +423,19 @@ void GameTextManager::init( void )
 
 	qsort( m_stringLUT, m_textCount, sizeof(StringLookUp), compareLUT  );
 
-	// An overlay that cannot overrule the CSF is half an overlay: a label the patch file also
-	// carries has two entries here and bsearch takes whichever qsort happened to leave first.
-	// Keep the patch one - it lives past mainCount - and drop the other.
-	if ( patchCount > 0 && m_textCount > 1 )
+	// An overlay that cannot overrule what came before it is half an overlay: a label two files
+	// carry has two entries here and bsearch takes whichever qsort happened to leave first. The
+	// table was filled CSF first and each overlay after it, so the entry further along the array
+	// is the one to keep.
+	if ( filled > mainCount && m_textCount > 1 )
 	{
-		StringInfo *patchFirst = m_stringInfo + mainCount;
 		Int kept = 1;
 		for ( Int i = 1; i < m_textCount; i++ )
 		{
 			// stricmp, the same comparison compareLUT sorts and bsearch searches with
 			if ( m_stringLUT[i].label->compareNoCase( m_stringLUT[kept - 1].label->str() ) == 0 )
 			{
-				if ( m_stringLUT[i].info >= patchFirst )
+				if ( m_stringLUT[i].info > m_stringLUT[kept - 1].info )
 					m_stringLUT[kept - 1] = m_stringLUT[i];
 				continue;
 			}
@@ -851,7 +880,9 @@ void GameTextManager::translateCopy( WideChar *outbuf, Char *inbuf )
 		}
 		else if( *inbuf != '\\' )
 		{
-			*outbuf++ = *inbuf & 0x00FF;
+			// the loop's own inbuf++ takes the last byte of the character
+			inbuf += decodeStringFileCharacter( (const unsigned char *)inbuf, outbuf ) - 1;
+			outbuf++;
 		}
 		else
 			slash = TRUE;

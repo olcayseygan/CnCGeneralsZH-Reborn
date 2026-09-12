@@ -423,7 +423,7 @@ void ControlBar::populateBuildTooltipLayout( const CommandButton *commandButton,
 			{
 				UnicodeString stats;
 				Int buildSecs = ControlBar_secondsFromFrames( (Real)thingTemplate->calcTimeToBuild( player ) );
-				stats.format( L"\nTime %ds", buildSecs );
+				stats.format( TheGameText->fetch( "TOOLTIP:BuildTimeSeconds" ), buildSecs );
 
 				// no bonuses: these are the template's own numbers, before veterancy or upgrades
 				WeaponBonus noBonus;
@@ -447,7 +447,9 @@ void ControlBar::populateBuildTooltipLayout( const CommandButton *commandButton,
 				if( bestDamage > 0.0f )
 				{
 					UnicodeString weap;
-					weap.format( L"   Dmg %d   Range %d", REAL_TO_INT( bestDamage ), REAL_TO_INT( bestRange ) );
+					// the gap is here rather than in the string: the string table collapses runs of spaces
+					weap.format( TheGameText->fetch( "TOOLTIP:WeaponStats" ), REAL_TO_INT( bestDamage ), REAL_TO_INT( bestRange ) );
+					stats.concat( L"   " );
 					stats.concat( weap );
 				}
 

@@ -61,6 +61,8 @@
 #include "Common/GlobalData.h"
 #include "Common/EarlyOptions.h"
 #include "Common/OptionsCatalog.h"
+#include "Common/SubsystemInterface.h"
+#include "GameClient/GameText.h"
 #include "Common/GameLOD.h"
 #include "Common/UserPreferences.h"
 #include "GameNetwork/NetworkUtil.h"
@@ -9816,6 +9818,52 @@ TEST(option_catalog_rows_are_well_formed)
 
 	/* the table is terminated as well as counted, so a walk may use either */
 	CHECK( TheOptionCatalog[ TheOptionCatalogCount ].iniKey == NULL );
+}
+
+TEST(string_file_bytes_decode_utf8_and_keep_latin1)
+{
+	/* A translation .str is UTF-8 and EA's own .str files are ASCII with the odd Latin-1 byte.  Before
+		 the decoder every byte became the character of the same number, so "Kışla" drew as "KÄ±ÅŸla".
+		 Both kinds of file go through the same function, so both halves are checked: a well-formed
+		 sequence becomes its character, and a byte that does not start one stays what it was. */
+	WideChar decoded = 0;
+
+	const unsigned char plain[] = "K";
+	CHECK_EQ( decodeStringFileCharacter( plain, &decoded ), 1 );
+	CHECK_EQ( (Int)decoded, (Int)L'K' );
+
+	const unsigned char dotlessI[] = { 0xC4, 0xB1, 0 };						// U+0131, the ı in Kışla
+	CHECK_EQ( decodeStringFileCharacter( dotlessI, &decoded ), 2 );
+	CHECK_EQ( (Int)decoded, 0x0131 );
+
+	const unsigned char euro[] = { 0xE2, 0x82, 0xAC, 0 };					// U+20AC, three bytes
+	CHECK_EQ( decodeStringFileCharacter( euro, &decoded ), 3 );
+	CHECK_EQ( (Int)decoded, 0x20AC );
+
+	const unsigned char latin1Word[] = { 0xE9, 't', 0 };					// a Latin-1 é, not a lead byte here
+	CHECK_EQ( decodeStringFileCharacter( latin1Word, &decoded ), 1 );
+	CHECK_EQ( (Int)decoded, 0x00E9 );
+
+	const unsigned char truncated[] = { 0xC4, 0 };								// a lead byte at the very end
+	CHECK_EQ( decodeStringFileCharacter( truncated, &decoded ), 1 );
+	CHECK_EQ( (Int)decoded, 0x00C4 );
+
+	const unsigned char overlong[] = { 0xE0, 0x80, 0xAF, 0 };			// '/' spelled in three bytes
+	CHECK_EQ( decodeStringFileCharacter( overlong, &decoded ), 1 );
+	CHECK_EQ( (Int)decoded, 0x00E0 );
+}
+
+TEST(text_language_row_offers_every_language)
+{
+	/* The menu builds one combo entry per value up to hi and GameText indexes its overlay table with
+		 the same number, so the row and the enum have to end in the same place. */
+	const OptionDef *language = findOptionDef( "TextLanguage" );
+	CHECK( language != NULL );
+	if( language == NULL )
+		return;
+	CHECK_EQ( language->kind, OPTION_ENUM );
+	CHECK_EQ( language->lo, (Int)TEXT_LANGUAGE_ENGLISH );
+	CHECK_EQ( language->hi, (Int)TEXT_LANGUAGE_COUNT - 1 );
 }
 
 TEST(gameplay_conveniences_are_forced_on_and_left_the_catalog)

@@ -750,6 +750,40 @@ TOOLTIP:PlayerColors
 "You, allies, enemies paints you blue, everyone on your side green and everyone shooting at you red. By team gives each alliance its own color and each member of it a shade. Your own screen only, so it changes nothing for anyone else in the game."
 END
 
+// Language - the Gameplay page's second group.  Each entry is written in its own language, so a
+// player who cannot read the current one can still find theirs.
+
+GUI:OptionsGroupLanguage
+"Language"
+END
+
+GUI:Language
+"Text Language"
+END
+
+GUI:Language0
+"English"
+END
+
+GUI:Language1
+"Türkçe"
+END
+
+TOOLTIP:Language
+"The language of menus, orders, briefings and subtitles. Voices and videos stay as installed. Takes effect the next time the game starts."
+END
+
+// The numbers the build tooltip adds under a unit's description: its build time, then its best
+// weapon's damage and range.  ControlBarPopupDescription.cpp puts the gap between the two.
+
+TOOLTIP:BuildTimeSeconds
+"\nTime %ds"
+END
+
+TOOLTIP:WeaponStats
+"Dmg %d  Range %d"
+END
+
 // Peace time - the lobby combo box, its tooltip, the corner countdown and the three things the game
 // says while the clock runs.  Tools/peacetime_layout.py selfcheck fails if any of these goes missing.
 

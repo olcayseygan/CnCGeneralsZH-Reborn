@@ -56,6 +56,7 @@ OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_BOOL_ACCESSORS( m_vsync )
 OPTION_INT_ACCESSORS( m_healthBarMode )
 OPTION_INT_ACCESSORS( m_playerColorScheme )
+OPTION_INT_ACCESSORS( m_textLanguage )
 
 //-----------------------------------------------------------------------------
 static const unsigned TheMsaaSamples[ OPTION_MSAA_LEVEL_COUNT ] = { 0, 2, 4, 8, 16 };
@@ -267,6 +268,14 @@ const OptionDef TheOptionCatalog[] =
 	{ "PlayerColors",							OPT_WND( "ComboBoxPlayerColors" ), "GUI:PlayerColors",
 		OPTION_ENUM, APPLY_LIVE, 0, PLAYER_COLOR_SCHEME_COUNT - 1,
 		get_m_playerColorScheme, set_m_playerColorScheme },
+
+	// Which language the words are in.  English is the string table the game shipped with, and every
+	// other entry is a translation laid over it, so a line the translation lacks stays English.  The
+	// table is built once while the game starts: a new language is on screen from the next launch.
+	// Purely local, like the colours above - two players in one match can read it in two languages.
+	{ "TextLanguage",							OPT_WND( "ComboBoxLanguage" ), "GUI:Language",
+		OPTION_ENUM, APPLY_RESTART, 0, TEXT_LANGUAGE_COUNT - 1,
+		get_m_textLanguage, set_m_textLanguage },
 
 	{ NULL, NULL, NULL, OPTION_BOOL, APPLY_LIVE, 0, 0, NULL, NULL }
 };

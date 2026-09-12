@@ -72,6 +72,16 @@ enum HealthBarModeType
 	HEALTH_BAR_MODE_COUNT	= 4,
 };
 
+/** The language the game's words are shown in.  English is the string table EA shipped; every other
+	* entry names a translation GameText lays over it.  Speech and video stay what the install has. */
+enum TextLanguageType
+{
+	TEXT_LANGUAGE_ENGLISH	= 0,
+	TEXT_LANGUAGE_TURKISH	= 1,
+
+	TEXT_LANGUAGE_COUNT		= 2,
+};
+
 //-------------------------------------------------------------------------------------------------
 /** Global data container class
   *	Defines all global game data used by the system
@@ -285,6 +295,7 @@ public:
 	Bool m_showObjectHealth;			///< debug display object health
 	Int m_healthBarMode;					///< HealthBarModeType: which units wear a bar at all
 	Int m_playerColorScheme;			///< PlayerColorSchemeType: whose colour the client draws (client only)
+	Int m_textLanguage;						///< TextLanguageType: the translation GameText lays over the CSF, read once at startup (client only)
 	Bool m_scriptDebug;						///< Should we attempt to load the script debugger window (.DLL)
 	Bool m_particleEdit;					///< Should we attempt to load the particle editor (.DLL)
 	Bool m_displayDebug;					///< Used to display display debug info

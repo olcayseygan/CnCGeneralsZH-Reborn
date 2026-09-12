@@ -89,8 +89,52 @@ extern GameTextInterface *TheGameText;
 extern GameTextInterface* CreateGameTextInterface( void );
 
 //----------------------------------------------------------------------------
-//           Inlining                                                       
+//           Inlining
 //----------------------------------------------------------------------------
+
+enum
+{
+	UTF8_CONTINUATION_MASK	= 0xC0,
+	UTF8_CONTINUATION				= 0x80,
+	UTF8_PAYLOAD_BITS				= 0x3F,
+	UTF8_TWO_BYTE_FIRST			= 0xC2,	///< C0 and C1 would spell ASCII the long way round
+	UTF8_TWO_BYTE_LAST			= 0xDF,
+	UTF8_THREE_BYTE_FIRST		= 0xE0,
+	UTF8_THREE_BYTE_LAST		= 0xEF,
+	UTF8_THREE_BYTE_LOWEST	= 0x800,	///< anything below fits in two bytes, so three is not UTF-8
+};
+
+/** One character of a .str file.  The file is bytes and a WideChar is not: EA's own .str files are
+	* ASCII with the odd Latin-1 byte, and a translation is UTF-8.  A well-formed two or three byte
+	* UTF-8 sequence becomes the character it spells and any other byte stays the Latin-1 character
+	* it always was.  `bytes` is NUL-terminated, and a NUL is never a continuation byte, so nothing
+	* past the string is read.  Returns how many bytes the character took. */
+inline Int decodeStringFileCharacter( const unsigned char *bytes, WideChar *out )
+{
+	const unsigned char lead = bytes[ 0 ];
+	const Bool secondContinues = ( bytes[ 1 ] & UTF8_CONTINUATION_MASK ) == UTF8_CONTINUATION;
+
+	if( lead >= UTF8_TWO_BYTE_FIRST && lead <= UTF8_TWO_BYTE_LAST && secondContinues )
+	{
+		*out = (WideChar)( ( ( lead & 0x1F ) << 6 ) | ( bytes[ 1 ] & UTF8_PAYLOAD_BITS ) );
+		return 2;
+	}
+
+	if( lead >= UTF8_THREE_BYTE_FIRST && lead <= UTF8_THREE_BYTE_LAST && secondContinues
+			&& ( bytes[ 2 ] & UTF8_CONTINUATION_MASK ) == UTF8_CONTINUATION )
+	{
+		const WideChar character = (WideChar)( ( ( lead & 0x0F ) << 12 )
+			| ( ( bytes[ 1 ] & UTF8_PAYLOAD_BITS ) << 6 ) | ( bytes[ 2 ] & UTF8_PAYLOAD_BITS ) );
+		if( character >= UTF8_THREE_BYTE_LOWEST )
+		{
+			*out = character;
+			return 3;
+		}
+	}
+
+	*out = lead;
+	return 1;
+}
 
 
 #endif // __GAMECLIENT_GAMETEXT_H_

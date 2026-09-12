@@ -632,6 +632,12 @@ add_custom_command(TARGET generals POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           ${CMAKE_CURRENT_SOURCE_DIR}/Data/Patch.str
           ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Data/
+  # The translations the Language option lays over the English strings, one directory per
+  # language.  Strings are not in the multiplayer INI checksum: two players can read one match in
+  # two languages.
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${CMAKE_CURRENT_SOURCE_DIR}/Data/Turkish
+          ${CMAKE_CURRENT_SOURCE_DIR}/../Run/Data/Turkish
   # The startup splash.  WinMain loads it from a loose file next to the exe, so
   # the fork's own artwork is a tracked master here rather than a hand-made file
   # in gitignored Run/.
@@ -805,6 +811,13 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME lobbyroom_selfcheck
            COMMAND ${Python3_EXECUTABLE}
                    ${CMAKE_CURRENT_SOURCE_DIR}/Tools/lobbyroom_layout.py selfcheck)
+
+  # A translation is a .str of thousands of lines, and one printf directive lost or reordered in any
+  # of them reads the wrong argument the moment that line is formatted.  The check parses the tracked
+  # Turkish master the way GameText.cpp does, and against Run/EnglishZH.big when it is there.
+  add_test(NAME gametext_selfcheck
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_CURRENT_SOURCE_DIR}/Tools/gametext.py selfcheck)
 endif()
 
 if(RELEASE_DEBUG_LOGGING)

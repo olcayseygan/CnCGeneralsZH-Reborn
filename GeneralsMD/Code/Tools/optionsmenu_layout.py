@@ -131,6 +131,8 @@ NEW_CONTROLS = [
     (COMBO,  "ComboBoxHealthBars",     None),
     (LABEL,  "LabelPlayerColors",      "GUI:PlayerColors"),
     (COMBO,  "ComboBoxPlayerColors",   None),
+    (LABEL,  "LabelLanguage",          "GUI:Language"),
+    (COMBO,  "ComboBoxLanguage",       None),
 ]
 
 # A slider on its own says nothing about where it stands, so each one has a readout beside it that
@@ -217,6 +219,8 @@ GROUP_LAYOUT = [
     ("PageGameplay", 0, "GUI:OptionsGroupBattlefield", [
         setting("LabelHealthBars", "ComboBoxHealthBars"),
         setting("LabelPlayerColors", "ComboBoxPlayerColors")]),
+    ("PageGameplay", 1, "GUI:OptionsGroupLanguage", [
+        setting("LabelLanguage", "ComboBoxLanguage")]),
 
     ("PageNetwork",  0, "GUI:OptionsGroupAddresses", [
         setting("StaticTextOnlineIpAddresses", "ComboBoxOnlineIP"),
