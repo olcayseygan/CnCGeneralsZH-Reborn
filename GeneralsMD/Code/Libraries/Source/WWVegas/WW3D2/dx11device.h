@@ -112,6 +112,8 @@ private:
 	DX11DeviceClass & operator=(const DX11DeviceClass &);
 
 	bool Create_Device(bool with_swap_chain, HWND window, unsigned width, unsigned height);
+	HRESULT Create_Device_Guarded(bool with_swap_chain, D3D_DRIVER_TYPE driver_type, UINT flags,
+		const DXGI_SWAP_CHAIN_DESC * swap_chain);
 	bool Create_Views();
 	void Release_Views();
 

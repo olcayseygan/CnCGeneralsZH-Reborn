@@ -109,20 +109,8 @@ bool DX11DeviceClass::Create_Device(bool with_swap_chain, HWND window, unsigned 
 	for (unsigned index = 0; index < driver_type_count; ++index) {
 		for (unsigned flag_index = flag_start; flag_index < flag_choice_count; ++flag_index) {
 			const UINT flags = flag_choices[flag_index];
-			HRESULT result;
-			if (with_swap_chain) {
-				result = D3D11CreateDeviceAndSwapChain(NULL, driver_types[index], NULL, flags,
-					REQUESTED_FEATURE_LEVELS,
-					sizeof(REQUESTED_FEATURE_LEVELS)/sizeof(D3D_FEATURE_LEVEL),
-					D3D11_SDK_VERSION, &swap_chain, &SwapChain, &Device, &FeatureLevel, &Context);
-			}
-			else {
-				result = D3D11CreateDevice(NULL, driver_types[index], NULL, flags,
-					REQUESTED_FEATURE_LEVELS,
-					sizeof(REQUESTED_FEATURE_LEVELS)/sizeof(D3D_FEATURE_LEVEL),
-					D3D11_SDK_VERSION, &Device, &FeatureLevel, &Context);
-			}
-
+			const HRESULT result = Create_Device_Guarded(with_swap_chain, driver_types[index], flags,
+				&swap_chain);
 			if (FAILED(result)) {
 				continue;
 			}
@@ -144,6 +132,30 @@ bool DX11DeviceClass::Create_Device(bool with_swap_chain, HWND window, unsigned 
 
 	Release();
 	return false;
+}
+
+// An overlay or a wrapper dxgi.dll that faults inside the create used to take the game down during
+// initialisation.  A fault here is a refusal instead, and the Direct3D 9 device presents.
+HRESULT DX11DeviceClass::Create_Device_Guarded(bool with_swap_chain, D3D_DRIVER_TYPE driver_type,
+	UINT flags, const DXGI_SWAP_CHAIN_DESC * swap_chain)
+{
+	const UINT feature_level_count = sizeof(REQUESTED_FEATURE_LEVELS)/sizeof(D3D_FEATURE_LEVEL);
+	__try {
+		if (with_swap_chain) {
+			return D3D11CreateDeviceAndSwapChain(NULL, driver_type, NULL, flags,
+				REQUESTED_FEATURE_LEVELS, feature_level_count, D3D11_SDK_VERSION, swap_chain,
+				&SwapChain, &Device, &FeatureLevel, &Context);
+		}
+		return D3D11CreateDevice(NULL, driver_type, NULL, flags, REQUESTED_FEATURE_LEVELS,
+			feature_level_count, D3D11_SDK_VERSION, &Device, &FeatureLevel, &Context);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		// Whatever the create wrote before it faulted is not an object that is safe to Release.
+		SwapChain = NULL;
+		Device = NULL;
+		Context = NULL;
+		return DXGI_ERROR_DRIVER_INTERNAL_ERROR;
+	}
 }
 
 bool DX11DeviceClass::Create_Views()
